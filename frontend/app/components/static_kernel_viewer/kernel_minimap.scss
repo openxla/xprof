@@ -392,6 +392,10 @@
     background: color-mix(in srgb, var(--minimap-lens, #222) 9%, transparent);
   }
 
+  &.over-marker {
+    cursor: pointer;
+  }
+
   &.dragging {
     cursor: grabbing;
     background: color-mix(in srgb, var(--minimap-lens, #222) 13%, transparent);

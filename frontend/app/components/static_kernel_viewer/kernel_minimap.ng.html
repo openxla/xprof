@@ -177,6 +177,7 @@
       <div
         class="minimap-lens"
         [class.dragging]="isDragging && dragMode === 'pan'"
+        [class.over-marker]="!isDragging && !!hoverInfo?.markerKey"
         [class.at-start]="s.lensLeftPercent <= 0.5"
         [class.at-end]="s.lensLeftPercent + s.lensWidthPercent >= 99.5"
         [style.left.%]="s.lensLeftPercent"

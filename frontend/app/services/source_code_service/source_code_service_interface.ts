@@ -97,7 +97,7 @@ export interface SourceCodeServiceInterface {
       sessionId: string,
       fileName: string,
       lineNumber: number,
-      pathPrefix: string,
+      pathPrefix?: string,
       ): Observable<string>;
 
   /**

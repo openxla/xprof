@@ -1762,7 +1762,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async onInitializeWasm(): Promise<void> {
-    if (this.isInitializing || this.traceViewerModule !== null) {
+    if (
+      this.isDestroyed ||
+      this.isInitializing ||
+      this.traceViewerModule !== null
+    ) {
       return;
     }
     this.isInitializing = true;
@@ -1818,7 +1822,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
    * list.
    */
   async loadKernelList(): Promise<void> {
-    if (!this.sessionId) {
+    if (this.isDestroyed || !this.sessionId) {
       return;
     }
     const requestId = ++this.listRequestId;
@@ -1830,15 +1834,20 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     let failed = false;
     try {
       const response = await this.cache.loadList(this.listKey, {
-        fetchList: () =>
-          firstValueFrom(
+        fetchList: () => {
+          if (this.isDestroyed || requestId !== this.listRequestId) {
+            return Promise.reject(new DOMException('Aborted', 'AbortError'));
+          }
+          return firstValueFrom(
             this.dataService.getData(
               this.sessionId,
               this.tool,
               this.host,
               new Map<string, string>([['request_type', 'list']]),
+              {ignoreError: true, updateSearchParams: false},
             ),
-          ),
+          );
+        },
         // The backend lists no kernels when it cannot read the profile, which
         // could be temporary.
         isCacheable: hasKernels,
@@ -1846,6 +1855,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       groups = buildKernelGroups(response);
       runEnvironment = parseRunEnvironment(response);
     } catch (error) {
+      if (this.isDestroyed || requestId !== this.listRequestId) {
+        return;
+      }
       console.error('Failed to fetch kernel list:', error);
       failed = true;
     }
@@ -2571,6 +2583,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       params['sessionId'] ??
       getParam('run') ??
       getParam('sessionId') ??
+      getParam('session_id') ??
       this.sessionId;
     this.host = getParam('host') ?? DEFAULT_HOST;
     const listKey = `${this.sessionId}|${this.host}`;
@@ -3434,7 +3447,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
           this.lastReplacedSearch !== newSearch)
       ) {
         this.lastReplacedSearch = newSearch;
-        this.location.replaceState(url.pathname, decodeURIComponent(newSearch));
+        this.location.replaceState(url.pathname, newSearch);
       }
     }
   }

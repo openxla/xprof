@@ -1299,6 +1299,8 @@ export class KernelMinimap implements AfterViewInit, OnDestroy {
   private cachedTicks: readonly MinimapRulerTick[] = [];
 
   private dragStartClientX = 0;
+  private dragStartClientY = 0;
+  private dragMaxDistancePx = 0;
   private dragTrackLeftPx = 0;
   private dragTrackWidthPx = 1;
   private dragInitialStartUs = 0;
@@ -1662,6 +1664,8 @@ export class KernelMinimap implements AfterViewInit, OnDestroy {
     this.dragTrackLeftPx = rect?.left ?? 0;
     this.dragTrackWidthPx = Math.max(1, rect?.width ?? 1);
     this.dragStartClientX = event.clientX;
+    this.dragStartClientY = event.clientY;
+    this.dragMaxDistancePx = 0;
     this.dragInitialStartUs = this.visibleStartUs;
     this.dragInitialEndUs = this.visibleEndUs;
     this.isDragging = true;
@@ -1684,10 +1688,18 @@ export class KernelMinimap implements AfterViewInit, OnDestroy {
       return;
     }
     const deltaPx = event.clientX - this.dragStartClientX;
+    const deltaYPx = event.clientY - this.dragStartClientY;
+    this.dragMaxDistancePx = Math.max(
+      this.dragMaxDistancePx,
+      Math.hypot(deltaPx, deltaYPx),
+    );
     const deltaBundles = (deltaPx / this.dragTrackWidthPx) * totalDuration;
     const minSpan = Math.min(this.getMinVisibleSpan(), totalDuration);
 
     if (this.dragMode === 'pan') {
+      if (this.dragMaxDistancePx < BRUSH_DRAG_THRESHOLD_PX) {
+        return;
+      }
       const span = this.dragInitialEndUs - this.dragInitialStartUs;
       const clampedShift = clamp(
         deltaBundles,
@@ -1744,10 +1756,30 @@ export class KernelMinimap implements AfterViewInit, OnDestroy {
     }
     const mode = this.dragMode;
     const deltaPx = Math.abs(event.clientX - this.dragStartClientX);
+    const totalDistancePx = Math.max(
+      this.dragMaxDistancePx,
+      Math.hypot(
+        event.clientX - this.dragStartClientX,
+        event.clientY - this.dragStartClientY,
+      ),
+    );
     this.stopDragging();
 
     this.ngZone.run(() => {
-      if (mode === 'scrub' && deltaPx < BRUSH_DRAG_THRESHOLD_PX) {
+      if (mode === 'pan' && totalDistancePx < BRUSH_DRAG_THRESHOLD_PX) {
+        const rect = this.trackElement?.nativeElement.getBoundingClientRect();
+        if (rect && rect.width > 0) {
+          const leftPercent =
+            clamp((event.clientX - rect.left) / rect.width, 0, 1) * 100;
+          const scopeHit = this.findScopeMarker(
+            leftPercent,
+            event.clientY - rect.top,
+          );
+          if (scopeHit) {
+            this.selectEvent.emit(scopeHit.marker.eventIndex);
+          }
+        }
+      } else if (mode === 'scrub' && deltaPx < BRUSH_DRAG_THRESHOLD_PX) {
         // Clicking outside the lens centers the current viewport window at the
         // clicked bundle.
         const clickedBundle = this.clientXToBundle(event.clientX);
@@ -1772,6 +1804,7 @@ export class KernelMinimap implements AfterViewInit, OnDestroy {
   private stopDragging(): void {
     this.isDragging = false;
     this.dragMode = undefined;
+    this.dragMaxDistancePx = 0;
     window.removeEventListener('mousemove', this.windowMouseMoveListener);
     window.removeEventListener('mouseup', this.windowMouseUpListener);
   }
@@ -1847,19 +1880,16 @@ export class KernelMinimap implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Resolves the scope marker or activity lane under the pointer, using the
-   * same geometry the template renders so it also works under the lens.
+   * Resolves the scope marker under `(leftPercent, offsetY)`, using the same
+   * geometry the template renders so hits work even when covered by the lens.
    */
-  private findHoverTarget(
+  private findScopeMarker(
     leftPercent: number,
     offsetY: number,
-  ): Pick<
-    MinimapHoverInfo,
-    'trackName' | 'target' | 'targetDetail' | 'markerKey'
-  > {
+  ): {section: MinimapScopeSection; marker: MinimapRegionMarker} | undefined {
     const state = this.state;
     if (!state) {
-      return {};
+      return undefined;
     }
     for (const section of state.scopeSections) {
       if (
@@ -1893,9 +1923,29 @@ export class KernelMinimap implements AfterViewInit, OnDestroy {
           bestDistance = distance;
         }
       }
-      if (!best) {
-        return {};
-      }
+      return best ? {section, marker: best} : undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolves the scope marker or activity lane under the pointer, using the
+   * same geometry the template renders so it also works under the lens.
+   */
+  private findHoverTarget(
+    leftPercent: number,
+    offsetY: number,
+  ): Pick<
+    MinimapHoverInfo,
+    'trackName' | 'target' | 'targetDetail' | 'markerKey'
+  > {
+    const state = this.state;
+    if (!state) {
+      return {};
+    }
+    const scopeHit = this.findScopeMarker(leftPercent, offsetY);
+    if (scopeHit) {
+      const {section, marker: best} = scopeHit;
       const unitSuffix = state.isTimeAxis ? '' : ' bundles';
       return {
         trackName: section.trackName,

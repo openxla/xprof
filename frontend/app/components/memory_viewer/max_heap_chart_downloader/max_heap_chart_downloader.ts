@@ -30,7 +30,7 @@ export class MaxHeapChartDownloader {
 
   private getLogicalBufferSpan(index?: number): [number, number] {
     const bufferSpan: [number, number] = [0, 0];
-    if (index) {
+    if (index != null) {
       const span = this.logicalBufferSpans[index];
       if (span) {
         bufferSpan[0] = span[0];

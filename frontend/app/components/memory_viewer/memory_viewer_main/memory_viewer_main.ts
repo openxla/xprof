@@ -168,7 +168,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   private getLogicalBufferSpan(index?: number): BufferSpan {
     const bufferSpan: BufferSpan = {alloc: 0, free: 0};
     if (
-      index &&
+      index != null &&
       this.usage &&
       this.usage.logicalBufferSpans &&
       this.heapSizes
@@ -211,6 +211,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     if (selectedIndexBySize === -1) {
       this.dispatchActiveHeapObject();
     } else {
+      this.selectedIndexBySize = selectedIndexBySize;
       this.dispatchActiveHeapObject(
         this.usage.maxHeapBySize[selectedIndexBySize],
       );
@@ -227,6 +228,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     if (selectedIndexByPaddingSize === -1) {
       this.dispatchActiveHeapObject();
     } else {
+      this.selectedIndexByPaddingSize = selectedIndexByPaddingSize;
       this.dispatchActiveHeapObject(
         this.maxHeapByPaddingSize[selectedIndexByPaddingSize],
       );
@@ -268,13 +270,19 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       const heapObject: HeapObject = {
         logicalBufferId: block.logicalBufferId,
         instructionName: block.instructionName || block.label,
+        tfOpName: block.tfOpName,
+        groupName: block.category,
         shape: block.shapeString,
         sizeMiB: block.size / (1024 * 1024),
         unpaddedSizeMiB: block.unpaddedSize
           ? block.unpaddedSize / (1024 * 1024)
           : 0,
         color: 0,
+        sourceInfo: block.sourceInfo,
       };
+      this.selectedIndex = -1;
+      this.selectedIndexBySize = -1;
+      this.selectedIndexByPaddingSize = -1;
       this.dispatchActiveHeapObject(heapObject);
     }
   }
@@ -283,6 +291,31 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
   setSelectedProgramOrderStep(step: number | null) {
     this.selectedProgramOrderStep = step;
+  }
+
+  private resetState() {
+    this.peakInfo = undefined;
+    this.selectedBlock = null;
+    this.selectedProgramOrderStep = null;
+    this.dispatchActiveHeapObject();
+    this.totalBufferAllocationMiB = '';
+    this.peakHeapSizeMiB = '';
+    this.paddingOverhead = '';
+    this.totalArgumentSizeBytes = '';
+    this.hloTempSizeWithoutFragmentationMiB = '';
+    this.hloTempSizeWithFragmentationMiB = '';
+    this.hloTempFragmentation = '';
+    this.maxScopedVmemAllocationMiB = '';
+    this.maxScopedVmemInstructionName = '';
+    this.timelineUrl = '';
+    this.heapSizes = [];
+    this.unpaddedHeapSizes = [];
+    this.hloInstructionNames = [];
+    this.maxHeap = [];
+    this.maxHeapBySize = [];
+    this.maxHeapByPaddingSize = [];
+    this.hasTrace = false;
+    this.diagnostics = {info: [], warnings: [], errors: []};
   }
 
   update() {
@@ -299,6 +332,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       runPath,
     );
     if (this.usage.diagnostics.errors.length > 0) {
+      this.resetState();
       return;
     }
 

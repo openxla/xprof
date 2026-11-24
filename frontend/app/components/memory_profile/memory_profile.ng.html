@@ -28,7 +28,7 @@
           </td>
           <td class="item-value">
             <mat-form-field appearance="outline">
-              <mat-select [(value)]="selectedMemoryId">
+              <mat-select [(value)]="selectedMemoryId" (selectionChange)="updateIncompleteSteps()">
                 <mat-option *ngFor="let id of memoryIds" [value]="id">
                   {{ id }}
                 </mat-option>

@@ -108,11 +108,16 @@ export class ProgramOrderChart implements OnChanges, OnInit {
       return;
     }
 
-    const dataTable = google.visualization.arrayToDataTable([
-      ['Schedule', 'Size'],
-      [this.activeInfo.alloc, this.activeInfo.size],
-      [this.activeInfo.free, this.activeInfo.size],
-    ]);
+    const data: SimpleDataTable = {
+      cols: [
+        {type: 'number', label: 'Schedule'},
+        {type: 'number', label: 'Size'},
+      ],
+      rows: [
+        {c: [{v: this.activeInfo.alloc}, {v: this.activeInfo.size}]},
+        {c: [{v: this.activeInfo.free}, {v: this.activeInfo.size}]},
+      ],
+    };
 
     const options: google.visualization.AreaChartOptions = {
       areaOpacity: 0.7,
@@ -145,7 +150,7 @@ export class ProgramOrderChart implements OnChanges, OnInit {
 
     this.activeChartDataInfo = {
       ...this.activeChartDataInfo,
-      data: JSON.parse(dataTable.toJSON()) as SimpleDataTable,
+      data,
       options,
     };
   }
@@ -156,32 +161,43 @@ export class ProgramOrderChart implements OnChanges, OnInit {
       return;
     }
 
-    const data = [];
+    const rows: google.visualization.DataObjectRow[] = [];
     this.maxOrder = this.heapSizes.length - 1;
     this.maxSize = 0;
     const hasUnpadded = Boolean(this.unpaddedHeapSizes?.length);
     for (let i = 0; i < this.heapSizes.length; i++) {
       const heapSize = this.heapSizes[i] ?? 0;
-      const unpaddedHeapSize =
-          hasUnpadded ? (this.unpaddedHeapSizes[i] ?? null) : null;
+      const unpaddedHeapSize = hasUnpadded
+        ? (this.unpaddedHeapSizes[i] ?? null)
+        : null;
       this.maxSize = Math.max(this.maxSize, heapSize, unpaddedHeapSize ?? 0);
       const hloName = this.hloInstructionNames?.[i] ?? '';
       const unpaddedText =
-          unpaddedHeapSize !== null ? unpaddedHeapSize.toFixed(1) : 'NA';
+        unpaddedHeapSize !== null ? unpaddedHeapSize.toFixed(1) : 'NA';
       const tooltip = `<div>
         Program Order: ${i}<br>Size: ${heapSize.toFixed(1)}<br>Unpadded Size: ${unpaddedText}<br>HLO instruction: ${hloName}
         </div>`;
-      data.push([i, heapSize, tooltip, unpaddedHeapSize, tooltip]);
+      // Google Charts JSON uses null for missing cells; gviz typings omit `| null`.
+      const unpaddedCell =
+        unpaddedHeapSize !== null
+          ? {v: unpaddedHeapSize}
+          : (null as unknown as google.visualization.DataObjectCell);
+      rows.push({
+        c: [{v: i}, {v: heapSize}, {v: tooltip}, unpaddedCell, {v: tooltip}],
+      });
     }
     this.maxSize = Math.round(this.maxSize * 1.1);
 
-    const dataTable = new google.visualization.DataTable();
-    dataTable.addColumn('number', 'Schedule');
-    dataTable.addColumn('number', 'Size');
-    dataTable.addColumn({type: 'string', role: 'tooltip', p: {html: true}});
-    dataTable.addColumn('number', 'Unpadded Size');
-    dataTable.addColumn({type: 'string', role: 'tooltip', p: {html: true}});
-    dataTable.addRows(data);
+    const data: SimpleDataTable = {
+      cols: [
+        {type: 'number', label: 'Schedule'},
+        {type: 'number', label: 'Size'},
+        {type: 'string', p: {'role': 'tooltip', 'html': true}},
+        {type: 'number', label: 'Unpadded Size'},
+        {type: 'string', p: {'role': 'tooltip', 'html': true}},
+      ],
+      rows,
+    };
 
     const options: google.visualization.LineChartOptions = {
       backgroundColor: 'transparent',
@@ -210,7 +226,7 @@ export class ProgramOrderChart implements OnChanges, OnInit {
 
     this.heapChartDataInfo = {
       ...this.heapChartDataInfo,
-      data: JSON.parse(dataTable.toJSON()) as SimpleDataTable,
+      data,
       options,
     };
   }
@@ -225,23 +241,23 @@ export class ProgramOrderChart implements OnChanges, OnInit {
     }
 
     const peakWidth = Math.max(Math.round(this.maxOrder / 50), 1);
-    const peakAlloc =
-        Math.max(Math.round(this.peakInfo.alloc - peakWidth / 2), 0);
+    const peakAlloc = Math.max(
+      Math.round(this.peakInfo.alloc - peakWidth / 2),
+      0,
+    );
     const peakFree = Math.min(peakAlloc + peakWidth, this.maxOrder);
-    const dataTable = new google.visualization.DataTable();
-    dataTable.addColumn('number', 'Schedule');
-    dataTable.addColumn('number', 'Allocated Size');
-    dataTable.addColumn({type: 'string', role: 'tooltip'});
-    dataTable.addRows([
-      [
-        peakAlloc, this.peakInfo.size,
-        `peak memory allocation: ${this.peakInfo.size}`
+    const peakTooltip = `peak memory allocation: ${this.peakInfo.size}`;
+    const data: SimpleDataTable = {
+      cols: [
+        {type: 'number', label: 'Schedule'},
+        {type: 'number', label: 'Allocated Size'},
+        {type: 'string', p: {'role': 'tooltip'}},
       ],
-      [
-        peakFree, this.peakInfo.size,
-        `peak memory allocation: ${this.peakInfo.size}`
+      rows: [
+        {c: [{v: peakAlloc}, {v: this.peakInfo.size}, {v: peakTooltip}]},
+        {c: [{v: peakFree}, {v: this.peakInfo.size}, {v: peakTooltip}]},
       ],
-    ]);
+    };
 
     const options: google.visualization.AreaChartOptions = {
       backgroundColor: 'transparent',
@@ -273,7 +289,7 @@ export class ProgramOrderChart implements OnChanges, OnInit {
 
     this.peakChartDataInfo = {
       ...this.peakChartDataInfo,
-      data: JSON.parse(dataTable.toJSON()) as SimpleDataTable,
+      data,
       options,
     };
   }

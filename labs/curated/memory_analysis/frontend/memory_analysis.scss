@@ -455,13 +455,13 @@ mat-card.visualization-card {
   }
 }
 
-tr.buffer-row {
+tr.mat-mdc-row {
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
-// Specificity chain overrides mat-row hover background without using !important (Issue 7)
-tr.mat-mdc-row.buffer-row.highlighted {
+// Specificity chain overrides mat-row hover background without using !important
+tr.mat-mdc-row.hovered {
   background-color: #e8f0fe;
 }
 

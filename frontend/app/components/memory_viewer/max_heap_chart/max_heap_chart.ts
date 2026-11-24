@@ -115,6 +115,8 @@ export class MaxHeapChart implements OnChanges, OnInit {
     if (!this.chart) {
       return;
     }
-    this.chart.setSelection([{row: 0, column: this.selectedIndex + 1}]);
+    this.chart.setSelection(
+      this.selectedIndex < 0 ? [] : [{row: 0, column: this.selectedIndex + 1}],
+    );
   }
 }

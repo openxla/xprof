@@ -79,6 +79,7 @@ function insertBuffer(options: {
     };
     if (isLast) {
       newChild.buffer = buffer;
+      newChild.buffers = [buffer];
       newChild.totalValue = buffer.sizeMib;
       newChild.paddingValue = buffer.paddingMib;
       newChild.value = metric === 'total' ? buffer.sizeMib : buffer.paddingMib;
@@ -98,6 +99,12 @@ function insertBuffer(options: {
 
   if (isLast) {
     if (existingChild.isLeaf) {
+      if (!existingChild.buffers) {
+        existingChild.buffers = existingChild.buffer
+          ? [existingChild.buffer]
+          : [];
+      }
+      existingChild.buffers.push(buffer);
       existingChild.totalValue += buffer.sizeMib;
       existingChild.paddingValue += buffer.paddingMib;
       existingChild.value +=
@@ -108,9 +115,10 @@ function insertBuffer(options: {
   } else {
     if (existingChild.isLeaf) {
       existingChild.isLeaf = false;
-      if (existingChild.buffer) {
+      if (existingChild.buffer || existingChild.buffers?.length) {
         splitLeafToSelf({parent: existingChild});
         existingChild.buffer = undefined;
+        existingChild.buffers = undefined;
       }
     }
     insertBuffer({
@@ -127,13 +135,19 @@ function splitLeafToSelf(options: {readonly parent: TreeNode}): void {
   const {parent} = options;
   const selfName = `${parent.name} [self]`;
   const selfPath = `${parent.path}/${selfName}`;
+  const selfBuffers = parent.buffers
+    ? [...parent.buffers]
+    : parent.buffer
+      ? [parent.buffer]
+      : [];
   const selfNode: TreeNode = {
     name: selfName,
     value: parent.value,
     totalValue: parent.totalValue,
     paddingValue: parent.paddingValue,
     children: [],
-    buffer: parent.buffer,
+    buffer: parent.buffer ?? selfBuffers[0],
+    buffers: selfBuffers,
     path: selfPath,
     isLeaf: true,
     depth: parent.depth + 1,
@@ -156,6 +170,10 @@ export function insertSelfNode(options: {
     (childNode) => childNode.name === selfName,
   );
   if (selfNode) {
+    if (!selfNode.buffers) {
+      selfNode.buffers = selfNode.buffer ? [selfNode.buffer] : [];
+    }
+    selfNode.buffers.push(buffer);
     selfNode.totalValue += buffer.sizeMib;
     selfNode.paddingValue += buffer.paddingMib;
     selfNode.value += metric === 'total' ? buffer.sizeMib : buffer.paddingMib;
@@ -167,6 +185,7 @@ export function insertSelfNode(options: {
       paddingValue: buffer.paddingMib,
       children: [],
       buffer,
+      buffers: [buffer],
       path: selfPath,
       isLeaf: true,
       depth: parent.depth + 1,

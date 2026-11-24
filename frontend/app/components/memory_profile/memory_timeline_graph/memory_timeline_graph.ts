@@ -24,14 +24,13 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   title = 'Memory Timeline Graph';
   height = 465;
   width = 0;
-  chart: google.visualization.AreaChart|null = null;
+  chart: google.visualization.AreaChart | null = null;
   minHloStartTimeMs = 0;
   maxHloEndTimeMs = 0;
   allHloModules: HloModule[] = [];
   hloModules: HloModule[] = [];
   timeFilter = '';
-  selectedHloModule: HloModule|null = null;
-  selectedRowIndex = -1;
+  selectedHloModule: HloModule | null = null;
   readonly picoToMilli = picoToMilli;
   sortByStartTimeAscending = true;
   sortByIdAscending = true;
@@ -44,18 +43,18 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     this.allHloModules = this.memoryProfileProto?.hloModules || [];
     if (this.allHloModules.length > 0) {
       this.minHloStartTimeMs = Math.min(
-          ...this.allHloModules.map((m) => this.picoToMilli(m.startTimePs)),
+        ...this.allHloModules.map((m) => this.picoToMilli(m.startTimePs)),
       );
       this.maxHloEndTimeMs = Math.max(
-          ...this.allHloModules.map((m) => this.picoToMilli(m.endTimePs)),
+        ...this.allHloModules.map((m) => this.picoToMilli(m.endTimePs)),
       );
     } else {
       this.minHloStartTimeMs = 0;
       this.maxHloEndTimeMs = 0;
     }
     this.hloModules = [...this.allHloModules];
+    this.timeFilter = '';
     this.selectedHloModule = null;
-    this.selectedRowIndex = -1;
     this.sortByStartTimeAscending = true;
     this.sortByIdAscending = true;
     setTimeout(() => {
@@ -65,10 +64,14 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   }
 
   applyFilter() {
-    const filterValue = Number(this.timeFilter);
-    if (this.timeFilter === '' || isNaN(filterValue) ||
-        (filterValue < this.minHloStartTimeMs) ||
-        (filterValue > this.maxHloEndTimeMs)) {
+    const trimmedFilter = this.timeFilter.trim();
+    const filterValue = Number(trimmedFilter);
+    if (
+      trimmedFilter === '' ||
+      isNaN(filterValue) ||
+      filterValue < this.minHloStartTimeMs ||
+      filterValue > this.maxHloEndTimeMs
+    ) {
       this.hloModules = [...this.allHloModules];
     } else {
       this.hloModules = this.allHloModules.filter((module) => {
@@ -80,6 +83,13 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     this.sortByIdAscending = true;
     this.sortByStartTimeAscending = false;
     this.sortHloModulesByStartTime();
+    if (
+      this.selectedHloModule &&
+      !this.hloModules.includes(this.selectedHloModule)
+    ) {
+      this.selectedHloModule = null;
+      this.drawChart();
+    }
   }
 
   @HostListener('window:resize')
@@ -87,14 +97,8 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     this.drawChart();
   }
 
-  selectHloModule(module: HloModule, index: number) {
-    if (index === this.selectedRowIndex) {
-      this.selectedHloModule = null;
-      this.selectedRowIndex = -1;
-    } else {
-      this.selectedHloModule = module;
-      this.selectedRowIndex = index;
-    }
+  selectHloModule(module: HloModule) {
+    this.selectedHloModule = this.selectedHloModule === module ? null : module;
     this.drawChart();
   }
 

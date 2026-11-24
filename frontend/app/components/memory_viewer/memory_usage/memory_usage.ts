@@ -7,6 +7,43 @@ interface MemoryUsageBytes {
   unpadded: number;
 }
 
+const PLUGIN_PATH_PREFIX = '/data/plugin/profile';
+
+/**
+ * Returns the parent window origin when accessible, falling back to the
+ * current window origin inside cross-origin or sandboxed iframes.
+ */
+function getSafeOrigin(): string {
+  try {
+    const parentOrigin = window.parent?.location?.origin;
+    if (parentOrigin && parentOrigin !== 'null') {
+      return parentOrigin;
+    }
+  } catch {
+    // Cross-origin or sandboxed iframe blocks reading window.parent.location.
+  }
+  return window.location?.origin ?? '';
+}
+
+/**
+ * Derives any reverse-proxy path prefix preceding `/data/plugin/profile`.
+ */
+function getPathPrefix(): string {
+  const currentPathname = window.location?.pathname ?? '';
+  if (currentPathname.includes(PLUGIN_PATH_PREFIX)) {
+    return currentPathname.split(PLUGIN_PATH_PREFIX)[0];
+  }
+  try {
+    const parentPathname = window.parent?.location?.pathname ?? '';
+    if (parentPathname.includes(PLUGIN_PATH_PREFIX)) {
+      return parentPathname.split(PLUGIN_PATH_PREFIX)[0];
+    }
+  } catch {
+    // Cross-origin or sandboxed iframe blocks reading window.parent.location.
+  }
+  return '';
+}
+
 /**
  * Provides calculation of memory usage from xla buffer assignment.
  * @final
@@ -125,9 +162,7 @@ export class MemoryUsage {
         params.set('run_path', runPath);
       }
 
-      this.timelineUrl =
-          `${window.parent.location.origin}/data/plugin/profile/data?${
-              params.toString()}`;
+      this.timelineUrl = `${getSafeOrigin()}${getPathPrefix()}${PLUGIN_PATH_PREFIX}/data?${params.toString()}`;
     }
     this.totalBufferAllocationBytes =
         (preprocess.totalBufferAllocationMib || 0) * 1024 * 1024;
@@ -172,7 +207,7 @@ export class MemoryUsage {
         color: this.nColor++,
         groupName: heapObject.groupName,
         opcode: heapObject.opCode,
-        logicalBufferId: heapObject.logicalBufferId,
+        logicalBufferId: heapObject.logicalBufferId ?? 0,
         sourceInfo: heapObject.sourceInfo,
       });
     }

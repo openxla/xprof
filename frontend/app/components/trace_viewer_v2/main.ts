@@ -246,6 +246,21 @@ function dispatchLoadingStatus(
   );
 }
 
+/**
+ * Dispatches a loading status event and returns whether the load is still
+ * active afterward, since synchronous status listeners may cancel or reset it.
+ */
+function dispatchStatusAndCheckActive(
+  status: TraceViewerV2LoadingStatus,
+  isAbortRequested: () => boolean,
+): boolean {
+  if (isAbortRequested()) {
+    return false;
+  }
+  dispatchLoadingStatus(status);
+  return !isAbortRequested();
+}
+
 declare function loadWasmTraceViewerModule(
   options?: object,
 ): Promise<TraceViewerV2Module>;
@@ -274,8 +289,9 @@ declare global {
    */
   SetIncrementalFetchEnabled?(enabled: boolean): void;
   /**
-   * Clears all per-dataset state (data, viewport, selection, search, track
-   * metadata). Call before `loadTraceData` when switching datasets.
+   * Clears only C++ per-dataset state (data, viewport, selection, search, track
+   * metadata) without cancelling JS loader state. Internal WASM binding; call
+   * `resetDataset()` instead.
    */
   ResetDataset?(): void;
   SetCustomTraceColors?(colors: number[]): void;
@@ -401,6 +417,14 @@ declare global {
    */
   loadTraceData?(url: string, options?: LoadTraceDataOptions): Promise<void>;
   loadSearchResults?(url: string): Promise<void>;
+  /**
+   * Aborts in-flight trace loads, refetches, and search result requests,
+   * cancels active local file uploads and incremental streaming, clears cached
+   * loader state, resets C++ WASM state, and dispatches
+   * `TraceViewerV2LoadingStatus.IDLE`. No-op after `shutdownTraceViewerV2()` or
+   * once a subsequent `traceViewerV2Main()` supersedes this module.
+   */
+  resetDataset?(): void;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -536,15 +560,16 @@ let activeWasmModule: TraceViewerV2Module | null = null;
 let activeWasmIncrementalSessionId = 0;
 let activeLoadAbortController: AbortController | null = null;
 let activeRefetchAbortController: AbortController | null = null;
+let activeSearchAbortController: AbortController | null = null;
 
 /**
- * Interface for tracking event listeners registered on the window.
- * Each instance stores the event `type` and the `listener` function,
- * allowing them to be properly removed when the trace viewer is shut down.
+ * Tracks an event listener attached to a target so `shutdownTraceViewerV2` can
+ * detach it cleanly.
  */
 interface RegisteredListener {
-  type: string;
-  listener: EventListener;
+  readonly target: EventTarget;
+  readonly type: string;
+  readonly listener: EventListener;
 }
 
 const MAX_CACHED_COMPRESSED_BYTES = 512 * 1024 * 1024;
@@ -573,9 +598,17 @@ function getCanonicalTraceCacheKey(urlObj: URL): string {
 
 const registeredEventListeners: RegisteredListener[] = [];
 
+function registerEventListener(
+  target: EventTarget,
+  type: string,
+  listener: EventListener,
+): void {
+  target.addEventListener(type, listener);
+  registeredEventListeners.push({target, type, listener});
+}
+
 function registerWindowListener(type: string, listener: EventListener) {
-  window.addEventListener(type, listener);
-  registeredEventListeners.push({type, listener});
+  registerEventListener(window, type, listener);
 }
 
 /**
@@ -584,24 +617,30 @@ function registerWindowListener(type: string, listener: EventListener) {
  */
 export function shutdownTraceViewerV2() {
   ++activeWasmIncrementalSessionId;
-  activeLoadAbortController?.abort();
+  const moduleToShutdown = activeWasmModule;
+  activeWasmModule = null;
+  const loadController = activeLoadAbortController;
+  const refetchController = activeRefetchAbortController;
+  const searchController = activeSearchAbortController;
   activeLoadAbortController = null;
-  activeRefetchAbortController?.abort();
   activeRefetchAbortController = null;
+  activeSearchAbortController = null;
   clearCachedFullTrace();
-  if (activeWasmModule) {
+  for (const {target, type, listener} of registeredEventListeners) {
+    target.removeEventListener(type, listener);
+  }
+  registeredEventListeners.length = 0;
+
+  loadController?.abort();
+  refetchController?.abort();
+  searchController?.abort();
+  if (moduleToShutdown) {
     try {
-      activeWasmModule.application.instance().shutdown();
+      moduleToShutdown.application.instance().shutdown();
     } catch (e) {
       console.error('Error during WASM shutdown:', e);
     }
-    activeWasmModule = null;
   }
-
-  for (const {type, listener} of registeredEventListeners) {
-    window.removeEventListener(type, listener);
-  }
-  registeredEventListeners.length = 0;
 }
 
 /**
@@ -768,25 +807,42 @@ async function initGpuAndStartWasmApp(
   return loadAndStartWasm(canvas, device);
 }
 
+/** Handle tracking whether an in-flight local file upload has been cancelled. */
+interface FileUploadHandle {
+  readonly isCancelled: () => boolean;
+}
+
+/** Lifecycle hooks invoked around processing an uploaded trace file. */
+interface FileUploadHooks {
+  /**
+   * Runs synchronously before reading the uploaded file. Returns a handle
+   * whose `isCancelled()` becomes `true` once this upload is cancelled or
+   * superseded (e.g., during async reading or decompression).
+   */
+  readonly beginUpload?: () => FileUploadHandle;
+  /** Runs after the uploaded file has been parsed and handed to WASM. */
+  readonly onFileProcessed?: () => void;
+}
+
 /**
  * Sets up drag-and-drop and file input handlers for uploading trace files.
  *
  * @param traceviewerModule The initialized Trace Viewer v2 WASM module.
- * @param onFileProcessed Optional callback to execute when a file is
- *     successfully processed.
+ * @param hooks Optional lifecycle callbacks invoked before and after file
+ *     processing.
  */
 function setupFileInputHandler(
   traceviewerModule: TraceViewerV2Module,
-  onFileProcessed?: () => void,
+  hooks?: FileUploadHooks,
 ) {
   const fileInput = document.getElementById('fileInput') as HTMLInputElement;
   if (fileInput) {
-    fileInput.addEventListener('change', async (event) => {
+    registerEventListener(fileInput, 'change', async (event: Event) => {
       const file = (event.target as HTMLInputElement).files?.[0];
       if (!file) {
         return;
       }
-      await processUploadedFile(file, traceviewerModule, onFileProcessed);
+      await processUploadedFile(file, traceviewerModule, hooks);
     });
   }
 
@@ -814,7 +870,7 @@ function setupFileInputHandler(
     if (!file) {
       return;
     }
-    await processUploadedFile(file, traceviewerModule, onFileProcessed);
+    await processUploadedFile(file, traceviewerModule, hooks);
   };
 
   registerWindowListener('dragover', handleDragOver);
@@ -843,22 +899,17 @@ declare class DecompressionStream {
   readonly writable: WritableStream;
 }
 
-async function decompressGzip(data: Uint8Array): Promise<Uint8Array | null> {
-  try {
-    const ds = new DecompressionStream('gzip');
-    const response = new Response(data.buffer as ArrayBuffer);
-    if (!response.body) {
-      throw new Error('Failed to create response body for decompression');
-    }
-    const decompressedStream = response.body.pipeThrough(ds);
-    const decompressedArrayBuffer = await new Response(
-      decompressedStream,
-    ).arrayBuffer();
-    return new Uint8Array(decompressedArrayBuffer as ArrayBuffer);
-  } catch (error) {
-    dispatchErrorStatus('Failed to decompress gzipped file.', error);
-    return null;
+async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
+  const ds = new DecompressionStream('gzip');
+  const response = new Response(data.buffer as ArrayBuffer);
+  if (!response.body) {
+    throw new Error('Failed to create response body for decompression');
   }
+  const decompressedStream = response.body.pipeThrough(ds);
+  const decompressedArrayBuffer = await new Response(
+    decompressedStream,
+  ).arrayBuffer();
+  return new Uint8Array(decompressedArrayBuffer as ArrayBuffer);
 }
 
 function isPerfettoTrace(data: Uint8Array, fileName: string): boolean {
@@ -869,11 +920,27 @@ function isPerfettoTrace(data: Uint8Array, fileName: string): boolean {
   );
 }
 
+const TRACE_PARSING_ERROR_EVENT_NAME = 'trace_parsing_error';
+
 function processPerfettoTrace(
   data: Uint8Array,
   traceviewerModule: TraceViewerV2Module,
-) {
+): void {
   let dataPtr: number | undefined;
+  let parsingErrorMessage: string | undefined;
+  const onParsingError = (event: Event): void => {
+    const detail: unknown =
+      event instanceof CustomEvent ? event.detail : undefined;
+    const rawMessage: unknown =
+      typeof detail === 'object' && detail !== null && 'message' in detail
+        ? detail['message']
+        : undefined;
+    parsingErrorMessage =
+      typeof rawMessage === 'string' && rawMessage.length > 0
+        ? rawMessage
+        : 'Failed to parse Perfetto trace';
+  };
+  window.addEventListener(TRACE_PARSING_ERROR_EVENT_NAME, onParsingError);
   try {
     dataPtr = traceviewerModule._malloc(data.length);
     if (!dataPtr) {
@@ -887,12 +954,11 @@ function processPerfettoTrace(
       undefined,
       true,
     );
-  } catch (error) {
-    dispatchErrorStatus(
-      error instanceof Error ? error.message : String(error),
-      error,
-    );
+    if (parsingErrorMessage !== undefined) {
+      throw new Error(parsingErrorMessage);
+    }
   } finally {
+    window.removeEventListener(TRACE_PARSING_ERROR_EVENT_NAME, onParsingError);
     if (dataPtr !== undefined && dataPtr !== 0) {
       traceviewerModule._free(dataPtr);
     }
@@ -918,24 +984,16 @@ function isJsonContent(data: Uint8Array, fileName: string): boolean {
 function processJsonTrace(
   data: Uint8Array,
   traceviewerModule: TraceViewerV2Module,
-) {
-  try {
-    const decoder = new TextDecoder('utf-8');
-    const fileContent = decoder.decode(data);
-    const jsonData = JSON.parse(fileContent) as unknown;
+): void {
+  const decoder = new TextDecoder('utf-8');
+  const fileContent = decoder.decode(data);
+  const jsonData = JSON.parse(fileContent) as unknown;
 
-    if (!isTraceData(jsonData)) {
-      throw new Error('File does not contain valid trace events.');
-    }
-
-    traceviewerModule.processTraceEvents(jsonData, undefined);
-  } catch (error) {
-    dispatchErrorStatus(
-      error instanceof Error ? error.message : String(error),
-      error,
-    );
-    throw error;
+  if (!isTraceData(jsonData)) {
+    throw new Error('File does not contain valid trace events.');
   }
+
+  traceviewerModule.processTraceEvents(jsonData, undefined);
 }
 
 /**
@@ -948,35 +1006,68 @@ function processJsonTrace(
  *
  * @param file The uploaded file to process.
  * @param traceviewerModule The initialized Trace Viewer v2 WASM module.
- * @param onFileProcessed Optional callback to execute when a file is
- *     successfully processed.
+ * @param hooks Optional lifecycle callbacks invoked before and after file
+ *     processing.
  */
 async function processUploadedFile(
   file: File,
   traceviewerModule: TraceViewerV2Module,
-  onFileProcessed?: () => void,
+  hooks?: FileUploadHooks,
 ) {
+  let uploadHandle: FileUploadHandle = {isCancelled: () => false};
   try {
+    uploadHandle = hooks?.beginUpload?.() ?? uploadHandle;
+    if (uploadHandle.isCancelled()) {
+      return;
+    }
     const arrayBuffer = await file.arrayBuffer();
+    if (uploadHandle.isCancelled()) {
+      return;
+    }
     let uint8Array = new Uint8Array(arrayBuffer);
 
     if (hasGzipMagicNumber(uint8Array)) {
-      const decompressed = await decompressGzip(uint8Array);
-      if (!decompressed) {
+      let decompressed: Uint8Array;
+      try {
+        decompressed = await decompressGzip(uint8Array);
+      } catch (error) {
+        if (uploadHandle.isCancelled()) {
+          return;
+        }
+        dispatchErrorStatus('Failed to decompress gzipped file.', error);
         return;
       }
-      uint8Array = new Uint8Array(decompressed.buffer as ArrayBuffer);
+      if (uploadHandle.isCancelled()) {
+        return;
+      }
+      uint8Array = decompressed;
     }
 
     traceviewerModule.application.instance().restoreSavedTrackOrder?.();
-    if (isPerfettoTrace(uint8Array, file.name)) {
-      processPerfettoTrace(uint8Array, traceviewerModule);
-    } else {
-      processJsonTrace(uint8Array, traceviewerModule);
+    try {
+      if (isPerfettoTrace(uint8Array, file.name)) {
+        processPerfettoTrace(uint8Array, traceviewerModule);
+      } else {
+        processJsonTrace(uint8Array, traceviewerModule);
+      }
+    } catch (error) {
+      if (uploadHandle.isCancelled()) {
+        return;
+      }
+      dispatchErrorStatus(
+        error instanceof Error ? error.message : String(error),
+        error,
+      );
+      return;
     }
 
-    onFileProcessed?.();
+    if (!uploadHandle.isCancelled()) {
+      hooks?.onFileProcessed?.();
+    }
   } catch (error) {
+    if (uploadHandle.isCancelled()) {
+      return;
+    }
     dispatchErrorStatus(
       `Error processing file: ${
         error instanceof Error ? error.message : String(error)
@@ -1179,16 +1270,21 @@ function propagateBrowserTraceOptions(urlObj: URL): void {
 // (e.g., using `isTraceData`) is expected to be done by the caller.
 async function loadJsonDataInternal(
   url: string,
-  fetchData: TraceDataFetcher = fetch,
+  fetchData?: TraceDataFetcher,
+  abortSignal?: AbortSignal,
 ): Promise<unknown> {
   try {
-    const response = await fetchData(url);
+    const response = fetchData
+      ? await fetchData(url)
+      : abortSignal
+        ? await fetch(url, {signal: abortSignal})
+        : await fetch(url);
     if (!response.ok) {
       throw new Error(getFetchErrorMessage(response));
     }
     return await response.json();
   } catch (e) {
-    if (!isAbortError(e)) {
+    if (!isAbortError(e) && !abortSignal?.aborted) {
       console.error('Failed to load JSON data:', e);
     }
     throw e;
@@ -1454,8 +1550,15 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       pendingFrames.push(...cachedFullTraceFrames);
       streamFinished = true;
     } else {
-      if (isRefetch) {
-        dispatchLoadingStatus(TraceViewerV2LoadingStatus.STREAMING_DATA);
+      if (
+        isRefetch &&
+        !dispatchStatusAndCheckActive(
+          TraceViewerV2LoadingStatus.STREAMING_DATA,
+          isAborted,
+        )
+      ) {
+        cancelIncrementalIfCurrent();
+        return false;
       }
       streamPromise = streamCompressedTraceFrames({
         urlObj,
@@ -1694,8 +1797,9 @@ async function yieldToEventLoop(): Promise<void> {
 /**
  * Fetches and processes trace data (either .pb or .json) from the given URL.
  * Handles status dispatches, yielding to event loop, and latency measurement.
- * Returns `false` if the load was aborted, superseded, or failed, and `true`
- * otherwise.
+ * Returns `false` when the load is aborted or superseded (clearing
+ * `currentDataUrl`), and `true` when it finishes or settles with an
+ * invalid-data or non-abort error (preserving `currentDataUrl`).
  */
 async function fetchAndProcessTraceData({
   urlObj,
@@ -1709,6 +1813,7 @@ async function fetchAndProcessTraceData({
   fetchData,
   createStreamWorker,
   onFullTraceLoaded,
+  onBeforeTerminalStatus,
 }: {
   urlObj: URL;
   traceviewerModule: TraceViewerV2Module;
@@ -1721,9 +1826,31 @@ async function fetchAndProcessTraceData({
   fetchData?: TraceDataFetcher;
   createStreamWorker?: TraceStreamWorkerFactory;
   onFullTraceLoaded?: () => void;
+  onBeforeTerminalStatus?: (options: {
+    readonly preserveDataUrl: boolean;
+  }) => void;
 }): Promise<boolean> {
-  if (!isRefetch) {
-    dispatchLoadingStatus(TraceViewerV2LoadingStatus.LOADING_DATA);
+  const dispatchTerminalStatus = (
+    status: TraceViewerV2LoadingStatus.IDLE | TraceViewerV2LoadingStatus.ERROR,
+    {
+      preserveDataUrl,
+      statusOptions,
+    }: {
+      readonly preserveDataUrl: boolean;
+      readonly statusOptions?: Omit<LoadingStatusUpdateEventDetail, 'status'>;
+    },
+  ): void => {
+    onBeforeTerminalStatus?.({preserveDataUrl});
+    dispatchLoadingStatus(status, statusOptions);
+  };
+  if (
+    !isRefetch &&
+    !dispatchStatusAndCheckActive(
+      TraceViewerV2LoadingStatus.LOADING_DATA,
+      isAbortRequested,
+    )
+  ) {
+    return false;
   }
 
   if (isRefetch || !urlObj.searchParams.has(TRACE_VIEW_OPTION.RESOLUTION)) {
@@ -1770,12 +1897,19 @@ async function fetchAndProcessTraceData({
           onFullTraceLoaded?.();
         }
       } else {
-        if (isRefetch) {
-          dispatchLoadingStatus(TraceViewerV2LoadingStatus.STREAMING_DATA);
+        if (
+          isRefetch &&
+          !dispatchStatusAndCheckActive(
+            TraceViewerV2LoadingStatus.STREAMING_DATA,
+            isAbortRequested,
+          )
+        ) {
+          return false;
         }
         const buffer = await loadCompressedTraceDataInternal(
           urlObj.toString(),
           fetchData,
+          abortSignal,
         );
         if (isAbortRequested()) return false;
 
@@ -1811,19 +1945,34 @@ async function fetchAndProcessTraceData({
         }
       }
     } else {
-      if (isRefetch) {
-        dispatchLoadingStatus(TraceViewerV2LoadingStatus.STREAMING_DATA);
+      if (
+        isRefetch &&
+        !dispatchStatusAndCheckActive(
+          TraceViewerV2LoadingStatus.STREAMING_DATA,
+          isAbortRequested,
+        )
+      ) {
+        return false;
       }
-      const jsonData = await loadJsonDataInternal(urlObj.toString(), fetchData);
+      const jsonData = await loadJsonDataInternal(
+        urlObj.toString(),
+        fetchData,
+        abortSignal,
+      );
       if (isAbortRequested()) return false;
 
       if (!isTraceData(jsonData)) {
         console.error('File does not contain valid trace events.');
-        dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
+        dispatchTerminalStatus(TraceViewerV2LoadingStatus.IDLE, {
+          preserveDataUrl: true,
+        });
         return true;
       }
 
       maybeDispatchDetailsReceivedEvent(jsonData);
+      // Synchronous `detailsreceived` listeners may cancel or reset this load
+      // before `PROCESSING_DATA` is dispatched.
+      if (isAbortRequested()) return false;
 
       if (!isRefetch) {
         dispatchLoadingStatus(TraceViewerV2LoadingStatus.PROCESSING_DATA);
@@ -1841,6 +1990,8 @@ async function fetchAndProcessTraceData({
       traceviewerModule.processTraceEvents(jsonData, timeRange);
     }
 
+    if (isAbortRequested()) return false;
+
     performance.mark('traceProcessEnd');
     performance.measure(
       'traceProcessingTime',
@@ -1857,49 +2008,54 @@ async function fetchAndProcessTraceData({
       ? traceviewerModule.HEAPU8.length
       : 0;
 
-    dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
+    dispatchTerminalStatus(TraceViewerV2LoadingStatus.IDLE, {
+      preserveDataUrl: true,
+    });
     return true;
   } catch (e) {
     if (isAbortRequested()) {
       return false;
     }
     if (isAbortError(e)) {
-      dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
+      dispatchTerminalStatus(TraceViewerV2LoadingStatus.IDLE, {
+        preserveDataUrl: false,
+      });
       return false;
     }
     console.error(`Error ${errorContext}:`, e);
     const errorMessage = e instanceof Error ? e.message : String(e);
-    dispatchLoadingStatus(TraceViewerV2LoadingStatus.ERROR, {
-      message: errorMessage,
+    dispatchTerminalStatus(TraceViewerV2LoadingStatus.ERROR, {
+      preserveDataUrl: true,
+      statusOptions: {message: errorMessage},
     });
     return true;
   }
 }
 
-async function handleFetchDataEvent(
-  event: Event,
-  getCurrentDataUrl: () => string | null,
-  traceviewerModule: TraceViewerV2Module | null,
-  isFullTraceLoaded: () => boolean = () => false,
-  isCurrentlyLoading: () => boolean = () => false,
-  isRefetchSuperseded: () => boolean = () => false,
-  abortSignal?: AbortSignal,
-  createStreamWorker?: TraceStreamWorkerFactory,
-) {
-  if (!isFetchDataEvent(event)) {
-    return;
-  }
-  if (isFullTraceLoaded() || isCurrentlyLoading()) {
-    return;
-  }
+interface HandleFetchDataEventOptions {
+  readonly event: CustomEvent<FetchDataEventDetail>;
+  readonly getCurrentDataUrl: () => string | null;
+  readonly traceviewerModule: TraceViewerV2Module;
+  readonly isRefetchSuperseded: () => boolean;
+  readonly abortSignal: AbortSignal;
+  readonly createStreamWorker?: TraceStreamWorkerFactory;
+  readonly clearActiveRefetch: () => void;
+}
+
+async function handleFetchDataEvent({
+  event,
+  getCurrentDataUrl,
+  traceviewerModule,
+  isRefetchSuperseded,
+  abortSignal,
+  createStreamWorker,
+  clearActiveRefetch,
+}: HandleFetchDataEventOptions): Promise<void> {
   const detail = event.detail;
   const initialDataUrl = getCurrentDataUrl();
   if (!initialDataUrl) {
     console.warn('Data URL not set, cannot fetch new data.');
-    return;
-  }
-  if (!traceviewerModule) {
-    console.warn('Trace viewer module not initialized.');
+    clearActiveRefetch();
     return;
   }
 
@@ -1930,6 +2086,9 @@ async function handleFetchDataEvent(
     fastMode,
     errorContext: 'fetching new data',
     createStreamWorker,
+    onBeforeTerminalStatus: () => {
+      clearActiveRefetch();
+    },
   });
 }
 
@@ -1992,7 +2151,9 @@ export async function traceViewerV2Main(
   let currentStreamWorkerFactory: TraceStreamWorkerFactory | undefined =
     options?.createStreamWorker;
   let fullTraceLoaded = false;
+  let activeLoadId = 0;
   let activeRefetchId = 0;
+  let activeSearchId = 0;
   let hasLoadedDataset = false;
 
   try {
@@ -2008,20 +2169,71 @@ export async function traceViewerV2Main(
     return null;
   }
 
-  setupFileInputHandler(traceviewerModule, () => {
-    activeLoadAbortController?.abort();
+  // Advances `activeWasmIncrementalSessionId` to disable any superseded async
+  // loop's delayed `cancelIncrementalIfCurrent()`, so active WASM incremental
+  // buffers must be cancelled synchronously when
+  // `hadActiveRequest || forceCancelIncremental`. Synchronous `AbortSignal`
+  // listeners run during `.abort()` and may shut down, replace, or start a new
+  // load/reset on this module, so `isActive` checks both module liveness and
+  // `clearLoadId === activeLoadId` afterward.
+  const cancelAndClearLoaderState = ({
+    forceCancelIncremental = false,
+  }: {
+    readonly forceCancelIncremental?: boolean;
+  } = {}): {readonly isActive: boolean; readonly hadActiveRequest: boolean} => {
+    if (traceviewerModule !== activeWasmModule) {
+      return {isActive: false, hadActiveRequest: false};
+    }
+    const loadController = activeLoadAbortController;
+    const refetchController = activeRefetchAbortController;
+    const searchController = activeSearchAbortController;
+    const hadActiveRequest =
+      loadController !== null || refetchController !== null;
     activeLoadAbortController = null;
-    activeRefetchAbortController?.abort();
     activeRefetchAbortController = null;
+    activeSearchAbortController = null;
+    const clearLoadId = ++activeLoadId;
+    ++activeWasmIncrementalSessionId;
     currentDataUrl = null;
+    currentLoadingPromise = null;
     currentStreamWorkerFactory = options?.createStreamWorker;
     fullTraceLoaded = false;
     clearCachedFullTrace();
-    ++activeRefetchId;
-    hasLoadedDataset = true;
-    if (options?.onFileUploadedToXprof) {
-      options.onFileUploadedToXprof();
+    loadController?.abort();
+    refetchController?.abort();
+    searchController?.abort();
+    const isActive =
+      traceviewerModule === activeWasmModule && clearLoadId === activeLoadId;
+    if ((hadActiveRequest || forceCancelIncremental) && isActive) {
+      traceviewerModule.cancelIncrementalTraceEvents?.();
     }
+    return {isActive, hadActiveRequest};
+  };
+
+  setupFileInputHandler(traceviewerModule, {
+    beginUpload: () => {
+      const {isActive, hadActiveRequest} = cancelAndClearLoaderState();
+      if (!isActive) {
+        return {isCancelled: () => true};
+      }
+      const uploadLoadId = ++activeLoadId;
+      if (hasLoadedDataset) {
+        traceviewerModule.ResetDataset?.();
+        hasLoadedDataset = false;
+      }
+      if (hadActiveRequest) {
+        dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
+      }
+      return {
+        isCancelled: () =>
+          uploadLoadId !== activeLoadId ||
+          traceviewerModule !== activeWasmModule,
+      };
+    },
+    onFileProcessed: () => {
+      hasLoadedDataset = true;
+      options?.onFileUploadedToXprof?.();
+    },
   });
 
   const resizeObserver = new ResizeObserver(() => {
@@ -2048,33 +2260,57 @@ export async function traceViewerV2Main(
     url: string,
     loadOptions?: LoadTraceDataOptions,
   ) => {
+    if (traceviewerModule !== activeWasmModule) {
+      return;
+    }
     if (url === currentDataUrl && currentLoadingPromise) {
       return currentLoadingPromise;
     }
-    activeLoadAbortController?.abort();
-    activeRefetchAbortController?.abort();
-    activeRefetchAbortController = null;
+    if (!cancelAndClearLoaderState().isActive) {
+      return;
+    }
+    const loadId = ++activeLoadId;
     const loadAbortController = new AbortController();
     activeLoadAbortController = loadAbortController;
     currentDataUrl = url;
     const streamWorkerFactory =
       loadOptions?.createStreamWorker ?? options?.createStreamWorker;
     currentStreamWorkerFactory = streamWorkerFactory;
-    fullTraceLoaded = false;
-    clearCachedFullTrace();
-    ++activeRefetchId;
-    if (!traceviewerModule) return;
     if (hasLoadedDataset) {
-      if (typeof traceviewerModule.ResetDataset === 'function') {
-        ++activeWasmIncrementalSessionId;
-        traceviewerModule.ResetDataset();
-      }
+      traceviewerModule.ResetDataset?.();
     }
     hasLoadedDataset = true;
 
     let settled = false;
     let completed = false;
-    const loadingPromise = (async () => {
+    const settleActiveLoad = ({
+      preserveDataUrl,
+    }: {
+      readonly preserveDataUrl: boolean;
+    }): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (activeLoadAbortController === loadAbortController) {
+        activeLoadAbortController = null;
+      }
+      if (loadId === activeLoadId) {
+        currentLoadingPromise = null;
+        if (!preserveDataUrl) {
+          currentDataUrl = null;
+        }
+      }
+    };
+    let resolveLoading = () => {};
+    let rejectLoading: (reason?: unknown) => void = () => {};
+    const loadingPromise = new Promise<void>((resolve, reject) => {
+      resolveLoading = resolve;
+      rejectLoading = reject;
+    });
+    currentLoadingPromise = loadingPromise;
+
+    void (async () => {
       try {
         let urlObj: URL;
         let explicitResolution: number | undefined;
@@ -2087,6 +2323,7 @@ export async function traceViewerV2Main(
         } catch (e) {
           console.error('Invalid URL:', url, e);
           const errorMessage = (e as Error).message;
+          settleActiveLoad({preserveDataUrl: false});
           dispatchLoadingStatus(TraceViewerV2LoadingStatus.ERROR, {
             message: errorMessage,
           });
@@ -2126,7 +2363,7 @@ export async function traceViewerV2Main(
           traceviewerModule,
           isAbortRequested: () =>
             loadAbortController.signal.aborted ||
-            url !== currentDataUrl ||
+            loadId !== activeLoadId ||
             traceviewerModule !== activeWasmModule,
           abortSignal: loadAbortController.signal,
           timeRange: timeRangeFromUrl,
@@ -2137,29 +2374,40 @@ export async function traceViewerV2Main(
           onFullTraceLoaded: () => {
             fullTraceLoaded = true;
           },
+          onBeforeTerminalStatus: settleActiveLoad,
         });
       } finally {
-        settled = true;
-        if (activeLoadAbortController === loadAbortController) {
-          activeLoadAbortController = null;
-        }
-        if (url === currentDataUrl) {
-          currentLoadingPromise = null;
-          if (!completed) {
-            currentDataUrl = null;
-          }
-        }
+        settleActiveLoad({preserveDataUrl: completed});
       }
-    })();
-    if (!settled) {
-      currentLoadingPromise = loadingPromise;
-    }
+    })().then(resolveLoading, rejectLoading);
 
     return loadingPromise;
   };
 
   traceviewerModule.loadSearchResults = async (url: string) => {
-    if (!traceviewerModule) return;
+    if (traceviewerModule !== activeWasmModule) {
+      return;
+    }
+    const loadId = activeLoadId;
+    const searchId = ++activeSearchId;
+    const previousSearchController = activeSearchAbortController;
+    activeSearchAbortController = null;
+    previousSearchController?.abort();
+    if (
+      traceviewerModule !== activeWasmModule ||
+      loadId !== activeLoadId ||
+      searchId !== activeSearchId
+    ) {
+      return;
+    }
+    const searchAbortController = new AbortController();
+    activeSearchAbortController = searchAbortController;
+    const isSearchStale = () =>
+      searchAbortController.signal.aborted ||
+      searchId !== activeSearchId ||
+      loadId !== activeLoadId ||
+      traceviewerModule !== activeWasmModule;
+
     try {
       let urlObj: URL;
       try {
@@ -2174,14 +2422,26 @@ export async function traceViewerV2Main(
         urlObj.pathname.endsWith('.pb') ||
         urlObj.searchParams.get('format') === 'pb'
       ) {
-        const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
+        const buffer = await loadCompressedTraceDataInternal(
+          urlObj.toString(),
+          undefined,
+          searchAbortController.signal,
+        );
+        if (isSearchStale()) {
+          return;
+        }
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),
         );
       } else {
         const jsonData = (await loadJsonDataInternal(
           urlObj.toString(),
+          undefined,
+          searchAbortController.signal,
         )) as Record<string, unknown>;
+        if (isSearchStale()) {
+          return;
+        }
         // Mirror the legacy behavior: gently default to an empty array if
         // traceEvents is missing so that the WASM module can safely clear out
         // any previous search results.
@@ -2194,21 +2454,42 @@ export async function traceViewerV2Main(
         traceviewerModule.setSearchResultsInWasm(normalizedData);
       }
     } catch (e) {
+      if (isSearchStale() || isAbortError(e)) {
+        return;
+      }
       console.error('Error loading search results:', e);
       throw e;
+    } finally {
+      if (activeSearchAbortController === searchAbortController) {
+        activeSearchAbortController = null;
+      }
     }
   };
 
+  traceviewerModule.resetDataset = () => {
+    if (!cancelAndClearLoaderState({forceCancelIncremental: true}).isActive) {
+      return;
+    }
+    hasLoadedDataset = false;
+    traceviewerModule.ResetDataset?.();
+    dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
+  };
+
   registerWindowListener(CANCEL_FETCH_DATA_EVENT_NAME, () => {
-    const hadInFlightRefetch = activeRefetchAbortController !== null;
-    activeRefetchAbortController?.abort();
+    const loadId = activeLoadId;
+    const refetchId = ++activeRefetchId;
+    const refetchController = activeRefetchAbortController;
+    const hadInFlightRefetch = refetchController !== null;
     activeRefetchAbortController = null;
-    ++activeRefetchId;
-    if (hadInFlightRefetch && currentLoadingPromise === null) {
+    refetchController?.abort();
+    if (
+      hadInFlightRefetch &&
+      traceviewerModule === activeWasmModule &&
+      loadId === activeLoadId &&
+      refetchId === activeRefetchId
+    ) {
       ++activeWasmIncrementalSessionId;
-      if (traceviewerModule === activeWasmModule) {
-        traceviewerModule.cancelIncrementalTraceEvents?.();
-      }
+      traceviewerModule.cancelIncrementalTraceEvents?.();
       dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
     }
   });
@@ -2217,35 +2498,44 @@ export async function traceViewerV2Main(
     if (
       !isFetchDataEvent(event) ||
       fullTraceLoaded ||
-      currentLoadingPromise !== null
+      activeLoadAbortController !== null
     ) {
       return;
     }
-    if (activeRefetchAbortController !== null) {
-      activeRefetchAbortController.abort();
+    const loadId = activeLoadId;
+    const refetchId = ++activeRefetchId;
+    const previousRefetchController = activeRefetchAbortController;
+    activeRefetchAbortController = null;
+    if (previousRefetchController !== null) {
       // Invalidate the superseded refetch's session immediately so its
       // delayed cancellation cannot clear Timeline's loading flags for the new
       // refetch before the new refetch starts its own WASM session.
       ++activeWasmIncrementalSessionId;
+      previousRefetchController.abort();
+    }
+    if (
+      traceviewerModule !== activeWasmModule ||
+      loadId !== activeLoadId ||
+      refetchId !== activeRefetchId
+    ) {
+      return;
     }
     const refetchAbortController = new AbortController();
     activeRefetchAbortController = refetchAbortController;
-    const refetchId = ++activeRefetchId;
-    void handleFetchDataEvent(
-      event,
-      () => currentDataUrl,
-      traceviewerModule,
-      () => fullTraceLoaded,
-      () => currentLoadingPromise !== null,
-      () =>
-        refetchAbortController.signal.aborted || refetchId !== activeRefetchId,
-      refetchAbortController.signal,
-      currentStreamWorkerFactory,
-    ).finally(() => {
+    const clearActiveRefetch = (): void => {
       if (activeRefetchAbortController === refetchAbortController) {
         activeRefetchAbortController = null;
       }
-    });
+    };
+    void handleFetchDataEvent({
+      event,
+      getCurrentDataUrl: () => currentDataUrl,
+      traceviewerModule,
+      isRefetchSuperseded: () => refetchAbortController.signal.aborted,
+      abortSignal: refetchAbortController.signal,
+      createStreamWorker: currentStreamWorkerFactory,
+      clearActiveRefetch,
+    }).finally(clearActiveRefetch);
   });
 
   return traceviewerModule;

@@ -979,19 +979,23 @@ def test_megascale_perfetto_fetches_trace_and_handshakes_iframe(
     page.unroute(perfetto_re, _fulfill_perfetto)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Upstream XProf flex `.row` in framework-op-stats and hlo-stats lacks"
-        " flex-wrap and overflows mat-sidenav-content at 1280px desktop width."
-        " (perf-counters only overflows in internal builds; Copybara strips its"
-        " extra Host and Show Zero Values controls in OSS.)"
-    ),
-)
 @pytest.mark.parametrize(
     "run_name,tag",
     [
-        ("tpu-training", "framework_op_stats"),
+        pytest.param(
+            "tpu-training",
+            "framework_op_stats",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "Upstream XProf flex `.row` in framework-op-stats lacks"
+                    " flex-wrap and overflows mat-sidenav-content at 1280px"
+                    " desktop width. (perf-counters only overflows in internal"
+                    " builds; Copybara strips its extra Host and Show Zero"
+                    " Values controls in OSS.)"
+                ),
+            ),
+        ),
         ("tpu-training", "hlo_stats"),
     ],
 )
@@ -1001,7 +1005,7 @@ def test_desktop_chart_rows_fit_content_pane(
     run_name: str,
     tag: str,
 ) -> None:
-  """Tracks 1280px desktop horizontal overflow in unwrapped flex rows."""
+  """Verifies 1280px desktop chart/filter flex rows fit mat-sidenav-content."""
   page.set_viewport_size({"width": 1280, "height": 900})
   open_tool(run_name, tag)
   expect(page.locator("framework-op-stats, hlo-stats").first).to_be_visible(

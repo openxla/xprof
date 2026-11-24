@@ -1,4 +1,15 @@
-import {Component, DestroyRef, ElementRef, HostListener, inject, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  inject,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A table view component. */
@@ -16,30 +27,25 @@ export class Table implements OnChanges, OnInit {
   @Input() pageSize = 10;
 
   table?: google.visualization.Table;
-  height = '150px';
 
-  @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  @ViewChild('table', {static: true}) tableRef!: ElementRef;
   private readonly destroyRef = inject(DestroyRef);
 
   ngOnInit() {
-    this.loadGoogleChart();
     this.populateDefaultPageSize();
+    this.loadGoogleChart();
   }
 
   ngOnChanges(changes: SimpleChanges) {
     this.drawTable();
   }
 
-  @HostListener('window:resize')
-  onResize() {
-    const tableElement = this.tableRef.nativeElement.querySelector('table');
-    if (tableElement) {
-      this.height = String(Number(tableElement.clientHeight) + 20) + 'px';
-    }
-  }
-
   drawTable() {
-    if (!this.table || !this.dataView) {
+    if (!this.table) {
+      return;
+    }
+    if (!this.dataView) {
+      this.table.clearChart?.();
       return;
     }
 
@@ -56,8 +62,6 @@ export class Table implements OnChanges, OnInit {
     };
 
     this.table.draw(this.dataView, options);
-
-    this.onResize();
   }
 
   displayPageSizeSelector() {

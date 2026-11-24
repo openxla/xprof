@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   ElementRef,
   inject,
   Injector,
@@ -19,13 +18,15 @@ import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
 import {
+  createSessionIdResolver,
   escapeHtml,
+  getSessionIdFromParams,
   loadGoogleChartPackages,
+  resolveHostFromParams,
   setLoadingState,
 } from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryDiffTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_diff_table_data_processor';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
-import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
 import {
   PIE_CHART_OPTIONS,
   TABLE_OPTIONS,
@@ -42,7 +43,7 @@ import {
 import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/diff_service';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject, Subscription} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const AVG_TIME_ID = 'avg_time';
@@ -63,6 +64,46 @@ const CORE_TYPE_ID = 'core_type';
 const SPARSE_CORE_VALUE = 'SparseCore';
 const VDD_ENERGY_ID = 'vdd_energy';
 
+const BASELINE_DEFAULT_VISIBLE_COLUMN_IDS = new Set([
+  `${TOTAL_TIME_ID}_baseline`,
+  `${SELF_TIME_ID}_baseline`,
+  `${MEASURED_FLOP_RATE_ID}_baseline`,
+  `${OCCURRENCES_ID}_baseline`,
+  `${AVG_TIME_ID}_baseline`,
+]);
+
+const DEFAULT_VISIBLE_COLUMN_IDS = new Set([
+  AVG_TIME_ID,
+  OCCURRENCES_ID,
+  OP_CATEGORY_ID,
+  OP_EXPRESSION_ID,
+  OP_NAME_ID,
+  PROGRAM_ID,
+  RANK_ID,
+  SOURCE_INFO_ID,
+  TF_OP_NAME_ID,
+  TOTAL_TIME_ID,
+  VDD_ENERGY_ID,
+  ...BASELINE_DEFAULT_VISIBLE_COLUMN_IDS,
+]);
+
+function getSingleQueryParam(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    const last = value[value.length - 1];
+    return typeof last === 'string' ? last : undefined;
+  }
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parseProgramId(rawProgramId: string | null | undefined): string {
+  const trimmed = (rawProgramId ?? '').trim();
+  if (!trimmed) {
+    return '';
+  }
+  const match = trimmed.match(/\(([^)]*)\)/);
+  return match ? match[1].trim() : trimmed;
+}
+
 /** A Hlo Stats component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
@@ -82,9 +123,11 @@ export class HloStats extends Dashboard implements OnDestroy {
   );
   private readonly diffService = inject(BaseDiffService);
   private readonly zone = inject(NgZone);
-  private readonly destroyRef = inject(DestroyRef);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private dataSubscription?: Subscription;
+  private cancelChartLoad?: () => void;
+  private latestQueryParams: Params = {};
   private readonly throbber: Throbber;
   data: SimpleDataTable | null = null;
   baselineData: SimpleDataTable | null = null;
@@ -108,7 +151,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     dataProvider: this.pieChartDataProvider,
     options: PIE_CHART_OPTIONS,
   };
-  communicationOps = new Set();
+  communicationOps = new Set<string>();
   selectedCommOp = '';
   dataInfoOpReplicaGroupChart: ChartDataInfo = {
     data: null,
@@ -158,22 +201,38 @@ export class HloStats extends Dashboard implements OnDestroy {
     },
   };
   showChartSection = true;
-  tableColumnsControl = new FormControl<number[]>([]);
-  tableColumns: Array<{index: number; label: string}> = [];
+  tableColumnsControl = new FormControl<string[]>([]);
+  tableColumns: Array<{id: string; index: number; label: string}> = [];
+  private knownColumnIds = new Set<string>();
   hasSparseCoreData = false;
 
-  // We add a listener to `chart` and manipulate multiple elements of
-  // `chartElement`. Knowing that `Chart.elementRef` is private, we use
-  // `ViewChild` twice to access both. See `addSourceInfoClickListener` for
-  // more details.
-  @ViewChild('table', {read: Chart, static: false})
-  chartRef: Chart | undefined = undefined;
+  private chartElementRefInternal?: ElementRef<HTMLElement>;
+  private sparseCoreChartElementRefInternal?: ElementRef<HTMLElement>;
+  private readonly sourceInfoClickListeners = new Map<
+    'table' | 'sparseCoreTable',
+    {element: HTMLElement; unlisten: () => void}
+  >();
+
   @ViewChild('table', {read: ElementRef, static: false})
-  chartElementRef: ElementRef | undefined = undefined;
-  @ViewChild('sparseCoreTable', {read: Chart, static: false})
-  sparseCoreChartRef: Chart | undefined = undefined;
+  set chartElementRef(ref: ElementRef<HTMLElement> | undefined) {
+    this.chartElementRefInternal = ref;
+    this.syncSourceInfoClickListener('table', ref);
+  }
+
+  get chartElementRef(): ElementRef<HTMLElement> | undefined {
+    return this.chartElementRefInternal;
+  }
+
   @ViewChild('sparseCoreTable', {read: ElementRef, static: false})
-  sparseCoreChartElementRef: ElementRef | undefined = undefined;
+  set sparseCoreChartElementRef(ref: ElementRef<HTMLElement> | undefined) {
+    this.sparseCoreChartElementRefInternal = ref;
+    this.syncSourceInfoClickListener('sparseCoreTable', ref);
+  }
+
+  get sparseCoreChartElementRef(): ElementRef<HTMLElement> | undefined {
+    return this.sparseCoreChartElementRefInternal;
+  }
+
   private readonly renderer: Renderer2 = inject(Renderer2);
   sourceFileAndLineNumber = '';
   stackTrace = '';
@@ -192,17 +251,20 @@ export class HloStats extends Dashboard implements OnDestroy {
       this.tool = 'hlo_stats';
     }
     this.throbber = new Throbber(this.tool);
+    const resolveSessionId = createSessionIdResolver();
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
+        this.latestQueryParams = queryParams;
         const oldSessionId = this.sessionId;
         const oldTool = this.tool;
         const oldHost = this.host;
         const oldHloOpName = this.hloOpNameSelected;
         const oldProgramId = this.programIdSelected;
 
-        this.sessionId = params['sessionId'] || this.sessionId;
-        this.processQueryParams(queryParams);
+        this.sessionId = resolveSessionId(params, queryParams, this.sessionId);
+        this.processQueryParams(queryParams, oldSessionId);
+        this.onCheckInputParams(queryParams);
         if (this.tool !== oldTool) {
           this.store.dispatch(
             setCurrentToolStateAction({currentTool: this.tool}),
@@ -223,9 +285,11 @@ export class HloStats extends Dashboard implements OnDestroy {
         }
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
-    this.tableColumnsControl.valueChanges.subscribe((newValue) => {
-      this.updateTableColumns(newValue || []);
-    });
+    this.tableColumnsControl.valueChanges
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((newValue) => {
+        this.updateTableColumns(newValue || []);
+      });
 
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
@@ -239,33 +303,35 @@ export class HloStats extends Dashboard implements OnDestroy {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
-        if (this.sourceCodeServiceIsAvailable) {
-          this.addSourceInfoClickListener(this.chartRef, this.chartElementRef);
-          this.addSourceInfoClickListener(
-            this.sparseCoreChartRef,
-            this.sparseCoreChartElementRef,
-          );
-        }
+        this.syncSourceInfoClickListeners();
       });
   }
 
-  processQueryParams(params: Params) {
-    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+  processQueryParams(params: Params, prevSessionId = this.sessionId) {
+    this.sessionId = getSessionIdFromParams(undefined, params, this.sessionId);
     this.tool = params['tag'] || this.tool;
-    this.host = params['host'] || this.host;
+    this.host = resolveHostFromParams(
+      params,
+      prevSessionId,
+      this.sessionId,
+      this.host,
+    );
   }
 
   update() {
+    this.dataSubscription?.unsubscribe();
+    this.cancelChartLoad?.();
+    this.cancelChartLoad = undefined;
     setLoadingState(true, this.store, 'Loading hlo data');
     this.throbber.start();
 
-    this.diffService
+    this.dataSubscription = this.diffService
       .getDiffData<SimpleDataTable>(this.sessionId, this.tool, {
         host: this.host,
       })
       .pipe(takeUntil(this.destroyed))
-      .subscribe(
-        ({
+      .subscribe({
+        next: ({
           active,
           baseline,
         }: {
@@ -281,7 +347,14 @@ export class HloStats extends Dashboard implements OnDestroy {
             this.onCheckInputParams();
           });
         },
-      );
+        error: () => {
+          this.throbber.stop();
+          setLoadingState(false, this.store);
+          this.baselineData = null;
+          this.data = null;
+          this.process(null);
+        },
+      });
   }
 
   /**
@@ -292,6 +365,8 @@ export class HloStats extends Dashboard implements OnDestroy {
    * opened, its data can arrive before the packages load.
    */
   private whenChartsLoaded(callback: () => void) {
+    this.cancelChartLoad?.();
+    this.cancelChartLoad = undefined;
     if (
       typeof google !== 'undefined' &&
       typeof google.visualization?.DataTable === 'function'
@@ -299,11 +374,15 @@ export class HloStats extends Dashboard implements OnDestroy {
       callback();
       return;
     }
-    // The page may be closed while the loader script and packages load.
-    const cancelLoad = loadGoogleChartPackages(['corechart', 'table'], () => {
-      this.zone.run(callback);
-    });
-    this.destroyRef.onDestroy(cancelLoad);
+    // The page may be closed or superseded while the loader script and
+    // packages load.
+    this.cancelChartLoad = loadGoogleChartPackages(
+      ['corechart', 'table'],
+      () => {
+        this.cancelChartLoad = undefined;
+        this.zone.run(callback);
+      },
+    );
   }
 
   private mergeTables(
@@ -314,8 +393,10 @@ export class HloStats extends Dashboard implements OnDestroy {
       !active ||
       !baseline ||
       !active.cols ||
+      active.cols.length === 0 ||
       !active.rows ||
       !baseline.cols ||
+      baseline.cols.length === 0 ||
       !baseline.rows
     ) {
       return active;
@@ -428,7 +509,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     if (totalTimeCol !== -1) {
       newCols.push({
         id: `${TOTAL_TIME_ID}_baseline`,
-        label: 'Baseline Total Time (ms)',
+        label: 'Baseline Total Time (us)',
         type: 'number',
       });
     }
@@ -436,7 +517,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     if (selfTimeCol !== -1) {
       newCols.push({
         id: `${SELF_TIME_ID}_baseline`,
-        label: 'Baseline Duration (ms)',
+        label: 'Baseline Total Self Time (us)',
         type: 'number',
       });
     }
@@ -444,7 +525,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     if (flopRateCol !== -1) {
       newCols.push({
         id: `${MEASURED_FLOP_RATE_ID}_baseline`,
-        label: 'Baseline Measured GFLOP/s',
+        label: 'Baseline Model GFLOP/s',
         type: 'number',
       });
     }
@@ -461,7 +542,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     if (avgTimeCol !== -1) {
       newCols.push({
         id: `${AVG_TIME_ID}_baseline`,
-        label: 'Baseline Average Time (ms)',
+        label: 'Baseline Average Time (us)',
         type: 'number',
       });
     }
@@ -578,17 +659,19 @@ export class HloStats extends Dashboard implements OnDestroy {
     };
   }
 
-  onCheckInputParams() {
-    this.hloOpNameSelected =
-      this.dataService.getSearchParams().get('hlo_op_name') || '';
-    // Assumption: the program_id is in format like 'main(<program_id>)'
-    // parsing with a regex to match content in the bracket
-    const programIdParsed = this.dataService
-      .getSearchParams()
-      .get('program_id')
-      ?.match(/\((.*)\)/);
-    this.programIdSelected =
-      programIdParsed?.length === 2 ? programIdParsed[1] : '';
+  onCheckInputParams(queryParams: Params = this.latestQueryParams) {
+    const searchParams = this.dataService.getSearchParams?.();
+    const rawHloOpName =
+      getSingleQueryParam(queryParams['hlo_op_name']) ??
+      searchParams?.get('hlo_op_name') ??
+      '';
+    this.hloOpNameSelected = rawHloOpName;
+
+    const rawProgramId =
+      getSingleQueryParam(queryParams['program_id']) ??
+      searchParams?.get('program_id') ??
+      '';
+    this.programIdSelected = parseProgramId(rawProgramId);
   }
 
   // Iterate through the table data
@@ -653,57 +736,102 @@ export class HloStats extends Dashboard implements OnDestroy {
     return updatedData;
   }
 
+  private syncSourceInfoClickListeners() {
+    this.syncSourceInfoClickListener('table', this.chartElementRefInternal);
+    this.syncSourceInfoClickListener(
+      'sparseCoreTable',
+      this.sparseCoreChartElementRefInternal,
+    );
+  }
+
   /**
-   * Adds a click listener to the source info cells.
+   * Attaches a single delegated click listener to a rendered table container.
    *
-   * If "Show Source Code" is checked, then whenever user clicks on the source
-   * info cell, we show snippets of source code around the stack trace.
-   *
-   * Unfortunately, `google.visualization.Table` does not provide any API to
-   * listen to click events on *cells*. So we manually add the click listener
-   * to the items in this table (see
-   * https://developers.google.com/chart/interactive/docs/gallery/table#events
-   * as a reference).
-   *
-   * Unfortunately, `google.visualization.Table` does not provide enough
-   * extension points to add interactive elements to cells. Therefore, we go
-   * to the native elements of the table and add the click listener to the
-   * cells with class `source-info-cell`.
+   * `google.visualization.Table` does not provide a cell-click API, so clicks
+   * on `.source-info-cell` elements bubble to the host element regardless of
+   * table redraws or chart load timing.
    */
-  private addSourceInfoClickListener(
-    chartRef: Chart | undefined,
-    chartElementRef: ElementRef | undefined,
+  private syncSourceInfoClickListener(
+    key: 'table' | 'sparseCoreTable',
+    chartElementRef: ElementRef<HTMLElement> | undefined,
   ) {
-    const chart = chartRef?.chart;
-    const chartElement = chartElementRef?.nativeElement;
-    if (!chart || !chartElement) {
-      // TODO: b/429036372 - Using setTimeout to detect change is inefficient.
-      setTimeout(() => {
-        this.addSourceInfoClickListener(chartRef, chartElementRef);
-      }, 100);
+    const chartElement = this.sourceCodeServiceIsAvailable
+      ? chartElementRef?.nativeElement
+      : undefined;
+    const existing = this.sourceInfoClickListeners.get(key);
+    if (existing?.element === chartElement) {
       return;
     }
-    google.visualization.events.addListener(chart, 'ready', () => {
-      this.renderer.listen(chartElement, 'click', (event: Event) => {
+    if (existing) {
+      existing.unlisten();
+      this.sourceInfoClickListeners.delete(key);
+    }
+    if (!chartElement) {
+      return;
+    }
+    const unlisten = this.renderer.listen(
+      chartElement,
+      'click',
+      (event: Event) => {
         const target = event.target;
-        if (target instanceof HTMLElement) {
-          if (target.classList.contains('source-info-cell')) {
-            this.zone.run(() => {
-              this.sourceFileAndLineNumber = target.textContent || '';
-              this.stackTrace = target.getAttribute('title') || '';
-            });
-          }
+        const cell =
+          target instanceof Element
+            ? target.closest('.source-info-cell')
+            : null;
+        if (cell) {
+          this.zone.run(() => {
+            this.sourceFileAndLineNumber = cell.textContent || '';
+            this.stackTrace = cell.getAttribute('title') || '';
+          });
         }
-      });
-    });
+      },
+    );
+    this.sourceInfoClickListeners.set(key, {element: chartElement, unlisten});
+  }
+
+  private disposeSourceInfoClickListeners() {
+    for (const listener of this.sourceInfoClickListeners.values()) {
+      listener.unlisten();
+    }
+    this.sourceInfoClickListeners.clear();
   }
 
   toggleShowStackTrace() {
     this.showStackTrace = !this.showStackTrace;
   }
 
+  private clearData() {
+    this.baselineData = null;
+    this.tensorCoreBaselineData = null;
+    this.flopRateChartXColumn = -1;
+    this.flopRateChartYColumn = -1;
+    this.parseData(null);
+
+    this.dataInfoForTable.dataProvider.setVisibleColumns([]);
+    this.dataInfoForTable = {
+      ...this.dataInfoForTable,
+      data: null,
+      filters: [],
+    };
+
+    this.dataInfoForSparseCoreTable.dataProvider.setVisibleColumns([]);
+    this.dataInfoForSparseCoreTable.dataProvider.parseData(null);
+    this.dataInfoForSparseCoreTable = {
+      ...this.dataInfoForSparseCoreTable,
+      data: null,
+      filters: [],
+    };
+    this.hasSparseCoreData = false;
+    this.sourceFileAndLineNumber = '';
+    this.stackTrace = '';
+  }
+
   private process(data: SimpleDataTable | null) {
-    if (!data) return;
+    if (!data || !data.cols || data.cols.length === 0) {
+      this.data = null;
+      this.clearData();
+      return;
+    }
 
     const coreTypeIdx =
       data.cols?.findIndex((col) => col.id === CORE_TYPE_ID) ?? -1;
@@ -713,11 +841,11 @@ export class HloStats extends Dashboard implements OnDestroy {
     if (coreTypeIdx !== -1) {
       tensorCoreDataRows =
         data.rows?.filter(
-          (row) => row.c![coreTypeIdx]?.v !== SPARSE_CORE_VALUE,
+          (row) => row.c?.[coreTypeIdx]?.v !== SPARSE_CORE_VALUE,
         ) || [];
       sparseCoreRows =
         data.rows?.filter(
-          (row) => row.c![coreTypeIdx]?.v === SPARSE_CORE_VALUE,
+          (row) => row.c?.[coreTypeIdx]?.v === SPARSE_CORE_VALUE,
         ) || [];
     }
 
@@ -725,18 +853,22 @@ export class HloStats extends Dashboard implements OnDestroy {
     const sparseCoreData = {...data, rows: sparseCoreRows};
 
     let tensorCoreBaselineData: SimpleDataTable | null = null;
-    if (this.baselineData && this.baselineData.cols && this.baselineData.rows) {
-      const baselineCoreTypeIdx =
-        this.baselineData.cols.findIndex((col) => col.id === CORE_TYPE_ID);
+    if (
+      this.baselineData &&
+      this.baselineData.cols &&
+      this.baselineData.cols.length > 0 &&
+      this.baselineData.rows
+    ) {
+      const baselineCoreTypeIdx = this.baselineData.cols.findIndex(
+        (col) => col.id === CORE_TYPE_ID,
+      );
       let tensorCoreBaselineRows = this.baselineData.rows;
       if (baselineCoreTypeIdx !== -1) {
-        tensorCoreBaselineRows =
-          this.baselineData.rows.filter(
-            (row) =>
-              row.c &&
-              row.c[baselineCoreTypeIdx] &&
-              row.c[baselineCoreTypeIdx]!.v !== SPARSE_CORE_VALUE,
-          );
+        tensorCoreBaselineRows = this.baselineData.rows.filter(
+          (row) =>
+            row.c?.[baselineCoreTypeIdx] != null &&
+            row.c[baselineCoreTypeIdx].v !== SPARSE_CORE_VALUE,
+        );
       }
       tensorCoreBaselineData = {
         ...this.baselineData,
@@ -779,9 +911,9 @@ export class HloStats extends Dashboard implements OnDestroy {
 
   updateOpReplicaGroupChart() {
     if (
-      !this.replicaGroupDataProvider.opCategoryIndex ||
-      !this.replicaGroupDataProvider.hloOpNameIndex ||
-      !this.replicaGroupDataProvider.selfTimeIndex
+      this.replicaGroupDataProvider.opCategoryIndex === undefined ||
+      this.replicaGroupDataProvider.hloOpNameIndex === undefined ||
+      this.replicaGroupDataProvider.selfTimeIndex === undefined
     ) {
       return;
     }
@@ -806,50 +938,76 @@ export class HloStats extends Dashboard implements OnDestroy {
   }
 
   processTableColumns(dataTable: google.visualization.DataTable) {
-    this.tableColumns = [];
+    const nextTableColumns: Array<{id: string; index: number; label: string}> =
+      [];
+    const nextColumnIds = new Set<string>();
+    const defaultVisibleIds: string[] = [];
     const numColumns = dataTable.getNumberOfColumns();
-    const defaultVisibleColumns = [];
-    const defaultVisibleColumnIds = new Set([
-      AVG_TIME_ID,
-      OCCURRENCES_ID,
-      OP_CATEGORY_ID,
-      OP_EXPRESSION_ID,
-      OP_NAME_ID,
-      PROGRAM_ID,
-      RANK_ID,
-      SOURCE_INFO_ID,
-      TF_OP_NAME_ID,
-      TOTAL_TIME_ID,
-      VDD_ENERGY_ID,
-      `${TOTAL_TIME_ID}_baseline`,
-      `${SELF_TIME_ID}_baseline`,
-      `${MEASURED_FLOP_RATE_ID}_baseline`,
-      `${OCCURRENCES_ID}_baseline`,
-      `${AVG_TIME_ID}_baseline`,
-    ]);
     for (let i = 0; i < numColumns; i++) {
-      const colId = dataTable.getColumnId(i);
+      const colId = dataTable.getColumnId(i) || String(i);
       if (colId === CORE_TYPE_ID) continue;
-      this.tableColumns.push({
+      nextTableColumns.push({
+        id: colId,
         index: i,
         label: dataTable.getColumnLabel(i),
       });
-      if (defaultVisibleColumnIds.has(colId)) {
-        defaultVisibleColumns.push(i);
+      nextColumnIds.add(colId);
+      if (DEFAULT_VISIBLE_COLUMN_IDS.has(colId)) {
+        defaultVisibleIds.push(colId);
       }
     }
-    if (this.tableColumnsControl?.value?.length === 0) {
-      this.tableColumnsControl.setValue(defaultVisibleColumns);
+    this.tableColumns = nextTableColumns;
+
+    const currentSelectedIds = this.tableColumnsControl.value ?? [];
+    let nextSelectedIds: string[];
+    if (currentSelectedIds.length === 0 || this.knownColumnIds.size === 0) {
+      nextSelectedIds = defaultVisibleIds;
+    } else {
+      const keptIds = currentSelectedIds.filter((id) => nextColumnIds.has(id));
+      if (keptIds.length === 0) {
+        nextSelectedIds = defaultVisibleIds;
+      } else {
+        const selectedSet = new Set(keptIds);
+        const newlyAddedBaselineIds = nextTableColumns
+          .map((col) => col.id)
+          .filter(
+            (id) =>
+              BASELINE_DEFAULT_VISIBLE_COLUMN_IDS.has(id) &&
+              !this.knownColumnIds.has(id) &&
+              !selectedSet.has(id),
+          );
+        nextSelectedIds = [...keptIds, ...newlyAddedBaselineIds];
+      }
     }
+
+    this.knownColumnIds = nextColumnIds;
+    this.tableColumnsControl.setValue(nextSelectedIds, {emitEvent: false});
+    this.applyVisibleColumns(nextSelectedIds, /* notify= */ false);
   }
 
-  updateTableColumns(newValue: number[]) {
+  updateTableColumns(newValue: string[]) {
     if (newValue.length === 0 || !this.dataTable) return;
+    this.applyVisibleColumns(newValue, /* notify= */ true);
+  }
 
+  private applyVisibleColumns(selectedIds: string[], notify: boolean) {
+    if (!this.dataTable) return;
+
+    const selectedIdSet = new Set(selectedIds);
+    const numColumns = this.dataTable.getNumberOfColumns();
     const coreTypeIdx = this.dataTable.getColumnIndex(CORE_TYPE_ID);
     const rankIdx = this.dataTable.getColumnIndex(RANK_ID);
 
-    const visibleColumns = newValue.filter((index) => index !== coreTypeIdx);
+    const visibleColumns = this.tableColumns
+      .filter(
+        (col) =>
+          selectedIdSet.has(col.id) &&
+          col.index >= 0 &&
+          col.index < numColumns &&
+          col.index !== coreTypeIdx,
+      )
+      .map((col) => col.index);
+
     this.dataInfoForTable.dataProvider.setVisibleColumns(visibleColumns);
 
     const sparseCoreVisibleColumns = visibleColumns.filter(
@@ -859,19 +1017,40 @@ export class HloStats extends Dashboard implements OnDestroy {
       sparseCoreVisibleColumns,
     );
 
-    this.dataInfoForTable.dataProvider.notifyCharts();
-    this.dataInfoForSparseCoreTable.dataProvider.notifyCharts();
+    if (notify) {
+      this.dataInfoForTable.dataProvider.notifyCharts();
+      this.dataInfoForSparseCoreTable.dataProvider.notifyCharts();
+    }
   }
 
   override parseData(data: SimpleDataTable | null) {
-    if (!data) return;
+    if (!data) {
+      this.pendingData = null;
+      this.dataTable = undefined;
+      this.dataView = undefined;
+      this.filters.clear();
+      this.tableColumns = [];
+      this.knownColumnIds.clear();
+      this.tableColumnsControl.setValue([], {emitEvent: false});
+
+      this.pieChartDataProvider.parseData(null);
+      this.pieChartDataProvider.notifyCharts();
+
+      this.replicaGroupDataProvider.parseData(null);
+      this.communicationOps = new Set<string>();
+      this.selectedCommOp = '';
+      this.replicaGroupDataProvider.notifyCharts();
+      return;
+    }
     // Five charts share one DataProvider. In order to prevent DataTable from
     // being created multiple times, it calls DataProvider function directly.
     this.pieChartDataProvider.parseData(data);
     const dataTable = this.pieChartDataProvider.getDataTable();
     if (!dataTable) return;
 
+    const previousDataTable = this.dataTable;
     this.dataTable = dataTable;
+    this.pruneFilters(previousDataTable);
     this.processTableColumns(dataTable);
     this.updateView();
 
@@ -924,13 +1103,17 @@ export class HloStats extends Dashboard implements OnDestroy {
     this.pieChartDataProvider.notifyCharts();
 
     // Create a DataProvider in which the row string value for hloOpName column
-    // is truncated to only be the 'replica_groups={{...}}' string.
+    // is truncated to only be the 'replica_groups=...' string.
     this.replicaGroupDataProvider.parseData(data);
     this.communicationOps = this.replicaGroupDataProvider.communicationOps;
 
-    if (this.communicationOps.size) {
-      // Set value to the first communication Op in the set.
-      this.selectedCommOp = this.communicationOps.values().next().value;
+    if (this.communicationOps.size > 0) {
+      if (!this.communicationOps.has(this.selectedCommOp)) {
+        // Set value to the first communication Op in the set.
+        this.selectedCommOp = this.communicationOps.values().next().value ?? '';
+      }
+    } else {
+      this.selectedCommOp = '';
     }
   }
 
@@ -943,7 +1126,10 @@ export class HloStats extends Dashboard implements OnDestroy {
   }
 
   ngOnDestroy() {
-    // Unsubscribes all pending subscriptions.
+    // Unsubscribes all pending subscriptions and listeners.
+    this.cancelChartLoad?.();
+    this.cancelChartLoad = undefined;
+    this.disposeSourceInfoClickListeners();
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

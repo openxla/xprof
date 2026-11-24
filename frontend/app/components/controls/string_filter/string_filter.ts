@@ -44,19 +44,27 @@ export class StringFilter implements OnChanges {
 
   processData() {
     if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+      this.columnIndex = -1;
+      this.columnLabel = '';
       return;
     }
 
     this.columnIndex = this.dataTable.getColumnIndex(this.column);
-    if (this.columnIndex !== -1) {
-      this.columnLabel = this.dataTable.getColumnLabel(this.columnIndex);
+    if (this.columnIndex === -1) {
+      this.columnLabel = '';
+      return;
     }
 
+    this.columnLabel = this.dataTable.getColumnLabel(this.columnIndex);
     this.updateFilter();
   }
 
   updateFilter() {
-    if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+    if (
+      !this.dataTable ||
+      this.dataTable.getNumberOfRows() === 0 ||
+      this.columnIndex < 0
+    ) {
       return;
     }
 
@@ -64,13 +72,16 @@ export class StringFilter implements OnChanges {
       column: this.columnIndex,
     };
     if (this.value) {
-      if (this.exactMatch) {
-        filter.test = (value: string) =>
-          value.toLowerCase().trim() === this.value.toLowerCase().trim();
-      } else {
-        filter.test = (value: string) =>
-          value.toLowerCase().indexOf(this.value.toLowerCase()) !== -1;
-      }
+      const query = this.value.toLowerCase();
+      const trimmedQuery = query.trim();
+      const exactMatch = this.exactMatch;
+      filter.test = (value: unknown): boolean => {
+        if (value == null) {
+          return false;
+        }
+        const text = String(value).toLowerCase();
+        return exactMatch ? text.trim() === trimmedQuery : text.includes(query);
+      };
     }
 
     this.changed.emit(filter);

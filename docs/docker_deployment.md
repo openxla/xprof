@@ -37,7 +37,9 @@ container interfaces on newer releases while remaining compatible with
 `--host=0.0.0.0` explicitly).
 
 **Security Warning**: `ENV XPROF_HOST=0.0.0.0` binds across all container
-interfaces and disables loopback `Host`-header enforcement inside the container.
+interfaces while keeping `Host`-header validation active for `localhost`,
+loopback, and non-unspecified IP literals (set `XPROF_ALLOWED_HOSTS` or
+`--allowed_hosts` when serving behind a custom DNS hostname or reverse proxy).
 For local browser access, publish ports on host loopback
 (`-p 127.0.0.1:8791:8791`). Publishing `-p 8791:8791` without `127.0.0.1:` binds
 `0.0.0.0` on the Docker host and exposes unauthenticated profile reads, mounted

@@ -259,6 +259,58 @@ class ServerAndPackagingContractTest(unittest.TestCase):
       err.close()
     self.assertEqual(status, 404)
 
+  def test_disallowed_host_header_returns_403(self) -> None:
+    """Verifies non-loopback Host headers are rejected on loopback binds."""
+    self.assertIsNotNone(
+        self.server_url,
+        f"XProf server URL must be available for testing: {self._setup_error}",
+    )
+    url = f"{self.server_url.rstrip('/')}/data/plugin/profile/index.html"
+    disallowed_hosts = ["evil.example:8791", "localhost..:8791"]
+    if self._httpd is not None:
+      disallowed_hosts.append("10.0.0.5:8791")
+    for host_header in disallowed_hosts:
+      with self.subTest(host_header=host_header):
+        req = urllib.request.Request(
+            url, method="GET", headers={"Host": host_header}
+        )
+        status = 0
+        try:
+          with urllib.request.urlopen(req, timeout=5.0) as resp:
+            status = resp.status
+        except urllib.error.HTTPError as err:
+          status = err.code
+          err.close()
+        self.assertEqual(status, 403)
+
+    if server is not None:
+      fake_plugin = mock.Mock()
+      fake_plugin.get_plugin_apps.return_value = {
+          "/runs": lambda _env, sr: (sr("200 OK", []), [b"runs"])[1]
+      }
+      fake_plugin.default_handler = lambda _env, sr: (
+          sr("200 OK", []),
+          [b"index"],
+      )[1]
+      for bind_host, http_host, expected in (
+          ("0.0.0.0", "0.0.0.0:8791", "403 Forbidden"),
+          ("0.0.0.0", "10.0.0.5:8791", "200 OK"),
+          ("0.0.0.0", "[::1]:8791", "200 OK"),
+          ("mybox.internal", "mybox.internal:8791", "200 OK"),
+          ("mybox.internal", "evil.example:8791", "403 Forbidden"),
+      ):
+        with self.subTest(bind_host=bind_host, http_host=http_host):
+          statuses: list[str] = []
+          app = server.make_wsgi_app(fake_plugin, host=bind_host)
+          app(
+              {
+                  "PATH_INFO": "/data/plugin/profile/runs",
+                  "HTTP_HOST": http_host,
+              },
+              lambda status, _headers, s=statuses: s.append(status),
+          )
+          self.assertEqual(statuses, [expected])
+
   def test_dotted_run_spa_routes_return_200(self) -> None:
     """Verifies parameterized SPA routes with dots in run names serve index."""
     self.assertIsNotNone(

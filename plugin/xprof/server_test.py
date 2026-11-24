@@ -64,6 +64,23 @@ class ServerTest(parameterized.TestCase):
       self.assertEqual(server.get_default_host(), expected_host)
 
   @parameterized.named_parameters(
+      ('unset', {}, None),
+      ('empty', {'XPROF_ALLOWED_HOSTS': ''}, None),
+      ('whitespace', {'XPROF_ALLOWED_HOSTS': '  \t '}, None),
+      (
+          'custom_hosts',
+          {'XPROF_ALLOWED_HOSTS': ' xprof.example.com,*.internal.example '},
+          'xprof.example.com,*.internal.example',
+      ),
+      ('wildcard_all', {'XPROF_ALLOWED_HOSTS': '*'}, '*'),
+  )
+  def test_get_default_allowed_hosts(self, env_overrides, expected_hosts):
+    with mock.patch.dict(os.environ, {}, clear=False):
+      os.environ.pop('XPROF_ALLOWED_HOSTS', None)
+      os.environ.update(env_overrides)
+      self.assertEqual(server.get_default_allowed_hosts(), expected_hosts)
+
+  @parameterized.named_parameters(
       (
           'no_logdir',
           {
@@ -203,6 +220,64 @@ class ServerTest(parameterized.TestCase):
               src_prefix='',
               max_concurrent_worker_requests=1,
               host='::',
+          ),
+      ),
+      (
+          'allowed_hosts_comma_string_and_dedup',
+          {
+              'logdir': None,
+              'port': 1234,
+              'grpc_port': 50051,
+              'worker_service_address': '0.0.0.0:50051',
+              'hide_capture_profile_button': False,
+              'src_prefix': '',
+              'max_concurrent_worker_requests': 1,
+              'enable_tab_name_label': False,
+              'host': '0.0.0.0',
+              'allowed_hosts': (
+                  'My-Proxy.Example.com., *.Cluster.Local., [0:0:0:0:0:0:0:1],'
+                  ' my-proxy.example.com'
+              ),
+          },
+          server.ServerConfig(
+              logdir=None,
+              port=1234,
+              grpc_port=50051,
+              worker_service_address='0.0.0.0:50051',
+              hide_capture_profile_button=False,
+              src_prefix='',
+              max_concurrent_worker_requests=1,
+              host='0.0.0.0',
+              allowed_hosts=(
+                  'my-proxy.example.com',
+                  '*.cluster.local',
+                  '::1',
+              ),
+          ),
+      ),
+      (
+          'allowed_hosts_sequence',
+          {
+              'logdir': None,
+              'port': 1234,
+              'grpc_port': 50051,
+              'worker_service_address': '0.0.0.0:50051',
+              'hide_capture_profile_button': False,
+              'src_prefix': '',
+              'max_concurrent_worker_requests': 1,
+              'enable_tab_name_label': False,
+              'allowed_hosts': ('a.example.com', '*.b.example.com', '*'),
+          },
+          server.ServerConfig(
+              logdir=None,
+              port=1234,
+              grpc_port=50051,
+              worker_service_address='0.0.0.0:50051',
+              hide_capture_profile_button=False,
+              src_prefix='',
+              max_concurrent_worker_requests=1,
+              host='127.0.0.1',
+              allowed_hosts=('a.example.com', '*.b.example.com', '*'),
           ),
       ),
   )
@@ -403,6 +478,17 @@ class ServerTest(parameterized.TestCase):
           True,
           'max_concurrent_worker_requests must be at least 1',
       ),
+      (
+          'invalid_allowed_hosts',
+          {
+              'logdir': None,
+              'port': 3456,
+              'grpc_port': 50051,
+              'allowed_hosts': 'foo*.example.com',
+          },
+          True,
+          'Invalid allowed host entry',
+      ),
   )
   def test_start_server_errors(
       self, mock_args_dict, path_exists, expected_error_regex
@@ -414,6 +500,35 @@ class ServerTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, expected_error_regex):
       server.start_server(**mock_args_dict)
     self.mock_launch_server.assert_not_called()
+
+  @parameterized.named_parameters(
+      ('empty', '', 'non-empty host string'),
+      ('whitespace', '   ', 'non-empty host string'),
+      ('bool', True, '--allowed_hosts'),
+      ('int', 123, '--allowed_hosts'),
+      ('trailing_comma', 'example.com,', 'Invalid allowed host entry'),
+      ('partial_wildcard', 'foo*.example.com', 'Invalid allowed host entry'),
+      ('bare_wildcard_dot', '*.', 'Invalid allowed host entry'),
+      ('wildcard_ip', '*.127.0.0.1', 'Wildcard allowed host cannot be an IP'),
+      (
+          'wildcard_leading_space',
+          '*. example.com',
+          'Invalid allowed host entry',
+      ),
+      ('port_included', 'example.com:8791', 'Invalid allowed host entry'),
+      ('unspecified_ip', '0.0.0.0', 'Invalid allowed host entry'),
+      ('ipv4_trailing_dot', '127.0.0.1.', 'Invalid allowed host entry'),
+      ('leading_dot', '.example.com', 'Invalid allowed host entry'),
+      ('double_dot', 'a..example.com', 'Invalid allowed host entry'),
+      ('non_dns_chars', '<script>', 'Invalid allowed host entry'),
+      ('semicolon_host', 'a;b.example.com', 'Invalid allowed host entry'),
+      ('wildcard_non_dns_chars', '*.<script>', 'Invalid allowed host entry'),
+  )
+  def test_normalize_allowed_hosts_errors(
+      self, allowed_hosts, expected_error_regex
+  ):
+    with self.assertRaisesRegex(ValueError, expected_error_regex):
+      server._normalize_allowed_hosts(allowed_hosts)
 
   @parameterized.named_parameters(
       ('get_overview', 'get_overview'),
@@ -480,6 +595,39 @@ class ServerTest(parameterized.TestCase):
       )
     self.assertEqual(exit_code, 0)
     self.assertEqual(self.mock_launch_server.call_args[0][0].host, '127.0.0.1')
+
+  def test_main_respects_xprof_allowed_hosts_env_and_cli_override(self):
+    self.mock_path_exists_return = True
+
+    with mock.patch.dict(
+        os.environ,
+        {'XPROF_ALLOWED_HOSTS': 'proxy.example.com,*.svc.cluster.local'},
+        clear=False,
+    ):
+      exit_code = server.main(['--logdir', '/tmp/log', '--port', '1234'])
+    self.assertEqual(exit_code, 0)
+    self.assertEqual(
+        self.mock_launch_server.call_args[0][0].allowed_hosts,
+        ('proxy.example.com', '*.svc.cluster.local'),
+    )
+
+    self.mock_launch_server.reset_mock()
+    with mock.patch.dict(
+        os.environ, {'XPROF_ALLOWED_HOSTS': 'proxy.example.com'}, clear=False
+    ):
+      exit_code = server.main([
+          '--logdir',
+          '/tmp/log',
+          '--port',
+          '1234',
+          '--allowed_hosts',
+          'override.example.com',
+      ])
+    self.assertEqual(exit_code, 0)
+    self.assertEqual(
+        self.mock_launch_server.call_args[0][0].allowed_hosts,
+        ('override.example.com',),
+    )
 
   def test_cli_subcommand_required_message(self):
     message = server.cli_subcommand_required_message('get_overview')
@@ -619,7 +767,9 @@ class LaunchServerTest(absltest.TestCase):
           max_concurrent_worker_requests=1,
       )
       server._launch_server(default_config)
-      mock_run_server.assert_called_once_with(mock.ANY, '127.0.0.1', 8791)
+      mock_run_server.assert_called_once_with(
+          mock.ANY, '127.0.0.1', 8791, allowed_hosts=()
+      )
 
       mock_run_server.reset_mock()
       custom_config = server.ServerConfig(
@@ -631,9 +781,15 @@ class LaunchServerTest(absltest.TestCase):
           src_prefix=None,
           max_concurrent_worker_requests=1,
           host='localhost',
+          allowed_hosts=('proxy.example.com',),
       )
       server._launch_server(custom_config)
-      mock_run_server.assert_called_once_with(mock.ANY, 'localhost', 8791)
+      mock_run_server.assert_called_once_with(
+          mock.ANY,
+          'localhost',
+          8791,
+          allowed_hosts=('proxy.example.com',),
+      )
 
 
 def _respond_with(body):
@@ -649,7 +805,9 @@ def _respond_with(body):
 
 class MakeWsgiAppTest(parameterized.TestCase):
 
-  def _request(self, path, extra_environ=None, host='127.0.0.1'):
+  def _request(
+      self, path, extra_environ=None, host='127.0.0.1', allowed_hosts=None
+  ):
     """Returns statuses, headers dict, and body served for `path`."""
     plugin = mock.Mock()
     plugin.get_plugin_apps.return_value = {'/runs': _respond_with(b'runs')}
@@ -664,13 +822,20 @@ class MakeWsgiAppTest(parameterized.TestCase):
       statuses.append(status)
       captured_headers.extend(headers)
 
-    body = server.make_wsgi_app(plugin, host=host)(environ, start_response)
+    body = server.make_wsgi_app(
+        plugin, host=host, allowed_hosts=allowed_hosts
+    )(environ, start_response)
     return statuses, dict(captured_headers), b''.join(body)
 
-  def _get(self, path, extra_environ=None, host='127.0.0.1'):
+  def _get(
+      self, path, extra_environ=None, host='127.0.0.1', allowed_hosts=None
+  ):
     """Returns the status and body the standalone app serves for `path`."""
     statuses, _, body = self._request(
-        path, extra_environ=extra_environ, host=host
+        path,
+        extra_environ=extra_environ,
+        host=host,
+        allowed_hosts=allowed_hosts,
     )
     return statuses, body
 
@@ -1198,17 +1363,302 @@ class MakeWsgiAppTest(parameterized.TestCase):
         (['403 Forbidden'], b'Forbidden'),
     )
 
-  def test_dns_rebinding_host_header_allowed_when_bound_to_wildcard(self):
+  @parameterized.named_parameters(
+      (
+          'attacker_domain_on_ipv4_wildcard',
+          '0.0.0.0',
+          'evil.rebind.attacker.example:8791',
+      ),
+      (
+          'attacker_domain_on_ipv6_wildcard',
+          '::',
+          'evil.rebind.attacker.example:8791',
+      ),
+      (
+          'attacker_domain_on_explicit_lan_ip',
+          '10.0.0.5',
+          'attacker.com:8791',
+      ),
+      (
+          'attacker_domain_on_explicit_hostname',
+          'mybox.internal',
+          'attacker.com:8791',
+      ),
+      ('localhost_prefix_spoof_on_wildcard', '0.0.0.0', 'localhost.evil:8791'),
+      ('ip_prefix_spoof_on_wildcard', '0.0.0.0', '127.0.0.1.nip.io:8791'),
+      ('evil_localhost_subdomain', '0.0.0.0', 'evil.localhost:8791'),
+      ('unspecified_ipv4_on_wildcard', '0.0.0.0', '0.0.0.0:8791'),
+      ('unspecified_ipv6_on_wildcard', '::', '[::]:8791'),
+      (
+          'ipv4_mapped_unspecified_on_wildcard',
+          '::',
+          '[::ffff:0.0.0.0]:8791',
+      ),
+      ('octal_ip_on_wildcard', '0.0.0.0', '0177.0.0.1:8791'),
+      ('hex_ip_on_wildcard', '0.0.0.0', '0x7f000001:8791'),
+      ('decimal_ip_on_wildcard', '0.0.0.0', '2130706433:8791'),
+      ('short_ip_on_wildcard', '0.0.0.0', '127.1:8791'),
+      ('non_loopback_ip_on_loopback_bind', '127.0.0.1', '10.0.0.5:8791'),
+  )
+  def test_dns_rebinding_host_rejected_even_on_non_loopback_bind(
+      self, bind_host, http_host
+  ):
     environ = {
-        'HTTP_HOST': 'attacker.com:8791',
-        'HTTP_ORIGIN': 'http://attacker.com:8791',
+        'HTTP_HOST': http_host,
+        'HTTP_ORIGIN': f'http://{http_host}',
+        'HTTP_REFERER': f'http://{http_host}/',
         'HTTP_SEC_FETCH_SITE': 'same-origin',
     }
     self.assertEqual(
         self._get(
-            '/data/plugin/profile/runs', extra_environ=environ, host='0.0.0.0'
+            '/data/plugin/profile/runs', extra_environ=environ, host=bind_host
+        ),
+        (['403 Forbidden'], b'Forbidden'),
+    )
+
+  @parameterized.named_parameters(
+      ('localhost_on_wildcard', '0.0.0.0', 'localhost:8791', None),
+      ('ipv4_loopback_on_wildcard', '0.0.0.0', '127.0.0.1:8791', None),
+      ('ipv6_loopback_on_wildcard', '::', '[::1]:8791', None),
+      ('ipv4_literal_on_wildcard', '0.0.0.0', '10.0.0.5:8791', None),
+      ('ipv6_literal_on_wildcard', '::', '[2001:db8::1]:8791', None),
+      (
+          'bound_hostname_on_explicit_bind',
+          'mybox.internal',
+          'mybox.internal:8791',
+          None,
+      ),
+      (
+          'exact_allowed_host_on_loopback_bind',
+          '127.0.0.1',
+          'my-proxy.example.com:8791',
+          'my-proxy.example.com',
+      ),
+      (
+          'exact_allowed_host_case_and_trailing_dot',
+          '0.0.0.0',
+          'Xprof-Agg-Service.Default.svc.cluster.local.:80',
+          'xprof-agg-service.default.svc.cluster.local',
+      ),
+      (
+          'wildcard_subdomain_allowed_host',
+          '0.0.0.0',
+          'xprof.proxy.example.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'nested_wildcard_subdomain_allowed_host',
+          '0.0.0.0',
+          'a.b.proxy.example.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'star_allowed_host_permits_valid_domain',
+          '0.0.0.0',
+          'custom.example.org:8791',
+          '*',
+      ),
+  )
+  def test_allows_permitted_host_headers_for_bind_and_allowlist(
+      self, bind_host, http_host, allowed_hosts
+  ):
+    environ = {
+        'HTTP_HOST': http_host,
+        'HTTP_ORIGIN': f'http://{http_host}',
+        'HTTP_SEC_FETCH_SITE': 'same-origin',
+    }
+    self.assertEqual(
+        self._get(
+            '/data/plugin/profile/runs',
+            extra_environ=environ,
+            host=bind_host,
+            allowed_hosts=allowed_hosts,
         ),
         (['200 OK'], b'runs'),
+    )
+
+  @parameterized.named_parameters(
+      (
+          'wildcard_does_not_match_apex_domain',
+          '0.0.0.0',
+          'proxy.example.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'wildcard_enforces_dot_boundary',
+          '0.0.0.0',
+          'evil-proxy.example.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'wildcard_does_not_match_suffix_spoof',
+          '0.0.0.0',
+          'a.proxy.example.com.evil.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'wildcard_rejects_leading_dot',
+          '0.0.0.0',
+          '.proxy.example.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'wildcard_rejects_literal_wildcard',
+          '0.0.0.0',
+          '*.proxy.example.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'wildcard_rejects_double_dot_label',
+          '0.0.0.0',
+          'a..proxy.example.com:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'wildcard_rejects_multiple_trailing_dots',
+          '0.0.0.0',
+          'a.proxy.example.com..:443',
+          '*.proxy.example.com',
+      ),
+      (
+          'wildcard_rejects_bare_star',
+          '0.0.0.0',
+          '*',
+          '*.proxy.example.com',
+      ),
+      (
+          'unlisted_host_rejected_with_allowlist',
+          '0.0.0.0',
+          'other.example.com:8791',
+          'allowed.example.com',
+      ),
+      (
+          'star_still_rejects_malformed_host',
+          '0.0.0.0',
+          'evil.com@127.0.0.1:8791',
+          '*',
+      ),
+      (
+          'star_still_rejects_empty_host',
+          '0.0.0.0',
+          '',
+          '*',
+      ),
+      (
+          'star_still_rejects_leading_dot',
+          '0.0.0.0',
+          '.proxy.example.com:443',
+          '*',
+      ),
+      (
+          'star_still_rejects_literal_wildcard',
+          '0.0.0.0',
+          '*.proxy.example.com:443',
+          '*',
+      ),
+      (
+          'star_still_rejects_double_dot_label',
+          '0.0.0.0',
+          'a..proxy.example.com:443',
+          '*',
+      ),
+      (
+          'star_still_rejects_multiple_trailing_dots',
+          '0.0.0.0',
+          'proxy.example.com..:443',
+          '*',
+      ),
+      (
+          'star_still_rejects_bare_star',
+          '0.0.0.0',
+          '*',
+          '*',
+      ),
+      (
+          'star_still_rejects_wildcard_dot',
+          '0.0.0.0',
+          '*.',
+          '*',
+      ),
+      (
+          'star_still_rejects_unspecified_ipv4',
+          '0.0.0.0',
+          '0.0.0.0:8791',
+          '*',
+      ),
+      (
+          'star_still_rejects_unspecified_ipv6',
+          '::',
+          '[::]:8791',
+          '*',
+      ),
+      (
+          'star_still_rejects_bare_ipv6',
+          '0.0.0.0',
+          '::1',
+          '*',
+      ),
+      (
+          'star_still_rejects_bare_ipv6_with_port_ambiguity',
+          '0.0.0.0',
+          '::1:8791',
+          '*',
+      ),
+      (
+          'star_still_rejects_ipv6_zone_id',
+          '0.0.0.0',
+          '[fe80::1%25eth0]:8791',
+          '*',
+      ),
+      (
+          'star_still_rejects_ipv4_trailing_dot',
+          '0.0.0.0',
+          '127.0.0.1.:8791',
+          '*',
+      ),
+      (
+          'star_still_rejects_port_zero',
+          '0.0.0.0',
+          'localhost:0',
+          '*',
+      ),
+      (
+          'star_still_rejects_non_dns_chars',
+          '0.0.0.0',
+          '<script>:8791',
+          '*',
+      ),
+      (
+          'star_still_rejects_semicolon',
+          '0.0.0.0',
+          'a;b.example.com:8791',
+          '*',
+      ),
+  )
+  def test_rejects_disallowed_or_malformed_host_with_allowlist(
+      self, bind_host, http_host, allowed_hosts
+  ):
+    environ = {
+        'HTTP_HOST': http_host,
+        'HTTP_SEC_FETCH_SITE': 'same-origin',
+    }
+    self.assertEqual(
+        self._get(
+            '/data/plugin/profile/runs',
+            extra_environ=environ,
+            host=bind_host,
+            allowed_hosts=allowed_hosts,
+        ),
+        (['403 Forbidden'], b'Forbidden'),
+    )
+
+  def test_rejects_http_1_1_missing_host_header(self):
+    self.assertEqual(
+        self._get(
+            '/data/plugin/profile/runs',
+            extra_environ={'SERVER_PROTOCOL': 'HTTP/1.1'},
+        ),
+        (['403 Forbidden'], b'Forbidden'),
     )
 
 

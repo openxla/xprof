@@ -102,10 +102,15 @@ the image-level `ENV XPROF_HOST=0.0.0.0` so its unused HTTP port stays bound to
 loopback.
 
 **Security Note**: Setting `XPROF_HOST: "0.0.0.0"` (or `--host=0.0.0.0`)
-disables loopback `Host`-header enforcement and serves unauthenticated profile
-endpoints across all container interfaces. Expose `xprof-agg-service` only
-behind cluster network policies, firewall rules, or an authenticating reverse
-proxy rather than directly to untrusted networks.
+serves unauthenticated profile endpoints across all container interfaces while
+keeping `Host`-header validation active for loopback and non-unspecified IP
+literals. If requests reach `aggregator-container` with a Kubernetes service or
+Ingress DNS `Host` header (for example `xprof-agg-service` or
+`*.svc.cluster.local`), set `XPROF_ALLOWED_HOSTS` (or `--allowed_hosts` on
+`xprof` versions after `2.24.2`) to the expected hostname(s) or `*` behind an
+authenticating reverse proxy. Expose
+`xprof-agg-service` only behind cluster network policies, firewall rules, or an
+authenticating reverse proxy rather than directly to untrusted networks.
 
 ### Worker
 

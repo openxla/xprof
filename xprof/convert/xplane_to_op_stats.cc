@@ -126,8 +126,12 @@ PerfEnv MakePerfEnv(double peak_tera_flops_per_second,
   for (const auto bw : peak_bws) {
     result.add_peak_bws_giga_bytes_per_second(bw);
   }
-  result.set_ridge_point(tsl::profiler::TeraToGiga(peak_tera_flops_per_second) /
-                         peak_bws[MemBwType::MEM_BW_TYPE_HBM_RW]);
+  const double hbm_bw =
+      peak_bws.size() > MemBwType::MEM_BW_TYPE_HBM_RW
+          ? peak_bws[MemBwType::MEM_BW_TYPE_HBM_RW]
+          : 0.0;
+  result.set_ridge_point(tsl::profiler::SafeDivide(
+      tsl::profiler::TeraToGiga(peak_tera_flops_per_second), hbm_bw));
   return result;
 }
 

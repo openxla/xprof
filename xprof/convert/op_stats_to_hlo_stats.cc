@@ -21,6 +21,8 @@ limitations under the License.
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
@@ -122,6 +124,13 @@ void AddHloStatsRecordsRecursively(HloStatsDatabase& hlo_stats_db,
   }
 }
 
+// Parses the op name assuming the HLO text has format '%op_name = <long name>'.
+std::string GetHloOpNameFromExpression(absl::string_view expression) {
+  std::vector<absl::string_view> parts =
+      absl::StrSplit(expression, absl::MaxSplits(" = ", 1));
+  return std::string(absl::StripPrefix(parts[0], "%"));
+}
+
 }  // namespace
 
 HloStatsDatabase ConvertOpStatsToHloStats(const OpStats& op_stats) {
@@ -139,17 +148,6 @@ HloStatsDatabase ConvertOpStatsToHloStats(const OpStats& op_stats) {
                                   total_device_time_us, /*parent_op_name=*/"");
   }
   return hlo_stats_db;
-}
-
-// The parse logic based on the assumption that the hlo op text is in format of
-// '%op_name = <long name>'
-std::string GetHloOpNameFromExpression(std::string expression) {
-  std::vector<::std::string> parts = absl::StrSplit(expression, " = ");
-  std::string hlo_op_name = parts[0];
-  if (hlo_op_name[0] == '%') {
-    hlo_op_name = hlo_op_name.substr(1);
-  }
-  return hlo_op_name;
 }
 
 std::vector<std::vector<std::string>> HloStatsDataTableColumns() {
@@ -212,7 +210,7 @@ std::unique_ptr<tensorflow::profiler::DataTable> CreateHloStatsDataTable(
     row->AddNumberCell(record.avg_self_time_in_us());
     row->AddNumberCell(record.total_self_time_as_fraction() * 100.0);
     row->AddNumberCell(record.cumulative_total_self_time_as_fraction() * 100.0);
-    row->AddNumberCell(record.dma_stall_fraction());
+    row->AddNumberCell(record.dma_stall_fraction() * 100.0);
     row->AddNumberCell(record.model_flop_rate());
     row->AddNumberCell(record.measured_flop_rate());
     row->AddNumberCell(record.measured_memory_bw());

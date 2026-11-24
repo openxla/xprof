@@ -2371,6 +2371,14 @@ ENTRY main {
   // GB300 (CC 10.3) has 6x FP4 throughput vs BF16.
   EXPECT_EQ(dot_metrics->flops(), kExpectedModelFlops / 6);
 }
+
+TEST(ConvertXPlaneToOpStats, MakePerfEnvGuardsZeroAndEmptyBandwidth) {
+  EXPECT_EQ(MakePerfEnv(/*peak_tera_flops_per_second=*/100.0, {0.0})
+                .ridge_point(),
+            0.0);
+  EXPECT_EQ(MakePerfEnv(/*peak_tera_flops_per_second=*/100.0, {}).ridge_point(),
+            0.0);
+}
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

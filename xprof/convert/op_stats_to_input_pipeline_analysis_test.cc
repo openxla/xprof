@@ -702,6 +702,37 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(properties.at("sc_step_time_ms_average"), "40.0");
 }
 
+TEST(TfOpStatsToInputPipelineAnalysisTest,
+     GenerateGenericInputPipelineAnalysisDataTablePopulatesClassifications) {
+  GenericStepTimeBreakdown breakdown;
+  BottleneckAnalysis bottleneck;
+  bottleneck.set_input_statement("Input statement");
+  bottleneck.set_device_collectives_classification("high");
+  bottleneck.set_device_collectives_statement("Collectives statement");
+  bottleneck.set_kernel_launch_classification("moderate");
+  bottleneck.set_kernel_launch_statement("Kernel launch statement");
+  bottleneck.set_all_other_classification("no");
+  bottleneck.set_all_other_statement("All other statement");
+
+  InputPipelineAnalysisResult result;
+  result.set_tag(false);
+  result.mutable_step_time_breakdown()->PackFrom(breakdown);
+  result.mutable_recommendation()->mutable_bottleneck_analysis()->PackFrom(
+      bottleneck);
+
+  DataTable data_table = GenerateInputPipelineAnalysisDataTable(result);
+
+  const auto& properties = data_table.GetCustomProperties();
+  EXPECT_EQ(properties.at("device_collectives_bottleneck"), "high");
+  EXPECT_EQ(properties.at("device_collectives_statement"),
+            "Collectives statement");
+  EXPECT_EQ(properties.at("kernel_launch_bottleneck"), "moderate");
+  EXPECT_EQ(properties.at("kernel_launch_statement"),
+            "Kernel launch statement");
+  EXPECT_EQ(properties.at("all_other_bottleneck"), "no");
+  EXPECT_EQ(properties.at("all_other_statement"), "All other statement");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

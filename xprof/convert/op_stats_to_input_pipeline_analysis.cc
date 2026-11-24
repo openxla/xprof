@@ -1889,16 +1889,17 @@ void AddInputAnalysisGenericSummary(const InputPipelineAnalysisResult& result,
     result.recommendation().bottleneck_analysis().UnpackTo(&bottleneck);
     data_table.AddCustomProperty("input_conclusion",
                                  bottleneck.input_statement());
-    data_table.AddCustomProperty("device_collectives_bottleneck",
-                                 bottleneck.device_collectives_statement());
+    data_table.AddCustomProperty(
+        "device_collectives_bottleneck",
+        bottleneck.device_collectives_classification());
     data_table.AddCustomProperty("device_collectives_statement",
                                  bottleneck.device_collectives_statement());
     data_table.AddCustomProperty("kernel_launch_bottleneck",
-                                 bottleneck.kernel_launch_statement());
+                                 bottleneck.kernel_launch_classification());
     data_table.AddCustomProperty("kernel_launch_statement",
                                  bottleneck.kernel_launch_statement());
     data_table.AddCustomProperty("all_other_bottleneck",
-                                 bottleneck.all_other_statement());
+                                 bottleneck.all_other_classification());
     data_table.AddCustomProperty("all_other_statement",
                                  bottleneck.all_other_statement());
   }

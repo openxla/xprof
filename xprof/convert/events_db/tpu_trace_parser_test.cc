@@ -450,11 +450,13 @@ TEST(TpuTraceParserTest, TensorCoreXlaOpWithoutModuleContextOrStepContext) {
 
   ASSERT_EQ(parsed_records.size(), 3);
   const Record& op1_rec = parsed_records[1];
+  EXPECT_EQ(op1_rec[indices.hlo_op], "op_1");
   EXPECT_EQ(op1_rec[indices.hlo_module], "invalid_module_name");
   EXPECT_FALSE(op1_rec.HasField(indices.step));
   EXPECT_FALSE(op1_rec.HasField(indices.tf_op_name));
 
   const Record& op2_rec = parsed_records[2];
+  EXPECT_EQ(op2_rec[indices.hlo_op], "op_2");
   EXPECT_FALSE(op2_rec.HasField(indices.hlo_module));
   EXPECT_FALSE(op2_rec.HasField(indices.step));
 }

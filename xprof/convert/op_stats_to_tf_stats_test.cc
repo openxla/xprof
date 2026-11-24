@@ -41,6 +41,7 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
 using ::tsl::profiler::StatType;
 using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XLineBuilder;
@@ -347,6 +348,54 @@ TEST(OpStatsToTfStats, FlatOpMetricsDbSupport) {
   const std::string json = TfStatsToDataTableJson(tf_stats);
   EXPECT_NE(json.find("Normalized FLOP Rate (GFLOP/s)"), std::string::npos);
   EXPECT_EQ(json.find("Normalized FLOP Rate (FLOPs/s)"), std::string::npos);
+}
+
+TEST(OpStatsToTfStats, HostOpsKeepGlobalRankAndIndependentCumulativeFraction) {
+  OpStats op_stats = ParseTextProtoOrDie(R"pb(
+    run_environment { device_type: "TPU" }
+    device_op_metrics_db {
+      total_time_ps: 1000000
+      total_op_time_ps: 1000000
+      metrics_db {
+        name: "device_op_1"
+        category: "DeviceCat"
+        occurrences: 1
+        time_ps: 600000
+        self_time_ps: 600000
+      }
+      metrics_db {
+        name: "device_op_2"
+        category: "DeviceCat"
+        occurrences: 1
+        time_ps: 400000
+        self_time_ps: 400000
+      }
+    }
+    host_op_metrics_db {
+      total_time_ps: 500000
+      total_op_time_ps: 500000
+      metrics_db {
+        name: "host_op_1"
+        category: "HostCat"
+        occurrences: 1
+        time_ps: 500000
+        self_time_ps: 500000
+      }
+    }
+  )pb");
+
+  TfStatsDatabase tf_stats = ConvertOpStatsToTfStats(op_stats);
+  ASSERT_EQ(tf_stats.with_idle().tf_stats_record_size(), 3);
+  const TfStatsRecord& host_record = tf_stats.with_idle().tf_stats_record(2);
+  EXPECT_EQ(host_record.op_name(), "host_op_1");
+  EXPECT_EQ(host_record.rank(), 3);
+  EXPECT_DOUBLE_EQ(host_record.host_total_self_time_as_fraction(), 1.0);
+  EXPECT_DOUBLE_EQ(host_record.host_cumulative_total_self_time_as_fraction(),
+                   1.0);
+  std::string json = TfStatsToDataTableJson(tf_stats);
+  EXPECT_NE(json.find("Host_cumulative_total_self_time_percent"),
+            std::string::npos);
+  EXPECT_NE(json.find("Normalized FLOP Rate (GFLOP/s)"), std::string::npos);
 }
 }  // namespace
 }  // namespace profiler

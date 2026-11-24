@@ -74,7 +74,8 @@ bool PopulateTensorCoreEventRecord(
       return true;
     case TpuComponent::kTensorCoreHLO: {
       record[indices.kernel_name] = event.Name();
-      record[indices.hlo_op] = event.DisplayName();
+      record[indices.hlo_op] =
+          event.HasDisplayName() ? event.DisplayName() : event.Name();
       std::optional<tsl::profiler::XEventVisitor> step_event =
           step_context.GetContainingEvent(event.GetTimespan());
       std::optional<tsl::profiler::XEventVisitor> hlo_module_event =

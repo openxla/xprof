@@ -101,8 +101,11 @@ void CombinePowerMetrics(const RunEnvironment& src, RunEnvironment* dst) {
   }
   const size_t src_hosts = src.hostnames_size();
   const size_t dst_hosts = dst->hostnames_size();
-  const double src_weight = src_hosts * 1.0 / (src_hosts + dst_hosts);
-  const double dst_weight = dst_hosts * 1.0 / (src_hosts + dst_hosts);
+  const size_t total_hosts = src_hosts + dst_hosts;
+  const double src_weight =
+      total_hosts > 0 ? src_hosts * 1.0 / total_hosts : 0.0;
+  const double dst_weight =
+      total_hosts > 0 ? dst_hosts * 1.0 / total_hosts : 1.0;
   // Always assume src/dst have the same number of power components.
   DCHECK_EQ(src.power_metrics().power_component_metrics_size(),
             dst->power_metrics().power_component_metrics_size());

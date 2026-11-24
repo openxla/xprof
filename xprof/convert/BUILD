@@ -1308,6 +1308,7 @@ cc_library(
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:source_info_proto_cc",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
         "@xla//xla/tsl/profiler/utils:tf_op_utils",

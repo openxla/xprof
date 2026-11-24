@@ -194,6 +194,17 @@ class SetupTest(absltest.TestCase):
     self.assertTrue(
         os.path.isfile(perf_counters_py), f'Missing {perf_counters_py}'
     )
+    for detect_tool in (
+        'detect_layout_mismatch_copies_tool.py',
+        'detect_unfused_reshapes_tool.py',
+        'detect_unfused_updates_tool.py',
+        'detect_unnecessary_convert_dynamic_scale_tool.py',
+        'detect_unnecessary_convert_reduce_tool.py',
+    ):
+      detect_tool_py = os.path.join(os.path.dirname(oss_tools_dir), detect_tool)
+      self.assertTrue(
+          os.path.isfile(detect_tool_py), f'Missing {detect_tool_py}'
+      )
 
 
 if __name__ == '__main__':

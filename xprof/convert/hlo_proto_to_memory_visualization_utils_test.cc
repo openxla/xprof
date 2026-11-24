@@ -1817,6 +1817,306 @@ TEST(MemoryViewerTest, RenderTimelineGraphEscapesInstructionNameInHtml) {
       R"(\u003c/script\u003e\u003cscript\u003ealert(1)\u003c/script\u003e)"));
 }
 
+TEST(MemoryViewerTest, NonHbmIndefiniteBuffersKeepSymmetricTotals) {
+  static constexpr char kHloVmemConstant[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "fusion.1"
+          id: 0
+          shape { tuple_shapes { element_type: U64 } }
+        }
+        instructions {
+          name: "constant.1"
+          id: 1
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1048576
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 1048576 }
+      }
+      buffer_allocations {
+        index: 1
+        size: 2097152
+        color: 1
+        is_constant: true
+        assigned { logical_buffer_id: 2 offset: 0 size: 2097152 }
+      }
+      logical_buffers {
+        id: 1
+        size: 1048576
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 2097152
+        color: 1
+        defined_at { instruction_id: 1 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        buffer_allocation_index: 0
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: FREE buffer_id: 1 }
+      }
+    }
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(kHloVmemConstant, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.memory_color = 1;
+  option.small_buffer_size = 0;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_EQ(preprocess_result.peak_heap_mib(), 3.0);
+  EXPECT_EQ(preprocess_result.total_buffer_allocation_mib(), 3.0);
+  EXPECT_EQ(preprocess_result.indefinite_buffer_allocation_mib(), 2.0);
+  EXPECT_EQ(preprocess_result.max_heap_size(), 1);
+}
+
+TEST(MemoryViewerTest,
+     OverlappingShareWithUpdatesDisplayIdUnpaddedSizeWithoutOverlap) {
+  static constexpr char kHloOverlappingShareWith[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "fusion.1"
+          id: 0
+          shape {
+            tuple_shapes {
+              element_type: U64
+              dimensions: 1
+              layout { minor_to_major: 0 }
+            }
+          }
+        }
+        instructions {
+          name: "fusion.2"
+          id: 1
+          shape {
+            tuple_shapes {
+              element_type: U64
+              dimensions: 8
+              layout { minor_to_major: 0 }
+            }
+          }
+        }
+        instructions {
+          name: "fusion.3"
+          id: 2
+          shape {
+            tuple_shapes {
+              element_type: U64
+              dimensions: 1
+              layout { minor_to_major: 0 }
+            }
+          }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 786432
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 262144 }
+        assigned { logical_buffer_id: 2 offset: 0 size: 262144 }
+        assigned { logical_buffer_id: 3 offset: 262144 size: 524288 }
+      }
+      logical_buffers {
+        id: 1
+        size: 262144
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 262144
+        color: 1
+        defined_at { instruction_id: 1 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 3
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 2 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        buffer_allocation_index: 0
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
+        events { kind: FREE buffer_id: 1 }
+        events { kind: ALLOC buffer_id: 3 }
+        events { kind: FREE buffer_id: 2 }
+        events { kind: FREE buffer_id: 3 }
+      }
+    }
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(
+      ParseTextFormatFromString(kHloOverlappingShareWith, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.memory_color = 1;
+  option.small_buffer_size = 0;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.75);
+  EXPECT_DOUBLE_EQ(preprocess_result.peak_unpadded_heap_mib(),
+                   (64.0 + 8.0) / (1 << 20));
+  ASSERT_EQ(preprocess_result.max_heap_size(), 2);
+  bool found_fusion_2 = false;
+  for (const auto& obj : preprocess_result.max_heap()) {
+    if (absl::StrContains(obj.instruction_name(), "fusion.2")) {
+      found_fusion_2 = true;
+    }
+    EXPECT_FALSE(absl::StrContains(obj.instruction_name(), "fusion.1"));
+  }
+  EXPECT_TRUE(found_fusion_2);
+  // Physical slot stays mapped to non-overlapping timeline span [0, 4].
+  ASSERT_TRUE(preprocess_result.logical_buffer_spans().contains(1));
+  EXPECT_EQ(preprocess_result.logical_buffer_spans().at(1).start(), 0);
+  EXPECT_EQ(preprocess_result.logical_buffer_spans().at(1).limit(), 4);
+  EXPECT_FALSE(preprocess_result.logical_buffer_spans().contains(2));
+}
+
+TEST(MemoryViewerTest, ReverseOrderFreeRevertsDisplayIdUnpaddedSizeAndSpan) {
+  static constexpr char kHloReverseFree[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "fusion.1"
+          id: 0
+          shape {
+            tuple_shapes {
+              element_type: U64
+              dimensions: 1
+              layout { minor_to_major: 0 }
+            }
+          }
+        }
+        instructions {
+          name: "fusion.2"
+          id: 1
+          shape {
+            tuple_shapes {
+              element_type: U64
+              dimensions: 8
+              layout { minor_to_major: 0 }
+            }
+          }
+        }
+        instructions {
+          name: "fusion.3"
+          id: 2
+          shape {
+            tuple_shapes {
+              element_type: U64
+              dimensions: 1
+              layout { minor_to_major: 0 }
+            }
+          }
+        }
+        instructions {
+          name: "fusion.4"
+          id: 3
+          shape {
+            tuple_shapes {
+              element_type: U64
+              dimensions: 1
+              layout { minor_to_major: 0 }
+            }
+          }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 786432
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 262144 }
+        assigned { logical_buffer_id: 2 offset: 0 size: 262144 }
+        assigned { logical_buffer_id: 3 offset: 262144 size: 524288 }
+        assigned { logical_buffer_id: 4 offset: 0 size: 131072 }
+      }
+      logical_buffers {
+        id: 1
+        size: 262144
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 262144
+        color: 1
+        defined_at { instruction_id: 1 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 3
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 2 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 4
+        size: 131072
+        color: 1
+        defined_at { instruction_id: 3 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        buffer_allocation_index: 0
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
+        events { kind: FREE buffer_id: 2 }
+        events { kind: ALLOC buffer_id: 3 }
+        events { kind: FREE buffer_id: 1 }
+        events { kind: FREE buffer_id: 3 }
+        events { kind: ALLOC buffer_id: 4 }
+        events { kind: FREE buffer_id: 4 }
+      }
+    }
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(kHloReverseFree, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.memory_color = 1;
+  option.small_buffer_size = 0;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  // At peak step 3, only b1 (8 bytes unpadded) and b3 (8 bytes) are live; b2
+  // was freed at step 2 so display ID & unpadded size must revert to b1.
+  EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.75);
+  EXPECT_DOUBLE_EQ(preprocess_result.peak_unpadded_heap_mib(),
+                   (8.0 + 8.0) / (1 << 20));
+  ASSERT_EQ(preprocess_result.max_heap_size(), 2);
+  bool found_fusion_1 = false;
+  for (const auto& obj : preprocess_result.max_heap()) {
+    if (absl::StrContains(obj.instruction_name(), "fusion.1")) {
+      found_fusion_1 = true;
+    }
+    EXPECT_FALSE(absl::StrContains(obj.instruction_name(), "fusion.2"));
+  }
+  EXPECT_TRUE(found_fusion_1);
+  // Span for b1 must close at step 4 (FREE b1), not leak to trace end (7).
+  ASSERT_TRUE(preprocess_result.logical_buffer_spans().contains(1));
+  EXPECT_EQ(preprocess_result.logical_buffer_spans().at(1).start(), 0);
+  EXPECT_EQ(preprocess_result.logical_buffer_spans().at(1).limit(), 4);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

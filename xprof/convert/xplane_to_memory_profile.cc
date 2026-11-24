@@ -72,7 +72,8 @@ void UpdateProfileSummary(const MemoryAggregationStats& stats,
   summary->set_num_deallocations(summary->num_deallocations() +
                                  (activity == DEALLOCATION ? 1 : 0));
   // Update the peak memory usage over allocator's lifetime.
-  summary->set_peak_bytes_usage_lifetime(stats.peak_bytes_in_use());
+  summary->set_peak_bytes_usage_lifetime(std::max(
+      summary->peak_bytes_usage_lifetime(), stats.peak_bytes_in_use()));
   MemoryAggregationStats* peak_stats = summary->mutable_peak_stats();
   // If we reach (or stay at) peak memory usage within the profiling window,
   // update memory profile summary.
@@ -167,12 +168,6 @@ MemoryProfile GenerateMemoryProfile(const XPlane* host_trace) {
         }
       });
 
-      MemoryProfileSummary* summary =
-          (*memory_profile.mutable_memory_profile_per_allocator())[memory_id]
-              .mutable_profile_summary();
-      UpdateProfileSummary(stats, metadata.memory_activity(), event.OffsetPs(),
-                           summary);
-
       MemoryProfileSnapshot* snapshot =
           (*memory_profile.mutable_memory_profile_per_allocator())[memory_id]
               .add_memory_profile_snapshots();
@@ -220,6 +215,11 @@ void UpdateDeallocation(PerAllocatorMemoryProfile* memory_profile) {
             alloc_meta->data_type());
         snapshot.mutable_activity_metadata()->set_tensor_shape(
             alloc_meta->tensor_shape());
+        if (snapshot.activity_metadata().requested_bytes() == 0 &&
+            alloc_meta->requested_bytes() > 0) {
+          snapshot.mutable_activity_metadata()->set_requested_bytes(
+              alloc_meta->requested_bytes());
+        }
         // In case of following (unexpected) deallocations to the same chunk
         // address, leave the metadata as it is (empty or already captured).
         addr_metadata_map.erase(address);
@@ -516,6 +516,13 @@ void ProcessMemoryProfileProto(int64_t max_num_snapshots,
                                 const MemoryProfileSnapshot& b) {
       return a.time_offset_ps() < b.time_offset_ps();
     });
+    MemoryProfileSummary* summary =
+        allocator_memory_profile->mutable_profile_summary();
+    for (const MemoryProfileSnapshot& snapshot : *snapshots) {
+      UpdateProfileSummary(snapshot.aggregation_stats(),
+                           snapshot.activity_metadata().memory_activity(),
+                           snapshot.time_offset_ps(), summary);
+    }
 
     UpdateStepId(allocator_memory_profile);
     UpdateDeallocation(allocator_memory_profile);

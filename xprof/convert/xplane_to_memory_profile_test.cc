@@ -148,6 +148,112 @@ TEST(ConvertXPlaneToMemoryProfile, OneAllocatorMultiActivitiesTest) {
             1);
 }
 
+TEST(ConvertXPlaneToMemoryProfile,
+     MultiThreadEqualPeaksAndDeallocationRequestedBytes) {
+  XSpace space;
+  XPlane* host_plane = GetOrCreateHostXPlane(&space);
+  XPlaneBuilder host_plane_builder(host_plane);
+  host_plane_builder.ReserveLines(2);
+
+  // Thread 0 has peak at t=70000 in step 2; Thread 1 (visited second) has
+  // equal peak (with higher lifetime peak 9000 vs 5000) at earlier t=30000 in
+  // step 1 and a deallocation at t=40000 without kRequestedBytes.
+  auto thread_0 = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &thread_0, "MemoryAllocation", 70000, 1000,
+               {{StatType::kBytesReserved, int64_t{1000}},
+                {StatType::kBytesAllocated, int64_t{4000}},
+                {StatType::kBytesAvailable, int64_t{5000}},
+                {StatType::kPeakBytesInUse, int64_t{5000}},
+                {StatType::kRequestedBytes, int64_t{400}},
+                {StatType::kAllocationBytes, int64_t{512}},
+                {StatType::kAddress, int64_t{999}},
+                {StatType::kGroupId, int64_t{2}},
+                {StatType::kDataType, int64_t{1}},
+                {StatType::kAllocatorName, "GPU_0_bfc"},
+                {StatType::kTfOp, "step2_op"},
+                {StatType::kRegionType, "temp"},
+                {StatType::kTensorShapes, "[128]"}});
+
+  auto thread_1 = host_plane_builder.GetOrCreateLine(1);
+  CreateXEvent(&host_plane_builder, &thread_1, "MemoryAllocation", 30000, 1000,
+               {{StatType::kBytesReserved, int64_t{1000}},
+                {StatType::kBytesAllocated, int64_t{4000}},
+                {StatType::kBytesAvailable, int64_t{5000}},
+                {StatType::kPeakBytesInUse, int64_t{9000}},
+                {StatType::kRequestedBytes, int64_t{200}},
+                {StatType::kAllocationBytes, int64_t{256}},
+                {StatType::kAddress, int64_t{111}},
+                {StatType::kGroupId, int64_t{1}},
+                {StatType::kDataType, int64_t{1}},
+                {StatType::kAllocatorName, "GPU_0_bfc"},
+                {StatType::kTfOp, "step1_op"},
+                {StatType::kRegionType, "output"},
+                {StatType::kTensorShapes, "[64]"}});
+  CreateXEvent(&host_plane_builder, &thread_1, "MemoryDeallocation", 40000,
+               1000,
+               {{StatType::kBytesReserved, int64_t{1000}},
+                {StatType::kBytesAllocated, int64_t{3744}},
+                {StatType::kBytesAvailable, int64_t{5256}},
+                {StatType::kPeakBytesInUse, int64_t{5000}},
+                {StatType::kAllocationBytes, int64_t{256}},
+                {StatType::kAddress, int64_t{111}},
+                {StatType::kGroupId, int64_t{1}},
+                {StatType::kAllocatorName, "GPU_0_bfc"}});
+
+  MemoryProfile memory_profile = ConvertXPlaneToMemoryProfile(*host_plane);
+  const auto& allocator_profile =
+      memory_profile.memory_profile_per_allocator().at("GPU_0_bfc");
+  EXPECT_EQ(allocator_profile.profile_summary().num_allocations(), 2);
+  EXPECT_EQ(allocator_profile.profile_summary().num_deallocations(), 1);
+  EXPECT_EQ(allocator_profile.profile_summary().peak_bytes_usage_lifetime(),
+            9000);
+  EXPECT_EQ(allocator_profile.profile_summary().peak_stats_time_ps(), 70000);
+  ASSERT_EQ(allocator_profile.memory_profile_snapshots_size(), 1);
+  EXPECT_EQ(allocator_profile.memory_profile_snapshots(0)
+                .activity_metadata()
+                .tf_op_name(),
+            "step2_op");
+  ASSERT_GE(allocator_profile.sampled_timeline_snapshots_size(), 2);
+  EXPECT_EQ(allocator_profile.sampled_timeline_snapshots(1)
+                .activity_metadata()
+                .requested_bytes(),
+            200);
+}
+
+TEST(ConvertXPlaneToMemoryProfile,
+     PreservesNonZeroDeallocationRequestedBytesWhenAllocIsZero) {
+  XSpace space;
+  XPlane* host_plane = GetOrCreateHostXPlane(&space);
+  XPlaneBuilder host_plane_builder(host_plane);
+  auto line = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &line, "MemoryAllocation", 10000, 1000,
+               {{StatType::kBytesReserved, int64_t{1000}},
+                {StatType::kBytesAllocated, int64_t{512}},
+                {StatType::kBytesAvailable, int64_t{5000}},
+                {StatType::kPeakBytesInUse, int64_t{512}},
+                {StatType::kAllocationBytes, int64_t{512}},
+                {StatType::kAddress, int64_t{222}},
+                {StatType::kAllocatorName, "GPU_0_bfc"}});
+  CreateXEvent(&host_plane_builder, &line, "MemoryDeallocation", 20000, 1000,
+               {{StatType::kBytesReserved, int64_t{1000}},
+                {StatType::kBytesAllocated, int64_t{0}},
+                {StatType::kBytesAvailable, int64_t{5512}},
+                {StatType::kPeakBytesInUse, int64_t{512}},
+                {StatType::kRequestedBytes, int64_t{384}},
+                {StatType::kAllocationBytes, int64_t{512}},
+                {StatType::kAddress, int64_t{222}},
+                {StatType::kAllocatorName, "GPU_0_bfc"}});
+
+  MemoryProfile memory_profile = ConvertXPlaneToMemoryProfile(*host_plane);
+  const auto& allocator_profile =
+      memory_profile.memory_profile_per_allocator().at("GPU_0_bfc");
+  ASSERT_EQ(allocator_profile.sampled_timeline_snapshots_size(), 2);
+  EXPECT_EQ(allocator_profile.sampled_timeline_snapshots(1)
+                .activity_metadata()
+                .requested_bytes(),
+            384);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

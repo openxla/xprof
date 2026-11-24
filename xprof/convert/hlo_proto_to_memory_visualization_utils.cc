@@ -638,11 +638,16 @@ struct HeapSimulatorStats {
   }
 
   // Update stats when memory usage increase.
-  void IncreaseMemoryUsage(LogicalBufferStruct* canonical_logical_buffer,
-                           bool init_buffer_span) {
-    logical_buffers.push_back(canonical_logical_buffer->proto.id());
+  void IncreaseMemoryUsage(
+      LogicalBufferStruct* canonical_logical_buffer, bool init_buffer_span,
+      std::optional<int64_t> unpadded_size_override = std::nullopt) {
+    int64_t canonical_buffer_id = canonical_logical_buffer->proto.id();
+    logical_buffers.push_back(canonical_buffer_id);
     heap_size_bytes += canonical_logical_buffer->size();
-    unpadded_heap_size_bytes += canonical_logical_buffer->unpadded_size();
+    int64_t unpadded_size = unpadded_size_override.value_or(
+        canonical_logical_buffer->unpadded_size());
+    canonical_unpadded_size[canonical_buffer_id] = unpadded_size;
+    unpadded_heap_size_bytes += unpadded_size;
 
     // Increase peak memory usage if needed.
     int64_t prior_peak_heap_size_bytes = peak_heap_size_bytes;
@@ -674,13 +679,21 @@ struct HeapSimulatorStats {
       return absl::InvalidArgumentError(absl::StrCat(
           "Heap size should be non-negative, but get: ", heap_size_bytes));
     }
-    unpadded_heap_size_bytes -= canonical_logical_buffer->unpadded_size();
-    // Mark the end of this buffer if its memory was not transferred to a
-    // re-animating sharer.
-    auto it = canonical_to_display_id.find(canonical_buffer_id);
-    bool superseded = it != canonical_to_display_id.end() &&
-                      it->second != canonical_buffer_id;
-    if (canonical_logical_buffer->span && !superseded) {
+    int64_t unpadded_size = canonical_logical_buffer->unpadded_size();
+    if (auto unpadded_it = canonical_unpadded_size.find(canonical_buffer_id);
+        unpadded_it != canonical_unpadded_size.end()) {
+      unpadded_size = unpadded_it->second;
+      canonical_unpadded_size.erase(unpadded_it);
+    }
+    unpadded_heap_size_bytes -= unpadded_size;
+    canonical_to_display_id.erase(canonical_buffer_id);
+    if (auto owner_it = active_span_owner.find(canonical_buffer_id);
+        owner_it != active_span_owner.end()) {
+      if (owner_it->second != nullptr && owner_it->second->span) {
+        owner_it->second->span->second = heap_size_bytes_timeline.size() - 1;
+      }
+      active_span_owner.erase(owner_it);
+    } else if (canonical_logical_buffer->span) {
       canonical_logical_buffer->span->second =
           heap_size_bytes_timeline.size() - 1;
     }
@@ -745,6 +758,15 @@ struct HeapSimulatorStats {
   // at peak time into peak_canonical_to_display_id.
   absl::flat_hash_map<int64_t, int64_t> canonical_to_display_id;
   absl::flat_hash_map<int64_t, int64_t> peak_canonical_to_display_id;
+  absl::flat_hash_map<int64_t, int64_t> canonical_unpadded_size;
+  // Active (not yet freed) logical buffers sharing each root canonical buffer,
+  // ordered oldest-to-newest so freeing the latest sharer reverts display ID
+  // and unpadded size back to the prior live buffer.
+  absl::flat_hash_map<int64_t, std::vector<LogicalBufferStruct*>>
+      active_sharers;
+  // Buffer holding the active non-overlapping timeline span for a root
+  // canonical buffer until its ref_count reaches 0.
+  absl::flat_hash_map<int64_t, LogicalBufferStruct*> active_span_owner;
 
   // Constants while iterating through heap simulator trace.
   const HloProtoBufferWrapper& wrapper;
@@ -785,6 +807,10 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
       // ALLOC event increases memory usage and initializes the buffer lifetime
       // span.
       logical_buffer->inc();
+      const int64_t root_id = logical_buffer->proto.id();
+      stats->active_sharers[root_id] = {logical_buffer};
+      stats->active_span_owner[root_id] = logical_buffer;
+      stats->canonical_to_display_id[root_id] = root_id;
       stats->IncreaseMemoryUsage(logical_buffer,
                                  /*init_buffer_span=*/true);
     } else if (event.kind() == HeapSimulatorTrace::Event::FREE) {
@@ -793,17 +819,36 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
         return absl::InvalidArgumentError(absl::StrCat(
             "Buffer ", logical_buffer->proto.id(), "is freed multiple times."));
       }
+      auto* root_canonical = logical_buffer->get_canonical_buffer();
+      const int64_t root_id = root_canonical->proto.id();
       if (ref_count == 0) {
-        // There is no more reference to the canonical buffer, the canonical
-        // buffer is finally freed. Update memory usage and memory timespan
-        // using the metadata of canonical buffer.
-        auto& canonical_buffer = *logical_buffer->get_canonical_buffer();
-        TF_RETURN_IF_ERROR(stats->DecreaseMemoryUsage(&canonical_buffer));
-      }
-      // Narrow the sharer's span end when it is freed.
-      if (logical_buffer->span && logical_buffer->canonical_buffer) {
-        logical_buffer->span->second =
-            stats->heap_size_bytes_timeline.size() - 1;
+        stats->active_sharers.erase(root_id);
+        // There is no more reference to the canonical buffer, so finalize the
+        // active span and release its memory usage.
+        TF_RETURN_IF_ERROR(stats->DecreaseMemoryUsage(root_canonical));
+      } else if (auto sharers_it = stats->active_sharers.find(root_id);
+                 sharers_it != stats->active_sharers.end()) {
+        auto& sharers = sharers_it->second;
+        sharers.erase(
+            std::remove(sharers.begin(), sharers.end(), logical_buffer),
+            sharers.end());
+        if (!sharers.empty()) {
+          LogicalBufferStruct* owner = sharers.back();
+          stats->canonical_to_display_id[root_id] = owner->proto.id();
+          const int64_t next_unpadded =
+              static_cast<int64_t>(owner->unpadded_size());
+          if (auto unpadded_it = stats->canonical_unpadded_size.find(root_id);
+              unpadded_it != stats->canonical_unpadded_size.end()) {
+            stats->unpadded_heap_size_bytes +=
+                next_unpadded - unpadded_it->second;
+            unpadded_it->second = next_unpadded;
+          } else {
+            stats->unpadded_heap_size_bytes +=
+                next_unpadded -
+                static_cast<int64_t>(root_canonical->unpadded_size());
+            stats->canonical_unpadded_size.emplace(root_id, next_unpadded);
+          }
+        }
       }
     } else if (event.kind() == HeapSimulatorTrace::Event::SHARE_WITH) {
       int64_t canonical_buffer_id = event.share_with_canonical_id();
@@ -813,21 +858,40 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
         continue;
       }
       auto ref_count = logical_buffer->share_with(canonical_buffer);
+      auto* root_canonical = canonical_buffer->get_canonical_buffer();
+      const int64_t root_id = root_canonical->proto.id();
+      stats->canonical_to_display_id[root_id] = logical_buffer->proto.id();
 
       if (ref_count == 1) {
-        // SHARE_WITH after FREE: the canonical's physical memory is being
-        // reused. Use get_canonical_buffer() to resolve the root of the
-        // canonical chain, matching DecreaseMemoryUsage which also uses the
-        // root. Track the sharer as the display buffer for the bar chart,
-        // and give it its own span starting from this event.
-        auto* root_canonical = canonical_buffer->get_canonical_buffer();
-        stats->canonical_to_display_id[root_canonical->proto.id()] =
-            logical_buffer->proto.id();
+        // SHARE_WITH after FREE: the canonical buffer's physical memory is
+        // being reused. Start a new non-overlapping timeline span for the
+        // sharer so consecutive allocations at the same offset never collide.
+        stats->active_sharers[root_id] = {logical_buffer};
+        stats->active_span_owner[root_id] = logical_buffer;
         logical_buffer->span.emplace(
             stats->heap_size_bytes_timeline.size() - 1,
             stats->simulator_trace_event_size - 1);
-        stats->IncreaseMemoryUsage(root_canonical,
-                                   /*init_buffer_span=*/false);
+        stats->IncreaseMemoryUsage(
+            root_canonical, /*init_buffer_span=*/false,
+            static_cast<int64_t>(logical_buffer->unpadded_size()));
+      } else if (ref_count > 1) {
+        // Overlapping SHARE_WITH: share the active timeline span owner so the
+        // allocation timeline keeps one non-overlapping rectangle per slot,
+        // while tracking active sharers for bar-chart display and unpadded
+        // size updates.
+        stats->active_sharers[root_id].push_back(logical_buffer);
+        const int64_t new_unpadded =
+            static_cast<int64_t>(logical_buffer->unpadded_size());
+        if (auto unpadded_it = stats->canonical_unpadded_size.find(root_id);
+            unpadded_it != stats->canonical_unpadded_size.end()) {
+          stats->unpadded_heap_size_bytes += new_unpadded - unpadded_it->second;
+          unpadded_it->second = new_unpadded;
+        } else {
+          stats->unpadded_heap_size_bytes +=
+              new_unpadded -
+              static_cast<int64_t>(root_canonical->unpadded_size());
+          stats->canonical_unpadded_size.emplace(root_id, new_unpadded);
+        }
       }
     } else {
       return absl::InvalidArgumentError(
@@ -914,8 +978,8 @@ void CreatePeakUsageSnapshot(const HloProtoBufferWrapper& wrapper,
     const auto& buffer_allocation = logical_buffer->buffer_allocation;
     peak_snapshot->indefinite_memory_usage_bytes += buffer_allocation.size();
     // Only add indefinite buffers to the bar chart for HBM. For other memory
-    // spaces (e.g. VMEM), XLA skips these during allocation assignment so they
-    // never actually consume memory.
+    // spaces, this matches total_buffer_allocation_mib and
+    // indefinite_buffer_allocation_mib subtracted by the frontend.
     if (memory_color == 0) {
       peak_snapshot->AddHeapObject(*logical_buffer);
     }

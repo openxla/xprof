@@ -56,8 +56,20 @@ export class DownloadHlo implements OnDestroy {
         });
   }
 
+  get canDownload(): boolean {
+    return Boolean(this.sessionId.trim() && this.moduleName?.trim());
+  }
+
+  get tooltipText(): string {
+    return this.canDownload
+      ? 'Download HloProto of the selected module'
+      : 'Select a module to download HloProto';
+  }
+
   downloadHloProto(type: string) {
-    const fileName = this.moduleName + '.' + type;
+    if (!this.canDownload) return;
+    const sanitizedModuleName = this.moduleName.trim().replace(/[/\\]/g, '_');
+    const fileName = `${sanitizedModuleName}.${type}`;
     this.dataService
         .downloadHloProto(
             this.sessionId,
@@ -65,7 +77,8 @@ export class DownloadHlo implements OnDestroy {
             this.moduleName,
             type,
             this.showMetadata,
-            )!.pipe(takeUntil(this.destroyed))
+            )
+        ?.pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
           if (data == null) return;
           if (type === FileExtensionType.PROTO_BINARY) {

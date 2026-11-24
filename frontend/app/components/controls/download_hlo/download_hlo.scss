@@ -6,7 +6,12 @@
   text-align: center;
 }
 
-.save-button:hover {
+.save-button:hover:not(.disabled) {
   color: common.$button-focus-color;
   cursor: pointer;
+}
+
+.save-button.disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }

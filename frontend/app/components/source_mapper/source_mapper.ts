@@ -80,8 +80,6 @@ export class SourceMapper implements OnDestroy, OnChanges {
   mosaicTextByKernelName = new Map<string, IrText>();
   mosaicSourceFileAndLineNumberByKernelName = new Map<string, string>();
   selectedCompilerPass = CompilerPass.HLO_OPTIMIZED;
-  sourceFileNames: string[] = [];
-  selectedSourceFileName = '';
   tags: string[] = [];
   // The prefix of the source file path if specified by users.
   srcPathPrefix = '';
@@ -91,8 +89,11 @@ export class SourceMapper implements OnDestroy, OnChanges {
       .select(getTagsState)
       .pipe(takeUntil(this.destroyed))
       .subscribe((tags: string[]) => {
-        if (!tags || tags.length === 0) return;
-        this.tags = tags;
+        this.tags = tags ?? [];
+        if (!this.compilerPasses.includes(this.selectedCompilerPass)) {
+          this.selectedCompilerPass = this.compilerPasses[0];
+          this.update();
+        }
       });
     this.store
       .select(getProfilerConfig)
@@ -104,6 +105,7 @@ export class SourceMapper implements OnDestroy, OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges) {
+    let shouldUpdate = false;
     if (
       changes['sessionId'] &&
       changes['sessionId'].currentValue !== changes['sessionId'].previousValue
@@ -111,21 +113,30 @@ export class SourceMapper implements OnDestroy, OnChanges {
       this.hloTextCache.clear();
       this.mosaicTextByKernelName.clear();
       this.mosaicSourceFileAndLineNumberByKernelName.clear();
+      shouldUpdate = true;
     }
     if (changes['programId']) {
-      this.update();
+      shouldUpdate = true;
     }
     if (
       changes['opName'] &&
       changes['opName'].currentValue !== changes['opName'].previousValue
     ) {
+      shouldUpdate = true;
+    }
+    if (
+      changes['opCategory'] &&
+      changes['opCategory'].currentValue !==
+        changes['opCategory'].previousValue &&
+      !this.compilerPasses.includes(this.selectedCompilerPass)
+    ) {
+      shouldUpdate = true;
+    }
+    if (shouldUpdate) {
       if (!this.compilerPasses.includes(this.selectedCompilerPass)) {
         this.selectedCompilerPass = this.compilerPasses[0];
       }
       this.update();
-    }
-    if (changes['sourceFileAndLineNumber'] || changes['stackTrace']) {
-      this.parseSourceFileNames();
     }
   }
 
@@ -249,15 +260,6 @@ export class SourceMapper implements OnDestroy, OnChanges {
     return '';
   }
 
-  isFocusLine(line: string): boolean {
-    switch (this.selectedCompilerPass) {
-      case CompilerPass.HLO_OPTIMIZED:
-        return line.includes(`${this.opName} =`);
-      default:
-        return false;
-    }
-  }
-
   get irTextFocusLineIndex(): number {
     return this.currentIrText?.getFocusLineIndex(this.opName) ?? 0;
   }
@@ -278,23 +280,21 @@ export class SourceMapper implements OnDestroy, OnChanges {
     );
   }
 
-  get focusLineIndexForDisplay(): number | undefined {
-    return this.currentIrText?.getFocusLineNumberForDisplay(
-      this.opName,
-      this.sourceContextWindow,
+  get firstLineNumberForDisplay(): number {
+    return (
+      this.currentIrText?.getFirstLineNumberForDisplay(
+        this.opName,
+        this.sourceContextWindow,
+      ) ?? 1
     );
+  }
+
+  get focusLineNumberForDisplay(): number | undefined {
+    return this.currentIrText?.getFocusLineNumberForDisplay(this.opName);
   }
 
   trackByIndex(index: number, item: string): number {
     return index;
-  }
-
-  parseSourceFileNames() {
-    const sourceFileName = this.sourceFileAndLineNumber?.split(':')[0] || '';
-    this.sourceFileNames = [sourceFileName];
-    if (this.sourceFileNames.length > 0) {
-      this.selectedSourceFileName = this.sourceFileNames[0];
-    }
   }
 
   get loaded() {
@@ -361,12 +361,7 @@ export class SourceMapper implements OnDestroy, OnChanges {
     const sessionId = this.sessionId;
     const opName = this.opName;
     this.dataService
-      .getCustomCallText(
-        sessionId,
-        '',
-        opName,
-        this.programId,
-      )
+      .getCustomCallText(sessionId, '', opName, this.programId)
       .pipe(
         catchError(() => of('')),
         takeUntil(this.destroyed),

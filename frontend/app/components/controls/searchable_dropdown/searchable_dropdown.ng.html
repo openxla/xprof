@@ -4,20 +4,32 @@
     panelClass="panel-override"
     [(value)]="selectedItem"
     [disabled]="!itemList.length"
+    (openedChange)="onOpenedChange($event)"
     (selectionChange)="emitSelectionChange()"
   >
-      <div class="search-box">
-          <mat-icon class="search-icon">search</mat-icon>
-          <input matInput
-                 #searchInput
-                 type="text"
-                 placeholder="Filter"
-                 [(ngModel)]="filterText"
-                 class="search-input"
-                 autocomplete="off">
-      </div>
-    <mat-option *ngFor="let item of filteredItemList" [value]="item">
+    <div class="search-box" (click)="$event.stopPropagation()">
+      <mat-icon class="search-icon">search</mat-icon>
+      <input
+        #searchInput
+        type="text"
+        placeholder="Filter"
+        aria-label="Filter modules"
+        [value]="filterText"
+        (input)="onFilterInput($event)"
+        (keydown)="onSearchKeydown($event)"
+        class="search-input"
+        autocomplete="off"
+      >
+    </div>
+    <mat-option
+      *ngFor="let item of itemList"
+      [value]="item"
+      [style.display]="matchesFilter(item) ? '' : 'none'"
+    >
       {{ item }}
     </mat-option>
+    <div class="no-matches" *ngIf="!hasMatchingItems">
+      No matching modules
+    </div>
   </mat-select>
 </mat-form-field>

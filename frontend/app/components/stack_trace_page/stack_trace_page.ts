@@ -4,6 +4,7 @@ import {
   createSessionIdResolver,
   getSessionIdFromParams,
 } from 'org_xprof/frontend/app/common/utils/utils';
+import {extractProgramIdFromHloModuleName} from 'org_xprof/frontend/app/components/source_mapper/ir_text';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {combineLatest, of, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -77,9 +78,7 @@ export class StackTracePage implements OnDestroy {
     this.hloOp = params[this.hloOpKey] || '';
     this.sourceFileAndLineNumber = params[this.sourceKey] || '';
     this.stackTrace = params[this.stackTraceKey] || '';
-    const regex = /\((.*?)\)/;
-    const programIdMatch = this.hloModule.match(regex);
-    this.programId = programIdMatch ? programIdMatch[1] : '';
+    this.programId = extractProgramIdFromHloModuleName(this.hloModule);
     this.sessionId = getSessionIdFromParams(
         undefined, params, this.sessionId, this.sessionIdKey);
     this.opCategory = params[this.opCategoryKey] || '';

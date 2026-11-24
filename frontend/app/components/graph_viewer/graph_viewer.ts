@@ -32,6 +32,7 @@ import {
 } from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
+import {extractProgramIdFromHloModuleName} from 'org_xprof/frontend/app/components/source_mapper/ir_text';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -51,6 +52,8 @@ import {locationReplace} from 'safevalues/dom';
 
 const GRAPH_HTML_THRESHOLD = 1000000; // bytes
 const CENTER_NODE_GROUP_KEY = 'centerNode';
+const MAX_TRY_RENDER_RETRIES = 25;
+const MAX_GRAPH_HTML_LOAD_RETRIES = 60;
 
 interface DefaultGraphOption {
   moduleName: string;
@@ -74,6 +77,9 @@ export class GraphViewer implements OnDestroy {
   );
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private isDestroyed = false;
+  private tryRenderTimerId?: ReturnType<typeof setTimeout>;
+  private checkHtmlLoadedTimerId?: ReturnType<typeof setTimeout>;
 
   @ViewChild('iframe', {static: false})
   graphRef!: ElementRef<HTMLIFrameElement>;
@@ -149,18 +155,21 @@ export class GraphViewer implements OnDestroy {
       .subscribe((tags: string[]) => {
         this.tags = tags ?? [];
       });
+    const resolveSessionId = utils.createSessionIdResolver();
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(async ([params, queryParams]) => {
-        this.sessionId = params['sessionId'] || this.sessionId;
+        const prevSessionId = this.sessionId;
+        this.sessionId = resolveSessionId(params, queryParams, this.sessionId);
         this.resetPage();
-        this.parseQueryParams(queryParams);
+        this.parseQueryParams(queryParams, prevSessionId);
         // Don't load graph if session id / run is not populated yet.
         // TODO(xprof) apply the same early return logic for other tools, or
         // verify why an empty run string is send through the observable.
         if (!this.sessionId) return;
         this.loadDefaultGraphOptionsFromOpProfile();
         await this.initData();
+        if (this.isDestroyed) return;
         // Any graph viewer url query param change should trigger a potential
         // reload
         this.onPlot();
@@ -183,9 +192,18 @@ export class GraphViewer implements OnDestroy {
   }
 
   // process query params from in component navigation event
-  parseQueryParams(params: Params) {
-    this.sessionId = params['run'] || this.sessionId;
-    this.host = params['host'] || this.host;
+  parseQueryParams(params: Params, prevSessionId = this.sessionId) {
+    this.sessionId = utils.getSessionIdFromParams(
+      undefined,
+      params,
+      this.sessionId,
+    );
+    this.host = utils.resolveHostFromParams(
+      params,
+      prevSessionId,
+      this.sessionId,
+      this.host,
+    );
     this.showMeGraph = params['show_me_graph'] === 'true';
     // Plot the graph if node_name (op name) is provided in URL.
     this.opName = params['node_name'] || params['opName'] || '';
@@ -197,8 +215,8 @@ export class GraphViewer implements OnDestroy {
     this.mergeFusion = params['merge_fusion'] === 'true';
     this.graphType =
       params['graph_type'] || params['graphType'] || GRAPH_TYPE_DEFAULT;
-    this.symbolId = params['symbol_id'] || this.symbolId || '';
-    this.symbolType = params['symbol_type'] || this.symbolType || '';
+    this.symbolId = params['symbol_id'] || '';
+    this.symbolType = params['symbol_type'] || '';
     this.opProfileLimit = params['op_profile_limit'] || 300;
   }
 
@@ -680,8 +698,9 @@ export class GraphViewer implements OnDestroy {
     const opName = this.getGraphvizNodeOpName(element);
     const node = this.getOpNodeInGraphviz(opName);
     if (!node) return;
-    const svgEls = element.getElementsByTagName('text') || [];
-    svgEls[0].textContent = `${svgEls[0].textContent} ${this.getOpAvgTime(node)}`;
+    const svgEls = element.getElementsByTagName('text');
+    if (!svgEls[0]) return;
+    svgEls[0].textContent = `${svgEls[0].textContent}${this.getOpAvgTime(node)}`;
   }
 
   // Add avgTime info to the cluster svg
@@ -689,8 +708,9 @@ export class GraphViewer implements OnDestroy {
     const opName = this.getGraphvizClusterOpName(element);
     const node = this.getOpNodeInGraphviz(opName);
     if (!node) return;
-    const svgEls = element.getElementsByTagName('text') || [];
-    svgEls[1].textContent = `${svgEls[1].textContent} ${this.getOpAvgTime(node)}`;
+    const svgEls = element.getElementsByTagName('text');
+    if (!svgEls[1]) return;
+    svgEls[1].textContent = `${svgEls[1].textContent}${this.getOpAvgTime(node)}`;
   }
 
   // Add runtime data (eg. AvgTime) to the graph node to help with perf
@@ -751,9 +771,7 @@ export class GraphViewer implements OnDestroy {
   // so we can handle the hlo text loading correctly.
   onModuleSelectionChange(moduleName: string) {
     this.selectedModule = moduleName;
-    const regex = /\((.*?)\)/;
-    const programIdMatch = this.selectedModule.match(regex);
-    this.programId = programIdMatch ? programIdMatch[1] : '';
+    this.programId = extractProgramIdFromHloModuleName(this.selectedModule);
     this.opName = '';
     this.resetPage();
     this.loadDefaultGraphOptionsFromOpProfile();
@@ -850,7 +868,7 @@ export class GraphViewer implements OnDestroy {
     const sessionPath = searchParams.get('session_path');
     const runPath = searchParams.get('run_path');
     const run = this.sessionId || searchParams.get('run');
-    const host = searchParams.get('host');
+    const host = this.host;
     if (sessionPath) {
       queryParams.session_path = sessionPath;
     }
@@ -867,18 +885,37 @@ export class GraphViewer implements OnDestroy {
     return queryParams;
   }
 
-  tryRenderGraphvizHtml(searchParams: Map<string, string>) {
-    const iframe = document.getElementById('graph-html') as HTMLIFrameElement;
-    setTimeout(() => {
-      if (!iframe) {
-        this.tryRenderGraphvizHtml(searchParams);
+  tryRenderGraphvizHtml(
+    searchParams: Map<string, string>,
+    retriesLeft = MAX_TRY_RENDER_RETRIES,
+  ) {
+    if (this.isDestroyed) return;
+    if (this.tryRenderTimerId !== undefined) {
+      clearTimeout(this.tryRenderTimerId);
+      this.tryRenderTimerId = undefined;
+    }
+    const iframe =
+      this.graphRef?.nativeElement ??
+      (document.getElementById('graph-html') as HTMLIFrameElement | null);
+    if (!iframe) {
+      if (retriesLeft <= 0) {
+        this.loadingGraph = false;
+        this.onCompleteLoad({
+          errors: ['Timed out waiting for graph container to initialize.'],
+        });
+        return;
       }
-    }, 200);
+      this.tryRenderTimerId = setTimeout(() => {
+        this.tryRenderTimerId = undefined;
+        this.tryRenderGraphvizHtml(searchParams, retriesLeft - 1);
+      }, 200);
+      return;
+    }
     this.graphvizUri =
       this.dataService.getGraphVizUri(this.sessionId, searchParams) ||
       'about:blank';
-    if (iframe?.contentWindow?.location) {
-      locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
+    if (iframe.contentWindow?.location) {
+      locationReplace(iframe.contentWindow.location, this.graphvizUri);
     }
 
     this.onCheckGraphHtmlLoaded();
@@ -900,7 +937,7 @@ export class GraphViewer implements OnDestroy {
   }
 
   // Append diagnostic message after data loaded for each sections
-  onCompleteLoad(diagnostics?: Diagnostics) {
+  onCompleteLoad(diagnostics?: Partial<Diagnostics>) {
     this.diagnostics = {
       info: [...(diagnostics?.info || [])],
       errors: [...(diagnostics?.errors || [])],
@@ -914,31 +951,58 @@ export class GraphViewer implements OnDestroy {
     doc.firstElementChild?.remove();
   }
 
-  onCheckGraphHtmlLoaded() {
+  onCheckGraphHtmlLoaded(retriesLeft = MAX_GRAPH_HTML_LOAD_RETRIES) {
+    if (this.isDestroyed) return;
+    if (this.checkHtmlLoadedTimerId !== undefined) {
+      clearTimeout(this.checkHtmlLoadedTimerId);
+      this.checkHtmlLoadedTimerId = undefined;
+    }
     if (!this.graphIframeLoaded()) {
-      setTimeout(() => {
-        this.onCheckGraphHtmlLoaded();
+      if (retriesLeft <= 0) {
+        this.loadingGraph = false;
+        this.onCompleteLoad({
+          errors: [
+            'Timed out waiting for graph to load. Please retry or lower the graph width.',
+          ],
+        });
+        return;
+      }
+      this.checkHtmlLoadedTimerId = setTimeout(() => {
+        this.checkHtmlLoadedTimerId = undefined;
+        this.onCheckGraphHtmlLoaded(retriesLeft - 1);
       }, 1000);
       return;
-    } else {
-      this.loadingGraph = false;
-      const iframe = this.graphRef?.nativeElement as HTMLIFrameElement;
-      const htmlSize =
-        iframe?.contentDocument?.documentElement?.innerHTML?.length || 0;
-      if (htmlSize > GRAPH_HTML_THRESHOLD) {
-        this.onCompleteLoad({
-          warnings: [
-            "Your graph is large. If you can't see the graph, please lower the width and retry.",
-          ],
-        } as Diagnostics);
-      }
-      this.installEventListeners();
-      this.injectRuntimeData();
+    }
+    this.loadingGraph = false;
+    const iframe = this.graphRef?.nativeElement;
+    const htmlSize =
+      iframe?.contentDocument?.documentElement?.innerHTML?.length || 0;
+    if (htmlSize > GRAPH_HTML_THRESHOLD) {
+      this.onCompleteLoad({
+        warnings: [
+          "Your graph is large. If you can't see the graph, please lower the width and retry.",
+        ],
+      });
+    }
+    this.installEventListeners();
+    this.injectRuntimeData();
+  }
+
+  private clearPollingTimers() {
+    if (this.tryRenderTimerId !== undefined) {
+      clearTimeout(this.tryRenderTimerId);
+      this.tryRenderTimerId = undefined;
+    }
+    if (this.checkHtmlLoadedTimerId !== undefined) {
+      clearTimeout(this.checkHtmlLoadedTimerId);
+      this.checkHtmlLoadedTimerId = undefined;
     }
   }
 
   // Resetting url, iframe, diagnostic messages per graph search
   resetPage() {
+    this.clearPollingTimers();
+    this.loadingGraph = false;
     // Clear iframe html so the rule to detect `graphIframeLoaded` can satisfy
     this.clearGraphIframeHtml();
     this.selectedNode = null;
@@ -948,6 +1012,8 @@ export class GraphViewer implements OnDestroy {
   }
 
   ngOnDestroy() {
+    this.isDestroyed = true;
+    this.clearPollingTimers();
     // Unsubscribes all pending subscriptions.
     this.destroyed.next();
     this.destroyed.complete();

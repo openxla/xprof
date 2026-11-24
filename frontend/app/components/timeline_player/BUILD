@@ -13,6 +13,7 @@ xprof_ng_module(
         "timeline_player.ng.html",
     ],
     deps = [
+        "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",

@@ -46,6 +46,7 @@ using ::tensorflow::profiler::kAdjacentNodes;
 using ::tensorflow::profiler::kCustomCallGraphTypeName;
 using ::tensorflow::profiler::kGraphStyles;
 using ::tensorflow::profiler::kGraphTypeName;
+using ::tensorflow::profiler::kJsonTypeName;
 using ::tensorflow::profiler::kMeGraphTypeName;
 using ::tensorflow::profiler::ParseGraphViewerParams;
 using ::tensorflow::profiler::ToolOptions;
@@ -128,12 +129,17 @@ absl::Status UnifiedGraphViewerProcessor::ProcessHlo(
     const tensorflow::profiler::ToolOptions& options) {
   TF_ASSIGN_OR_RETURN(std::string data,
                       ConvertHloProtoToGraphViewer(hlo_proto, options));
+  std::optional<std::string> type =
+      ::tensorflow::profiler::GetParam<std::string>(options, "type");
   std::optional<std::string> format =
       ::tensorflow::profiler::GetParam<std::string>(options, "format");
-  if (format.has_value() && *format == "html") {
+  if (type == kGraphTypeName && format.has_value() && *format == "html") {
     SetOutput(data, "text/html");
-  } else {
+  } else if (type == kAdjacentNodes || type == kMeGraphTypeName ||
+             type == kGraphStyles || type == kJsonTypeName) {
     SetOutput(data, "application/json");
+  } else {
+    SetOutput(data, "text/plain");
   }
   return absl::OkStatus();
 }

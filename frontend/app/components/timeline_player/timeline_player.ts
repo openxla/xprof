@@ -3,13 +3,16 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   HostListener,
   NgZone,
   OnDestroy,
   OnInit,
+  ViewChild,
+  computed,
   model,
   output,
-  computed,
+  signal,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
@@ -31,7 +34,9 @@ export interface PlaybackState {
 export interface SyncEventDetail {
   events?: Array<Record<string, string | number | boolean>>;
   counters?: Array<Record<string, string | number | boolean>>;
+  time?: number;
   currentTime?: number;
+  visibleStart?: number;
   duration?: number;
   isPlaying?: boolean;
 }
@@ -54,11 +59,17 @@ export interface SyncEventDetail {
   styleUrls: ['timeline_player.scss'],
 })
 export class TimelinePlayer implements OnInit, OnDestroy {
+  @ViewChild('progressBarContainer')
+  progressBarContainer?: ElementRef<HTMLElement>;
+
   readonly currentTime = model(0);
   readonly duration = model(100);
+  readonly visibleStart = signal(0);
   readonly isPlaying = model(false);
   readonly playbackRate = model(1);
-  readonly isFinished = computed(() => this.currentTime() >= this.duration());
+  readonly isFinished = computed(
+    () => this.duration() > 0 && this.currentTime() >= this.duration(),
+  );
 
   readonly play = output<void>();
   readonly pause = output<void>();
@@ -69,6 +80,7 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   activeCounters: Array<Record<string, string | number | boolean>> = [];
 
   readonly stepAmount = computed(() => this.duration() * 0.05);
+  // Loop bounds are stored as absolute trace timestamps (microseconds).
   loopStart: number | null = null;
   loopEnd: number | null = null;
   loopState: 'INACTIVE' | 'A_SET' | 'ACTIVE' = 'INACTIVE';
@@ -92,10 +104,71 @@ export class TimelinePlayer implements OnInit, OnDestroy {
     );
   }
 
+  private getRelativePercent(absTime: number | null): number | null {
+    const dur = this.duration();
+    return absTime === null || dur <= 0
+      ? null
+      : ((absTime - this.visibleStart()) / dur) * 100;
+  }
+
+  get isLoopStartVisible(): boolean {
+    const pct = this.getRelativePercent(this.loopStart);
+    return (
+      this.loopState !== 'INACTIVE' && pct !== null && pct >= 0 && pct <= 100
+    );
+  }
+
+  get isLoopEndVisible(): boolean {
+    const pct = this.getRelativePercent(this.loopEnd);
+    return (
+      this.loopState === 'ACTIVE' && pct !== null && pct >= 0 && pct <= 100
+    );
+  }
+
+  get loopStartPercent(): number {
+    const pct = this.getRelativePercent(this.loopStart);
+    return pct === null ? 0 : Math.max(0, Math.min(100, pct));
+  }
+
+  get loopEndPercent(): number {
+    const pct = this.getRelativePercent(this.loopEnd);
+    return pct === null ? 0 : Math.max(0, Math.min(100, pct));
+  }
+
+  get isLoopRegionVisible(): boolean {
+    const dur = this.duration();
+    if (
+      this.loopState !== 'ACTIVE' ||
+      this.loopStart === null ||
+      this.loopEnd === null ||
+      dur <= 0
+    ) {
+      return false;
+    }
+    const visStart = this.visibleStart();
+    return this.loopEnd >= visStart && this.loopStart <= visStart + dur;
+  }
+
+  get loopRegionLeftPercent(): number {
+    return this.loopStartPercent;
+  }
+
+  get loopRegionWidthPercent(): number {
+    return Math.max(0, this.loopEndPercent - this.loopStartPercent);
+  }
+
+  get progressFillPercent(): number {
+    const dur = this.duration();
+    return dur <= 0
+      ? 0
+      : Math.max(0, Math.min(100, (this.currentTime() / dur) * 100));
+  }
+
   private readonly handleBackendSync = (event: Event) => {
     const customEvent = event as CustomEvent<SyncEventDetail>;
     if (customEvent.detail) {
       let dirty = false;
+      let loopWrapped = false;
       if (customEvent.detail.events) {
         this.activeEvents = customEvent.detail.events;
         dirty = true;
@@ -104,31 +177,44 @@ export class TimelinePlayer implements OnInit, OnDestroy {
         this.activeCounters = customEvent.detail.counters;
         dirty = true;
       }
-      if (customEvent.detail.currentTime !== undefined && !this.isScrubbing) {
-        let newTime = customEvent.detail.currentTime;
-        if (
-          this.loopState === 'ACTIVE' &&
-          this.loopEnd !== null &&
-          newTime >= this.loopEnd
-        ) {
-          newTime = this.loopStart ?? 0;
-          this.currentTime.set(newTime);
-          this.seek.emit(newTime);
-          // If paused out of bounds, start playing again upon loop reset
-          if (!this.isPlaying()) {
-            this.isPlaying.set(true);
-            this.play.emit();
-          }
-        } else {
-          this.currentTime.set(newTime);
-        }
+      if (customEvent.detail.visibleStart !== undefined) {
+        this.visibleStart.set(customEvent.detail.visibleStart);
         dirty = true;
       }
       if (customEvent.detail.duration !== undefined) {
         this.duration.set(customEvent.detail.duration);
         dirty = true;
       }
-      if (customEvent.detail.isPlaying !== undefined) {
+      if (customEvent.detail.currentTime !== undefined && !this.isScrubbing) {
+        const newTime = customEvent.detail.currentTime;
+        const visStart = this.visibleStart();
+        const visEnd = visStart + this.duration();
+        const absNewTime = visStart + newTime;
+        const loopStart = this.loopStart;
+        const loopEnd = this.loopEnd;
+        const isDraggingMarker =
+          this.isDraggingStartMarker || this.isDraggingEndMarker;
+        if (
+          this.loopState === 'ACTIVE' &&
+          this.isPlaying() &&
+          !isDraggingMarker &&
+          loopStart !== null &&
+          loopEnd !== null &&
+          loopEnd > loopStart &&
+          loopStart >= visStart &&
+          loopEnd <= visEnd &&
+          absNewTime >= loopEnd
+        ) {
+          const loopStartRelative = loopStart - visStart;
+          this.currentTime.set(loopStartRelative);
+          this.seek.emit(loopStartRelative);
+          loopWrapped = true;
+        } else {
+          this.currentTime.set(newTime);
+        }
+        dirty = true;
+      }
+      if (customEvent.detail.isPlaying !== undefined && !loopWrapped) {
         this.isPlaying.set(customEvent.detail.isPlaying);
         dirty = true;
       }
@@ -160,14 +246,15 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   }
 
   toggleLoop() {
+    const currentAbsTime = this.visibleStart() + this.currentTime();
     if (this.loopState === 'INACTIVE') {
       this.loopState = 'A_SET';
-      this.loopStart = this.currentTime();
+      this.loopStart = currentAbsTime;
       this.loopEnd = null;
     } else if (this.loopState === 'A_SET') {
       this.loopState = 'ACTIVE';
-      this.loopEnd = this.currentTime();
-      if (this.loopEnd < this.loopStart!) {
+      this.loopEnd = currentAbsTime;
+      if (this.loopStart !== null && this.loopEnd < this.loopStart) {
         // Swap bounds if selected in reverse
         const temp = this.loopStart;
         this.loopStart = this.loopEnd;
@@ -178,6 +265,7 @@ export class TimelinePlayer implements OnInit, OnDestroy {
       this.loopStart = null;
       this.loopEnd = null;
     }
+    this.cdr.markForCheck();
   }
 
   getLoopClass() {
@@ -259,30 +347,41 @@ export class TimelinePlayer implements OnInit, OnDestroy {
     if (!this.isDraggingStartMarker && !this.isDraggingEndMarker) {
       return;
     }
-    const container = document.querySelector(
-      '.progress-bar-container',
-    ) as HTMLElement;
+    const container = this.progressBarContainer?.nativeElement;
     if (!container) return;
     const rect = container.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
     const x = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
     const percentage = x / rect.width;
-    const newTime = percentage * this.duration();
+    const visStart = this.visibleStart();
+    const dur = this.duration();
+    const newAbsTime = visStart + percentage * dur;
 
     if (this.isDraggingStartMarker) {
-      const maxTime = this.loopEnd !== null ? this.loopEnd : this.duration();
-      this.loopStart = Math.min(newTime, maxTime);
-      this.seek.emit(this.loopStart);
-      this.currentTime.set(this.loopStart);
+      const maxAbsTime = this.loopEnd !== null ? this.loopEnd : visStart + dur;
+      this.loopStart = Math.min(newAbsTime, maxAbsTime);
+      const seekRelative = Math.max(
+        0,
+        Math.min(this.loopStart - visStart, dur),
+      );
+      this.currentTime.set(seekRelative);
+      this.seek.emit(seekRelative);
     } else if (this.isDraggingEndMarker) {
-      const minTime = this.loopStart !== null ? this.loopStart : 0;
-      this.loopEnd = Math.max(newTime, minTime);
-      this.seek.emit(this.loopEnd);
-      this.currentTime.set(this.loopEnd);
+      const minAbsTime = this.loopStart !== null ? this.loopStart : visStart;
+      this.loopEnd = Math.max(newAbsTime, minAbsTime);
+      const seekRelative = Math.max(0, Math.min(this.loopEnd - visStart, dur));
+      this.currentTime.set(seekRelative);
+      this.seek.emit(seekRelative);
     }
   }
 
-  @HostListener('window:pointerup', ['$event'])
-  onPointerUpMarker(event: PointerEvent) {
+  @HostListener('window:pointerup')
+  @HostListener('window:pointercancel')
+  @HostListener('window:blur')
+  onInteractionCancel() {
+    this.isScrubbing = false;
     this.isDraggingStartMarker = false;
     this.isDraggingEndMarker = false;
   }

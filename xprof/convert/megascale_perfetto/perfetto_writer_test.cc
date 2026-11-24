@@ -1,5 +1,6 @@
 #include "xprof/convert/megascale_perfetto/perfetto_writer.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,49 @@ TEST(PerfettoWriterTest, WriteToStringBasic) {
     }
   }
   EXPECT_TRUE(found);
+}
+
+TEST(PerfettoWriterTest, ClampsNegativeTimestampsToZero) {
+  XprofTrace trace;
+  trace.rx_counter.name = "Outstanding Bytes RX";
+  trace.rx_counter.timestamps_ps = {-1400000000, 600000000};
+  trace.rx_counter.values = {16777216, 0};
+
+  Track& track = trace.tpu_fragments[0].emplace_back();
+  track.name = "Steps";
+  track.events.push_back({"early_slice", -500000, 1000000});
+
+  std::string output;
+  ASSERT_OK(PerfettoWriter::WriteToString(trace, &output,
+                                          /*compressed_output=*/false));
+
+  perfetto::protos::Trace trace_proto;
+  ASSERT_TRUE(trace_proto.ParseFromString(output));
+
+  std::vector<uint64_t> counter_timestamps;
+  std::vector<uint64_t> slice_timestamps;
+  for (const auto& packet : trace_proto.packet()) {
+    if (!packet.has_track_event()) {
+      continue;
+    }
+    if (packet.track_event().type() ==
+        perfetto::protos::TrackEvent::TYPE_COUNTER) {
+      counter_timestamps.push_back(packet.timestamp());
+    } else if (packet.track_event().type() ==
+                   perfetto::protos::TrackEvent::TYPE_SLICE_BEGIN ||
+               packet.track_event().type() ==
+                   perfetto::protos::TrackEvent::TYPE_SLICE_END) {
+      slice_timestamps.push_back(packet.timestamp());
+    }
+  }
+
+  ASSERT_EQ(counter_timestamps.size(), 2);
+  EXPECT_EQ(counter_timestamps[0], 0);
+  EXPECT_EQ(counter_timestamps[1], 600000);
+
+  ASSERT_EQ(slice_timestamps.size(), 2);
+  EXPECT_EQ(slice_timestamps[0], 0);
+  EXPECT_EQ(slice_timestamps[1], 500);
 }
 
 }  // namespace

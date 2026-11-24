@@ -543,6 +543,9 @@ dashboard would integrate trace viewer app using iframe.
       _tasks: Object,
       _model: Object,
       _resolution: {type: Number, value: 1000},
+      _resolutionSetInUrl: {type: Boolean, value: false},
+      _documentMouseMoveListenerAdded: {type: Boolean, value: false},
+      _resolutionResizeObserver: {type: Object, value: null},
       _filteredByVisibility: {type: Boolean, value: false},
       _dataRegenerated: {type: Boolean, value: false},
       _isInitialLoad: {type: Boolean, value: true},
@@ -666,6 +669,7 @@ dashboard would integrate trace viewer app using iframe.
           this.hostsDataUrl = value;
         } else if (key === 'resolution') {
           this._resolution = Number(value);
+          this._resolutionSetInUrl = true;
         } else if (key === 'source_code_service') {
           this._sourceCodeServiceIsAvailable = value === 'true';
         } else if (key === 'percale_url_prefix') {
@@ -678,6 +682,19 @@ dashboard would integrate trace viewer app using iframe.
       if (!this.traceDataUrl) {
         this._displayOverlay('Trace Viewer', 'Trace data URL is not provided.');
         return null;
+      }
+
+      if (!this._resolutionSetInUrl && this._traceViewer.clientWidth <= 0 &&
+          typeof ResizeObserver !== 'undefined') {
+        this._resolutionResizeObserver = new ResizeObserver(() => {
+          if (this._traceViewer.clientWidth > 0) {
+            this._resolution =
+                this._resolutionFromViewerWidth(this._traceViewer.clientWidth);
+            this._resolutionResizeObserver.disconnect();
+            this._resolutionResizeObserver = null;
+          }
+        });
+        this._resolutionResizeObserver.observe(this._traceViewer);
       }
 
       this._listenForViewportChanges();
@@ -700,6 +717,13 @@ dashboard would integrate trace viewer app using iframe.
         verticalDivider.horizontal = false;
         verticalDivider.target = this._eventDetails;
       }.bind(this));
+    },
+
+    detached: function() {
+      if (this._resolutionResizeObserver) {
+        this._resolutionResizeObserver.disconnect();
+        this._resolutionResizeObserver = null;
+      }
     },
 
     _sessionId: '',
@@ -797,14 +821,38 @@ dashboard would integrate trace viewer app using iframe.
         toolLink = new URL(
             `${window.location.origin}${basePrefix}/${toolName}/${encodeURIComponent(fallbackSessionId)}`);
       } else {
-        toolLink =
-            new URL(`${window.location.origin}/${toolName}/${this._sessionId}`);
+        toolLink = new URL(
+            `${window.location.origin}/${toolName}/${encodeURIComponent(this._sessionId)}`);
+        const globalParams = [
+          'use_new_analysis',
+          'labs',
+          'base_session_id',
+          'source_cl',
+        ];
+        let parentSearchParams = null;
+        try {
+          if (window.parent && window.parent !== window &&
+              window.parent.location) {
+            parentSearchParams =
+                new URLSearchParams(window.parent.location.search);
+          }
+        } catch (err) {
+          // Cross-origin parent; fall back to current frame search params.
+        }
+        const frameSearchParams = new URLSearchParams(window.location.search);
+        for (const key of globalParams) {
+          const val = (parentSearchParams && parentSearchParams.get(key)) ||
+              frameSearchParams.get(key);
+          if (val) {
+            toolLink.searchParams.set(key, val);
+          }
+        }
       }
       for (const [key, value] of Object.entries(params)) {
         const resolved = this._isOss && key === 'session_id' && !value ?
             fallbackSessionId :
             value;
-        toolLink.searchParams.append(key, resolved);
+        toolLink.searchParams.set(key, resolved);
       }
       if (this._isOss) {
         if (this._sessionPath) {
@@ -835,16 +883,30 @@ dashboard would integrate trace viewer app using iframe.
     createCrossToolLinkOss: function(toolName, toolLabel, params, text) {
       if (!this._isOss) return;
       const toolLinkElement = document.createElement('div');
-      const toolLink = new URL(window.parent?.location?.origin);
+      let parentHref = window.location.href;
+      try {
+        if (window.parent?.location?.href) {
+          parentHref = window.parent.location.href;
+        }
+      } catch (err) {
+        // Cross-origin parent; fall back to current frame location.
+      }
+      const toolLink = new URL(parentHref);
+      toolLink.search = '';
       toolLink.hash = 'profile';
       toolLink.searchParams.set('tool', toolName);
-      const traceViewerLink = new URL(window.location.origin + this.traceDataUrl);
+      const traceViewerLink =
+          new URL(this.traceDataUrl || '', window.location.href);
       const currentRun = traceViewerLink.searchParams.get('run');
-      toolLink.searchParams.set('run', currentRun);
+      if (currentRun) {
+        toolLink.searchParams.set('run', currentRun);
+      }
       if (toolName === 'graph_viewer') {
         const {hloOp, hloModule} = params;
         toolLink.searchParams.set('node_name', hloOp);
-        toolLink.searchParams.set('module_name', hloModule !== 'default' ? hloModule : undefined);
+        if (hloModule && hloModule !== 'default') {
+          toolLink.searchParams.set('module_name', hloModule);
+        }
       }
       if (this._sessionPath) {
         toolLink.searchParams.set('session_path', this._sessionPath);
@@ -866,8 +928,16 @@ dashboard would integrate trace viewer app using iframe.
       hloGraphInfoNodeElement.textContent =
           `Context for Hlo Op Event (${hloOp}): loading...`;
       this._eventDetails.appendChild(hloGraphInfoNodeElement);
-      const adjNodesInfo =
-          await this._maybeFetchAdjacentEvents(hloOp, hloModule);
+      let adjNodesInfo;
+      try {
+        adjNodesInfo =
+            await this._maybeFetchAdjacentEvents(hloOp, hloModule);
+      } catch (err) {
+        console.error('Failed to fetch HLO adjacent events:', err);
+        hloGraphInfoNodeElement.textContent =
+            `Context for Hlo Op Event (${hloOp}): failed to load.`;
+        return;
+      }
       hloGraphInfoNodeElement.textContent = '';
       for (const [label, key] of [
                ['operands:', 'operand_names'],
@@ -935,10 +1005,15 @@ dashboard would integrate trace viewer app using iframe.
         // Don't need to repopulate the details for the same event selection.
         if (this._selectedSingleEvent == event) return;
 
-        await this._maybeFetchEventArgs(event);
+        const eventArgsLoaded = await this._maybeFetchEventArgs(event);
         if (this._eventDetails) {
           this._eventDetails.innerHTML = '<div id="event-details" ' +
               'style="display: block;"></div>';
+          if (eventArgsLoaded === false) {
+            const errorElement = document.createElement('div');
+            errorElement.textContent = 'Failed to load full event arguments.';
+            this._eventDetails.appendChild(errorElement);
+          }
         }
         var currentThread = event.parentContainer;
         var currentProcess = currentThread.parent;
@@ -1102,9 +1177,31 @@ dashboard would integrate trace viewer app using iframe.
       }
     },
 
+    _fetchJson: function(requestURL, errorPrefix) {
+      return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', requestURL);
+        xhr.onload = function() {
+          var contentType = this.getResponseHeader('Content-Type') || '';
+          if (this.status !== 200 || !contentType.startsWith('application/json')) {
+            var msg = requestURL + ' could not be loaded.';
+            if (contentType.startsWith('text/plain')) {
+              msg = msg + ': ' + xhr.statusText;
+            }
+            reject(msg);
+            return;
+          }
+          resolve(xhr.response);
+        };
+        xhr.onerror = function() {
+          reject(`${errorPrefix} ${requestURL}: ${xhr.statusText}`);
+        };
+        xhr.send();
+      });
+    },
+
     _searchAndAddTraceEvents: async function(searchText) {
       if (this._isLoading) return;
-      this._previousSearchText = this._currentSearchText;
       const requestURL = this._buildBaseURL();
       requestURL.searchParams.set('replace_model', 'false');
       requestURL.searchParams.set('resolution', 0);
@@ -1112,30 +1209,19 @@ dashboard would integrate trace viewer app using iframe.
       requestURL.searchParams.set('search_prefix', searchText);
       this._isLoading = true;
       this._throbber.className = 'active';
-      const searchData = await new Promise(function(resolve, reject) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', requestURL);
-        xhr.onload = function() {
-          var contentType = this.getResponseHeader('Content-Type');
-          if (
-            this.status !== 200 ||
-            !contentType.startsWith('application/json')
-          ) {
-            var msg = requestURL + ' could not be loaded';
-            if (contentType.startsWith('text/plain')) {
-              msg = msg + ': ' + xhr.statusText;
-            }
-            reject(msg);
-          }
-          resolve(xhr.response);
-        };
-        xhr.onerror = function() {
-          reject(`Cannot fetch search result with uri ${requestURL}: ${xhr.statusText}`);
-        };
-        xhr.send();
-      });
-      this._isLoading = false;
-      this._throbber.className = 'inactive';
+      let searchData;
+      try {
+        searchData = await this._fetchJson(
+            requestURL, 'Cannot fetch search result with uri');
+      } catch (err) {
+        console.error('Fetch search result failed:', err);
+        this._displayOverlay('Trace Viewer fetch search result failed: ', err);
+        return;
+      } finally {
+        this._isLoading = false;
+        this._throbber.className = 'inactive';
+      }
+      this._previousSearchText = this._currentSearchText;
       try {
         await this._updateModel(JSON.parse(searchData), false);
         await this._updateView(this._loadedRange);
@@ -1157,6 +1243,9 @@ dashboard would integrate trace viewer app using iframe.
     },
 
     _addRectTooltipNode: function() {
+      if (document.getElementById('event_tooltip')) {
+        return;
+      }
       const tooltipDiv = document.createElement('div');
       tooltipDiv.setAttribute('id', 'event_tooltip');
       tooltipDiv.setAttribute('style', `position:absolute;left:0;top:0;visibility:hidden;height:14px;font-size:12px;width:48px;padding:5px;color:black;background-color:white;z-index:10000;display:flex;align-items:center;justify-content:center;`);
@@ -1171,6 +1260,7 @@ dashboard would integrate trace viewer app using iframe.
         return;
       };
       const el = document.getElementById('event_tooltip');
+      if (!el) return;
       const maxTitleLength = 50;
       let truncatedTitle = this._hoverRect.title.substring(0, maxTitleLength);
       if (this._hoverRect.title.length > maxTitleLength) {
@@ -1187,6 +1277,7 @@ dashboard would integrate trace viewer app using iframe.
 
     _hideRectTooltip: function() {
       const el = document.getElementById('event_tooltip');
+      if (!el) return;
       el.style.visibility = 'hidden';
     },
 
@@ -1284,16 +1375,24 @@ dashboard would integrate trace viewer app using iframe.
     },
 
     _updateModeSelectorBehavior: function() {
-      const modeSelector = document.querySelector('tr-ui-b-mouse-mode-selector');
-      document.addEventListener('mousemove', (e) => {
-        const mouseEvent = new tr.b.Event('recthover', true);
-        mouseEvent.clientX = e.clientX;
-        mouseEvent.clientY = e.clientY;
-        mouseEvent.rects = e.target.rects || [];
-        modeSelector?.dispatchEvent(mouseEvent);
-      });
       this._addRectTooltipNode();
-      modeSelector?.addEventListener('recthover', this._onHoverRect.bind(this));
+      const modeSelector = document.querySelector('tr-ui-b-mouse-mode-selector');
+      if (!this._documentMouseMoveListenerAdded) {
+        this._documentMouseMoveListenerAdded = true;
+        document.addEventListener('mousemove', (e) => {
+          const currentModeSelector =
+              document.querySelector('tr-ui-b-mouse-mode-selector');
+          const mouseEvent = new tr.b.Event('recthover', true);
+          mouseEvent.clientX = e.clientX;
+          mouseEvent.clientY = e.clientY;
+          mouseEvent.rects = e.target.rects || [];
+          currentModeSelector?.dispatchEvent(mouseEvent);
+        });
+      }
+      if (modeSelector && !modeSelector.dataset.xprofHoverBound) {
+        modeSelector.dataset.xprofHoverBound = 'true';
+        modeSelector.addEventListener('recthover', this._onHoverRect.bind(this));
+      }
     },
 
     _timer: null,
@@ -1383,29 +1482,53 @@ dashboard would integrate trace viewer app using iframe.
 
       let requestURL;
       if (this._sessionId) {
-        requestURL = new URL(`/graph_viewer.json?session_id=${this._sessionId}`, window.location.origin);
+        requestURL = new URL('/graph_viewer.json', window.location.origin);
+        requestURL.searchParams.set('session_id', this._sessionId);
         requestURL.searchParams.set('node_name', nodeName);
-        requestURL.searchParams.set('module_name', moduleName);
+        if (moduleName && moduleName !== 'default') {
+          requestURL.searchParams.set('module_name', moduleName);
+        }
       } else {
-        requestURL = new URL(`/data/plugin/profile/data`, window.location?.origin);
+        const prefixIndex =
+            window.location.pathname.indexOf('/data/plugin/profile');
+        const basePrefix = prefixIndex >= 0 ?
+            window.location.pathname.slice(0, prefixIndex) +
+                '/data/plugin/profile' :
+            '/data/plugin/profile';
+        requestURL = new URL(`${basePrefix}/data`, window.location.origin);
         requestURL.hash = 'profile';
         requestURL.searchParams.set('tag', 'graph_viewer');
-        const traceViewerLink = new URL(window.location.origin + this.traceDataUrl);
+        const traceViewerLink =
+            new URL(this.traceDataUrl || '', window.location.href);
         const currentRun = traceViewerLink.searchParams.get('run');
-        requestURL.searchParams.set('run', currentRun);
+        if (currentRun) {
+          requestURL.searchParams.set('run', currentRun);
+        }
         requestURL.searchParams.set('node_name', nodeName);
-        requestURL.searchParams.set('module_name', moduleName);
+        if (moduleName && moduleName !== 'default') {
+          requestURL.searchParams.set('module_name', moduleName);
+        }
+        if (this._sessionPath) {
+          requestURL.searchParams.set('session_path', this._sessionPath);
+        }
+        if (this._runPath) {
+          requestURL.searchParams.set('run_path', this._runPath);
+        }
       }
       requestURL.searchParams.set('type', 'adj_nodes');
       const jsonString = await new Promise(function(resolve, reject) {
           var xhr = new XMLHttpRequest();
           xhr.open('GET', requestURL);
           xhr.onload = function() {
-            var contentType = this.getResponseHeader('Content-Type');
-            if (this.status !== 200 || !contentType.startsWith('text/plain')) {
+            var contentType = this.getResponseHeader('Content-Type') || '';
+            var isValidContentType =
+                contentType.startsWith('application/json') ||
+                contentType.startsWith('text/plain');
+            if (this.status !== 200 || !isValidContentType) {
               var msg = requestURL + ' could not be loaded.';
               msg = msg + ': ' + xhr.statusText;
               reject(msg);
+              return;
             }
             resolve(xhr.response);
           };
@@ -1437,28 +1560,24 @@ dashboard would integrate trace viewer app using iframe.
       requestURL.searchParams.set('hosts', hostname);
       this._isLoading = true;
       this._throbber.className = 'active';
-      const fetchData = await new Promise(function(resolve, reject) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', requestURL);
-        xhr.onload = function() {
-          var contentType = this.getResponseHeader('Content-Type');
-          if (this.status !== 200 || !contentType.startsWith('application/json')) {
-            var msg = requestURL + ' could not be loaded.';
-            if (contentType.startsWith('text/plain')) {
-              msg = msg + ': ' + xhr.statusText;
-            }
-            reject(msg);
-          }
-          resolve(xhr.response);
-        };
-        xhr.onerror = function() {
-          reject(`Cannot fetch event metadata with uri ${requestURL}: ${xhr.statusText}`);
-        };
-        xhr.send();
-      });
-      this._isLoading = false;
-      this._throbber.className = 'inactive';
-      const data = JSON.parse(fetchData);
+      let fetchData;
+      try {
+        fetchData = await this._fetchJson(
+            requestURL, 'Cannot fetch event metadata with uri');
+      } catch (err) {
+        console.error('Failed to fetch event args:', err);
+        return false;
+      } finally {
+        this._isLoading = false;
+        this._throbber.className = 'inactive';
+      }
+      let data;
+      try {
+        data = JSON.parse(fetchData);
+      } catch (err) {
+        console.error('Failed to parse event args JSON:', err);
+        return false;
+      }
       if (event instanceof tr.model.ThreadSlice &&
           data.traceEvents[data.traceEvents.length - 1].ph == "X") {
         // Overwrite the event args in the ThreadSlice.
@@ -1478,15 +1597,19 @@ dashboard would integrate trace viewer app using iframe.
         // Overwrite the event args in the AsyncSlice.
         const beginEvent = data.traceEvents[data.traceEvents.length - 2];
         event.args = beginEvent.args;
-        const stackFrameName = data.stackFrames[1]?.name;
+        let stackFrameName = data.stackFrames[1]?.name;
         if (stackFrameName) {
+          if (stackFrameName.startsWith('@@')) {
+            stackFrameName = stackFrameName.slice(2);
+          }
           event.startStackFrame =
             new tr.model.StackFrame(/* parentFrame */ undefined, "g1",
-                                    stackFrameName.substr(2), 13);
+                                    stackFrameName, 13);
         }
       } else {
         console.log("failed to fetch event args for event: ", event);
       }
+      return true;
     },
 
     _createDetailFilter: function() {
@@ -1601,11 +1724,15 @@ dashboard would integrate trace viewer app using iframe.
 
       // Enable drag & drop for processTracks
       for (let i = 0; i < processTrackHeaders.length; ++i) {
+        const dropTargetHeader = processTrackHeaders[i];
+        if (dropTargetHeader.querySelector('.process-track-drag-handle')) {
+          continue;
+        }
         // Add a draggable handle to each process track header.
         const draggingEl = tr.ui.b.createSpan();
         Polymer.dom(draggingEl).classList.add('process-track-drag-handle');
         draggingEl.textContent = '☰';
-        Polymer.dom(processTrackHeaders[i]).appendChild(draggingEl);
+        Polymer.dom(dropTargetHeader).appendChild(draggingEl);
         draggingEl.draggable = true;
 
         // Overwrite the click event and prevent event propogation to enable drag and drop
@@ -1631,7 +1758,6 @@ dashboard would integrate trace viewer app using iframe.
         });
 
         // Move the dragged process track as it's dragged over other processes
-        const dropTargetHeader = processTrackHeaders[i];
         dropTargetHeader.addEventListener('dragover', (e) => {
           // Default behavior involves dragging the icon back to its previous position, so we
           // prevent that behavior.
@@ -1675,6 +1801,10 @@ dashboard would integrate trace viewer app using iframe.
 
       // Enable text selection for processTracks: overwrite the click event with noop and prevent event propogatin.
       for (let i = 0; i < processNameEls.length; ++i) {
+        if (processNameEls[i].dataset.xprofSelectionBound) {
+          continue;
+        }
+        processNameEls[i].dataset.xprofSelectionBound = 'true';
         processNameEls[i].addEventListener('mousedown', (e) => {
           e.stopPropagation();
         });
@@ -1707,10 +1837,25 @@ dashboard would integrate trace viewer app using iframe.
     },
 
     _addDragEventListeners: function() {
+      const MIN_SIDEBAR_WIDTH_PX = 100;
+      const MIN_CANVAS_WIDTH_PX = 100;
       // These are all the left side panel process headers (e.g., XLA Ops, Framework Ops, etc.)
       const processes = document.getElementsByTagName('tr-ui-b-heading');
       for (let i = 0; i < processes.length; ++i) {
+        if (processes[i].dataset.xprofResizeBound) {
+          continue;
+        }
+        processes[i].dataset.xprofResizeBound = 'true';
         processes[i].addEventListener('mousedown', (e) => {
+          const canvas =
+              this._traceViewer?.trackView?.modelTrackContainer_?.canvas;
+          if (canvas) {
+            this._canvasLeft = canvas.offsetLeft;
+            this._canvasWidth = canvas.clientWidth;
+          }
+          if (this._canvasLeft <= 0 || this._canvasWidth <= 0) {
+            return;
+          }
           // Start the dragging event if the mouse is within 50px of the left side panel.
           if (Math.abs(e.x - this._canvasLeft) < 50) {
             this._canvasDrag = true;
@@ -1719,28 +1864,34 @@ dashboard would integrate trace viewer app using iframe.
         });
         processes[i].addEventListener('mousemove', (e) => {
           if (this._canvasDrag) {
-            var start_x = e.x + 5;
-            var width = this._canvasWidth + this._canvasLeft - start_x;
+            const totalWidth = this._canvasWidth + this._canvasLeft;
+            const maxStartX = Math.max(
+                MIN_SIDEBAR_WIDTH_PX, totalWidth - MIN_CANVAS_WIDTH_PX);
+            const startX = Math.max(
+                MIN_SIDEBAR_WIDTH_PX, Math.min(e.x + 5, maxStartX));
+            const width = Math.max(MIN_CANVAS_WIDTH_PX, totalWidth - startX);
             const processes_ = document.getElementsByTagName('tr-ui-b-heading');
             for (var i = 0; i < processes_.length; ++i) {
-              processes_[i].style.width = + start_x + 'px';
+              processes_[i].style.width = + startX + 'px';
             }
             // There are 2 canvases: One displays the ruler at the top (0..30s etc.), the other
             // displays the trace.
             const canvases = document.getElementsByClassName('drawing-container-canvas');
             for (var i = 0; i < canvases.length; ++i) {
-              canvases[i].style.left = start_x + 'px';
+              canvases[i].style.left = startX + 'px';
               canvases[i].style.width = + width + 'px';
             }
-            this._canvasLeft = start_x;
+            this._canvasLeft = startX;
             this._canvasWidth = width;
           }
           e.stopPropagation();
         });
         processes[i].addEventListener('mouseup', (e) => {
-          this._canvasDrag = false;
+          if (this._canvasDrag) {
+            this._canvasDrag = false;
+            this._onViewportChanged();
+          }
           e.stopPropagation();
-          this._onViewportChanged();
         });
       }
     },
@@ -2039,7 +2190,7 @@ dashboard would integrate trace viewer app using iframe.
         var xhr = new XMLHttpRequest();
         xhr.open('GET', requestURL);
         xhr.onload = function() {
-          var contentType = this.getResponseHeader('Content-Type');
+          var contentType = this.getResponseHeader('Content-Type') || '';
           if (
             this.status !== 200 ||
             !contentType.startsWith('application/json')
@@ -2049,6 +2200,7 @@ dashboard would integrate trace viewer app using iframe.
               msg = msg + ': ' + xhr.statusText;
             }
             reject(msg);
+            return;
           }
           resolve(xhr.response);
         };
@@ -2341,6 +2493,10 @@ dashboard would integrate trace viewer app using iframe.
     // Returns the resolution (in number of events) given the width of the
     // trace viewer (in pixels).
     _resolutionFromViewerWidth(viewerWidth) {
+      const MIN_RESOLUTION = 256;
+      if (!viewerWidth || viewerWidth <= 0) {
+        return MIN_RESOLUTION;
+      }
       const pixelRatio = window.devicePixelRatio || 1;
       const minEventWidth = 2 * pixelRatio;
 
@@ -2356,15 +2512,17 @@ dashboard would integrate trace viewer app using iframe.
 
       // Check if subtracting the heading width would result in a negative or zero width.
       // This handles cases where the viewer is hidden (width 0) or very narrow.
-      // We return the resolution based on the full viewerWidth to avoid negative values
-      // and to provide a small positive resolution (instead of 0) for narrow windows.
+      // We return at least MIN_RESOLUTION to avoid negative or zero values
+      // (zero permanently disables progressive reloads).
       if (viewerWidth - headingWidth <= 0) {
-        return Math.round((viewerWidth * pixelRatio) / minEventWidth);
+        return Math.max(
+            MIN_RESOLUTION,
+            Math.round((viewerWidth * pixelRatio) / minEventWidth));
       }
 
       viewerWidth -= headingWidth;  // substract row header
       viewerWidth *= pixelRatio;  // adjust pixel ratio
-      return Math.round(viewerWidth / minEventWidth);
+      return Math.max(MIN_RESOLUTION, Math.round(viewerWidth / minEventWidth));
     },
 
     _updateHostsParamToBaseUrl: function(requestURL) {
@@ -2437,7 +2595,7 @@ dashboard would integrate trace viewer app using iframe.
     _initViewport: function() {
       if (!this.currentViewportRange) return;
       const displayTransform = new tr.ui.TimelineDisplayTransform();
-      this._canvasWidth = this._traceViewer.trackView.modelTrackContainer_.canvas.width;
+      this._canvasWidth = this._traceViewer.trackView.modelTrackContainer_.canvas.clientWidth;
       this._canvasLeft = this._traceViewer.trackView.modelTrackContainer_.canvas.offsetLeft;
       displayTransform.xSetWorldBounds(this.currentViewportRange.min, this.currentViewportRange.max, this._traceViewer.trackView.modelTrackContainer_.canvas.width);
       this._traceViewer.trackView.viewport.setDisplayTransformImmediately(displayTransform);

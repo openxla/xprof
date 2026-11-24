@@ -149,6 +149,55 @@ TEST(TraceProcessorTest, AddsNetworkCounters) {
   EXPECT_EQ(trace.rx_bw_counter.values[1], 0);
 }
 
+TEST(TraceProcessorTest,
+     ClampsEarlyNetworkCounterTimestampsAndSkipsNegativeDuration) {
+  XprofTrace trace;
+  Track& track = trace.megascale_fragments[0].emplace_back();
+  track.name = "rendezvous";
+
+  auto add_event = [&](const char* name, int64_t ts_ps, const char* dur_key,
+                       ArgValue dur_val, const char* buf) {
+    Event ev;
+    ev.name = name;
+    ev.timestamp_ps = ts_ps;
+    ev.duration_ps = 100000000;
+    ev.run_id = 1;
+    ev.args.push_back({trace.string_table.Intern(dur_key), dur_val});
+    ev.args.push_back({trace.string_table.Intern("buffer_sizes"),
+                       trace.string_table.Intern(buf)});
+    track.events.push_back(std::move(ev));
+  };
+  // Early RX/TX transfers ending at 0.6ms with 2.0ms duration (start = -1.4ms).
+  add_event("NetworkReceive END", 500000000, "network_transport_latency_us",
+            uint64_t{2000}, "s100001->200001d|$c0=16777216");
+  add_event("NetworkSend END", 500000000, "action_duration_ns",
+            int64_t{2000000}, "s100001->200001d|$c0=1000000");
+  // Malformed negative action_duration_ns must be ignored.
+  add_event("NetworkSend END", 700000000, "action_duration_ns", int64_t{-500},
+            "s100001->200001d|$c0=500000");
+
+  TraceProcessor processor(&trace);
+  processor.Process();
+
+  EXPECT_EQ(trace.rx_counter.timestamps_ps,
+            (std::vector<int64_t>{0, 600000000}));
+  EXPECT_EQ(trace.rx_counter.values, (std::vector<int64_t>{16777216, 0}));
+  EXPECT_EQ(trace.rx_bw_counter.timestamps_ps,
+            (std::vector<int64_t>{0, 600000000}));
+  ASSERT_EQ(trace.rx_bw_counter.values.size(), 2);
+  EXPECT_GT(trace.rx_bw_counter.values[0], 0.0);
+  EXPECT_NEAR(trace.rx_bw_counter.values[1], 0.0, 1e-9);
+
+  EXPECT_EQ(trace.tx_counter.timestamps_ps,
+            (std::vector<int64_t>{0, 600000000}));
+  EXPECT_EQ(trace.tx_counter.values, (std::vector<int64_t>{1000000, 0}));
+  EXPECT_EQ(trace.tx_bw_counter.timestamps_ps,
+            (std::vector<int64_t>{0, 600000000}));
+  ASSERT_EQ(trace.tx_bw_counter.values.size(), 2);
+  EXPECT_DOUBLE_EQ(trace.tx_bw_counter.values[0], 4.0);
+  EXPECT_NEAR(trace.tx_bw_counter.values[1], 0.0, 1e-9);
+}
+
 TEST(TraceProcessorTest, AddMegascaleCounters) {
   XprofTrace trace;
   Track& track = trace.megascale_fragments[0].emplace_back();

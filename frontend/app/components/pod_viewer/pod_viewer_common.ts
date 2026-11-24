@@ -107,9 +107,20 @@ export class PodViewerCommon {
   }
 
   processChannelDb(podStats: PodStatsMap) {
-    this.channelDb = (podStats.channelDb || []).sort((a, b) =>
-      (a.channelId || '0') > (b.channelId || '0') ? 1 : -1,
-    );
+    // Sort a copy numerically by channel id; non-numeric ids sort last.
+    this.channelDb = [...(podStats.channelDb || [])].sort((a, b) => {
+      const idA = Number(a.channelId ?? 0);
+      const idB = Number(b.channelId ?? 0);
+      const finiteA = Number.isFinite(idA);
+      const finiteB = Number.isFinite(idB);
+      if (finiteA && finiteB) {
+        return idA - idB;
+      }
+      if (finiteA !== finiteB) {
+        return finiteA ? -1 : 1;
+      }
+      return String(a.channelId ?? '').localeCompare(String(b.channelId ?? ''));
+    });
     this.channelDbForChart = (podStats.channelDb || [])
       .slice(0)
       .sort((a, b) => ((a.durationUs || 0) < (b.durationUs || 0) ? 1 : -1));

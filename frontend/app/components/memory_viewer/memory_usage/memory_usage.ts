@@ -163,13 +163,21 @@ export class MemoryUsage {
       }
     }
     for (const heapObject of preprocess.maxHeap || []) {
+      // Prefer the backend-assigned color index when it is a valid
+      // non-negative integer; otherwise allocate the next unused index.
+      const numbered = heapObject.numbered;
+      const color = (typeof numbered === 'number' &&
+                     Number.isInteger(numbered) && numbered >= 0) ?
+          numbered :
+          this.nColor;
+      this.nColor = Math.max(this.nColor, color + 1);
       this.maxHeap.push({
         instructionName: heapObject.instructionName,
         shape: heapObject.shapeString,
         tfOpName: heapObject.tfOpName,
         sizeMiB: heapObject.logicalBufferSizeMib,
         unpaddedSizeMiB: heapObject.unpaddedShapeMib,
-        color: this.nColor++,
+        color,
         groupName: heapObject.groupName,
         opcode: heapObject.opCode,
         logicalBufferId: heapObject.logicalBufferId,

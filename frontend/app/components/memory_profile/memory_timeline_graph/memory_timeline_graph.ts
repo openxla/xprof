@@ -144,7 +144,7 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     let hasFreeMemoryData = false;
     for (let i = 0; i < snapshots.length; i++) {
       const stats = snapshots[i].aggregationStats;
-      if (stats && stats.freeMemoryBytes !== '0') {
+      if (stats && Number(stats.freeMemoryBytes) > 0) {
         hasFreeMemoryData = true;
         break;
       }
@@ -162,7 +162,13 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
 
     for (let i = 0; i < snapshots.length; i++) {
       const stats = snapshots[i].aggregationStats;
-      if (!stats || !snapshots[i].timeOffsetPs) {
+      const rawTimeOffset = snapshots[i].timeOffsetPs;
+      if (
+        !stats ||
+        rawTimeOffset == null ||
+        String(rawTimeOffset).trim() === '' ||
+        !Number.isFinite(Number(rawTimeOffset))
+      ) {
         continue;
       }
       const row = [
@@ -252,8 +258,8 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     const timestampMs = picoToMilli(snapshot.timeOffsetPs);
     const stats = snapshot.aggregationStats;
     const metadata = snapshot.activityMetadata;
-    if (!stats || !metadata || !metadata.requestedBytes ||
-        !metadata.allocationBytes || !metadata.memoryActivity) {
+    if (!stats || !metadata || metadata.allocationBytes == null ||
+        metadata.allocationBytes === '' || !metadata.memoryActivity) {
       return '';
     }
     let requestedSizeGib = bytesToGiBs(metadata.requestedBytes);
@@ -277,7 +283,7 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     if (metadata.tfOpName) {
       metadataTooltip += '\ntf_op: ' + metadata.tfOpName;
     }
-    if (metadata.stepId) {
+    if (metadata.stepId != null && metadata.stepId !== '') {
       metadataTooltip += '\nstep_id: ' + metadata.stepId;
     }
     if (metadata.regionType) {

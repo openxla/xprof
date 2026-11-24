@@ -16,15 +16,23 @@ import {
 import {MatDialog, MatDialogRef} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
+import {
+  combineLatest,
+  defer,
+  Observable,
+  of,
+  ReplaySubject,
+  Subject,
+} from 'rxjs';
 import {
   catchError,
   debounceTime,
   distinctUntilChanged,
+  filter,
   finalize,
+  map,
   switchMap,
   takeUntil,
-  tap,
 } from 'rxjs/operators';
 
 import {
@@ -167,6 +175,7 @@ function isAdjacentNodesResponse(data: unknown): data is AdjacentNodesResponse {
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
 const DEFAULT_EVENT_DETAIL_COLUMNS = Object.freeze(['property', 'value']);
+const MAX_MULTI_HOST_COUNT = 10;
 
 function parseHostsList(hosts: unknown): string[] {
   if (typeof hosts === 'string') {
@@ -176,6 +185,33 @@ function parseHostsList(hosts: unknown): string[] {
       .filter(Boolean);
   }
   return Array.isArray(hosts) ? hosts : [];
+}
+
+function formatHostsParam(hosts: readonly string[]): string {
+  return hosts.slice(0, MAX_MULTI_HOST_COUNT).join(',');
+}
+
+function resolveHostsFromFilter(
+  hostFilterEntry: FilterEntry,
+  hostList: readonly string[],
+): string[] {
+  if (hostFilterEntry.operator.value === FilterOperatorType.EXACT) {
+    return parseHostsList(hostFilterEntry.value).sort();
+  }
+  if (
+    hostFilterEntry.operator.value === FilterOperatorType.REGEX &&
+    hostFilterEntry.value
+  ) {
+    try {
+      const regex = new RegExp(hostFilterEntry.value);
+      return hostList.filter((hostname) => regex.test(hostname)).sort();
+    } catch {
+      // Treat malformed regex patterns as matching no hosts while the user
+      // finishes editing the filter expression.
+      return [];
+    }
+  }
+  return [];
 }
 
 function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
@@ -207,6 +243,7 @@ function getDefaultSmoothNavigation(): boolean {
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly datasetReset = new Subject<void>();
   private isDestroyed = false;
   private isInitializing = false;
   private navigationEvent: NavigationEvent = {};
@@ -246,6 +283,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   >();
   private readonly pendingAdjacentNodesFetches = new Set<string>();
   private queryString = '';
+  private traceLoadToken = 0;
   searching = false;
   private readonly searchQuery = new ReplaySubject<string>(1);
   get usePb(): boolean {
@@ -464,17 +502,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   get filterSelectedHosts(): string[] {
-    const hostFilterEntry: FilterEntry | undefined = this.selectedFilters.find(
-      (filterEntry) =>
-        filterEntry.field?.info.category === FilterFieldCategory.HOST,
-    );
-    if (hostFilterEntry?.operator.value === FilterOperatorType.EXACT) {
-      return hostFilterEntry?.value
-        .split(',')
-        .map((h) => h.trim())
-        .filter(Boolean);
-    }
-    return [];
+    const hostFilterEntry = this.getHostFilterEntry();
+    return hostFilterEntry
+      ? resolveHostsFromFilter(hostFilterEntry, this.hostList)
+      : [];
   }
 
   get filterSelectedTimeRange(): [string | undefined, string | undefined] {
@@ -619,42 +650,23 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   ngOnInit(): void {
     this.loadCustomColors();
     this.loadGeneralSettings();
+    // Tag each query with the active traceLoadToken before debouncing so
+    // queries buffered during a dataset reload are dropped after debounceTime,
+    // while identical queries on a new dataset pass distinctUntilChanged.
+    // In-flight RPCs are canceled via datasetReset inside fetchSearchResults.
     this.searchQuery
       .pipe(
-        takeUntil(this.destroyed),
+        map((query: string) => ({query, loadToken: this.traceLoadToken})),
         debounceTime(300),
-        distinctUntilChanged(),
-        tap<string>(() => {
-          this.searching = true;
-        }),
-        switchMap((query: string) => {
-          if (!query) {
-            return of(null);
-          }
-          const host = this.getCurrentHost();
-          if (!host) {
-            return of(null);
-          }
-          return this.dataService
-            .getData(
-              this.navigationEvent.run ?? '',
-              this.navigationEvent.tag ?? '',
-              host,
-              new Map<string, string>([['search_prefix', query]]),
-            )
-            .pipe(
-              catchError((error: unknown) => {
-                console.error(
-                  'Failed to fetch trace data for search query:',
-                  error,
-                );
-                return of(null);
-              }),
-            );
-        }),
+        filter(({loadToken}) => loadToken === this.traceLoadToken),
+        distinctUntilChanged(
+          (prev, curr) =>
+            prev.query === curr.query && prev.loadToken === curr.loadToken,
+        ),
+        switchMap(({query}) => this.fetchSearchResults(query)),
+        takeUntil(this.destroyed),
       )
       .subscribe((data) => {
-        this.searching = false;
         if (this.traceViewerModule && data) {
           // Type contract is guaranteed by the backend response structure.
           const traceData = data as TraceData;
@@ -665,6 +677,41 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.container?.updateSearchResultCountText();
         }
       });
+  }
+
+  private fetchSearchResults(query: string): Observable<unknown> {
+    if (!query) {
+      return of(undefined);
+    }
+    const host = this.getCurrentHost();
+    if (!host) {
+      return of(undefined);
+    }
+    // Defer setting `searching` until subscription so switchMap unsubscribes
+    // any superseded request and runs its finalize() cleanup first.
+    return defer(() => {
+      this.searching = true;
+      return this.dataService
+        .getData(
+          this.navigationEvent.run ?? '',
+          this.navigationEvent.tag ?? '',
+          host,
+          new Map<string, string>([['search_prefix', query]]),
+        )
+        .pipe(
+          takeUntil(this.datasetReset),
+          catchError((error: unknown) => {
+            console.error(
+              'Failed to fetch trace data for search query:',
+              error,
+            );
+            return of(undefined);
+          }),
+          finalize(() => {
+            this.searching = false;
+          }),
+        );
+    });
   }
 
   ngAfterViewInit(): void {}
@@ -720,12 +767,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   update(event: NavigationEvent): void {
+    const loadToken = this.advanceDatasetGeneration();
+    this.resetPerDatasetState();
     if (event.run) {
       this.sessionId = event.run;
     } else if ((event as Record<string, string>)['sessionId']) {
       this.sessionId = (event as Record<string, string>)['sessionId'];
     }
     const isStreaming = event.tag === 'trace_viewer@';
+    const {currentHost, hostsString, isEmptyHostFilter} =
+      this.resolveHostSelection(event, isStreaming);
+
+    this.clearStaleHostSearchParams({currentHost, hostsString});
+
+    if (isEmptyHostFilter) {
+      this.clearActiveViewer();
+      return;
+    }
+
     const run = event.run || '';
     const tag = event.tag || '';
     const runPath = event.run_path || '';
@@ -738,27 +797,79 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.queryString += `&run_path=${runPath}`;
     }
 
-    let hostsString = '';
-    if (event.hosts) {
-      const hostsList = parseHostsList(event.hosts);
-      // Sort hosts to ensure stable query string
-      hostsString = hostsList.sort().slice(0, 10).join(',');
-      this.queryString += `&hosts=${hostsString}`;
-    } else if (event.host) {
-      this.queryString += `&host=${event.host}`;
-    } else {
-      this.queryString += `&host=${this.hostList.length > 0 ? this.hostList[0] : ''}`;
-    }
-
-    const additionalParams = new Map<string, string>();
-    if (sessionPath) {
-      additionalParams.set('session_path', sessionPath);
-    } else if (runPath) {
-      additionalParams.set('run_path', runPath);
-    }
-
     if (hostsString) {
-      additionalParams.set('hosts', hostsString);
+      // Sort hosts to ensure stable query string
+      this.queryString += `&hosts=${hostsString}`;
+    } else {
+      this.queryString += `&host=${currentHost}`;
+    }
+
+    const additionalParams = this.buildAdditionalParams({
+      sessionPath,
+      runPath,
+      hostsString,
+    });
+    const traceDataUrl = this.dataService.getDataUrl(
+      run,
+      tag,
+      currentHost,
+      additionalParams,
+    );
+
+    if (this.useTraceViewerV2) {
+      if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
+        void this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
+          if (this.isDestroyed || loadToken !== this.traceLoadToken) {
+            return;
+          }
+          this.updateFlowCategories();
+          this.updateWasmFlowCategories();
+          this.updateWasmProcessMappings();
+          this.container?.updateSearchResultCountText();
+        });
+        // loadTraceData() synchronously clears WASM search state before
+        // yielding, so refresh the badge immediately while the new trace loads.
+        this.container?.updateSearchResultCountText();
+      }
+    } else {
+      this.url = `${this.pathPrefix}${API_PREFIX}${
+        PLUGIN_NAME
+      }/trace_viewer_index.html?is_streaming=${
+        isStreaming
+      }&is_oss=true&trace_data_url=${encodeURIComponent(
+        traceDataUrl,
+      )}&source_code_service=${this.sourceCodeServiceIsAvailable}`;
+    }
+  }
+
+  private advanceDatasetGeneration(): number {
+    const loadToken = ++this.traceLoadToken;
+    this.datasetReset.next();
+    return loadToken;
+  }
+
+  private buildAdditionalParams(options: {
+    sessionPath: string;
+    runPath: string;
+    hostsString: string;
+  }): Map<string, string> {
+    const additionalParams = new Map<string, string>();
+    if (options.sessionPath) {
+      additionalParams.set('session_path', options.sessionPath);
+    } else if (options.runPath) {
+      additionalParams.set('run_path', options.runPath);
+    }
+
+    if (options.hostsString) {
+      additionalParams.set('hosts', options.hostsString);
+    }
+
+    const [startTimeMs, endTimeMs] = this.filterSelectedTimeRange;
+    if (startTimeMs) {
+      additionalParams.set('start_time_ms', startTimeMs);
+    }
+    if (endTimeMs) {
+      additionalParams.set('end_time_ms', endTimeMs);
     }
 
     if (this.hasValidTraceFilters()) {
@@ -784,30 +895,113 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (this.useTraceViewerV2 && this.enableFastMode) {
       additionalParams.set(ENABLE_FAST_MODE_KEY, 'true');
     }
+    return additionalParams;
+  }
 
-    const traceDataUrl = this.dataService.getDataUrl(
-      run,
-      tag,
-      this.getCurrentHost(event),
-      additionalParams,
+  private getHostFilterEntry(): FilterEntry | undefined {
+    return this.selectedFilters.find(
+      (filterEntry) =>
+        filterEntry.field?.info.category === FilterFieldCategory.HOST,
     );
+  }
 
-    if (this.useTraceViewerV2) {
-      if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
-        this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
-          this.updateFlowCategories();
-          this.updateWasmFlowCategories();
-          this.updateWasmProcessMappings();
-        });
-      }
-    } else {
-      this.url = `${this.pathPrefix}${API_PREFIX}${
-        PLUGIN_NAME
-      }/trace_viewer_index.html?is_streaming=${
-        isStreaming
-      }&is_oss=true&trace_data_url=${encodeURIComponent(
-        traceDataUrl,
-      )}&source_code_service=${this.sourceCodeServiceIsAvailable}`;
+  private resolveHosts(event: NavigationEvent): {
+    currentHost: string;
+    hosts: string[];
+    isHostFilterActive: boolean;
+  } {
+    const hostFilterEntry = this.getHostFilterEntry();
+    if (hostFilterEntry) {
+      const selectedHosts = resolveHostsFromFilter(
+        hostFilterEntry,
+        this.hostList,
+      );
+      return {
+        currentHost: selectedHosts[0] ?? '',
+        hosts: selectedHosts,
+        isHostFilterActive: true,
+      };
+    }
+    const sortedHosts = [...parseHostsList(event.hosts)].sort();
+    return {
+      currentHost: sortedHosts[0] || event.host || this.hostList?.[0] || '',
+      hosts: sortedHosts,
+      isHostFilterActive: false,
+    };
+  }
+
+  private resolveHostSelection(
+    event: NavigationEvent,
+    isStreaming: boolean,
+  ): {currentHost: string; hostsString: string; isEmptyHostFilter: boolean} {
+    const {currentHost, hosts, isHostFilterActive} = this.resolveHosts(event);
+    if (isHostFilterActive) {
+      // Only streaming trace_viewer@ supports multi-host aggregation via
+      // hosts=; non-streaming trace_viewer loads a single host.
+      return {
+        currentHost,
+        hostsString: isStreaming ? formatHostsParam(hosts) : '',
+        isEmptyHostFilter: hosts.length === 0,
+      };
+    }
+    return {
+      currentHost,
+      hostsString: formatHostsParam(hosts),
+      isEmptyHostFilter: false,
+    };
+  }
+
+  private clearStaleHostSearchParams({
+    currentHost,
+    hostsString,
+  }: {
+    currentHost: string;
+    hostsString: string;
+  }): void {
+    if (hostsString && currentHost) {
+      return;
+    }
+    // dataService.getDataUrl() merges persisted URL searchParams with
+    // additionalParams, so stale 'hosts'/'host' entries must be cleared.
+    const searchParams = this.dataService.getSearchParams?.();
+    if (!searchParams) {
+      return;
+    }
+    let updated = false;
+    if (!hostsString && searchParams.has('hosts')) {
+      searchParams.delete('hosts');
+      updated = true;
+    }
+    if (!currentHost && searchParams.has('host')) {
+      searchParams.delete('host');
+      updated = true;
+    }
+    if (updated) {
+      this.dataService.setSearchParams?.(searchParams);
+    }
+  }
+
+  private resetPerDatasetState(): void {
+    this.selectedEvent = null;
+    this.selectedEventProperties = [];
+    this.selectionStartFormat = undefined;
+    this.selectionExtentFormat = undefined;
+    this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+    this.hoveredEventArgs = null;
+    this.flowCategories = [];
+    this.pidToHostMap.clear();
+    this.eventArgsCache.clear();
+    this.hloAdjacentNodesCache.clear();
+  }
+
+  private clearActiveViewer(): void {
+    this.traceViewerModule?.resetDataset?.();
+    this.container?.updateSearchResultCountText();
+    this.selectedFlowCategoryIds.clear();
+    if (!this.useTraceViewerV2) {
+      // Use 'about:blank' rather than '' so the legacy v1 iframe blanks cleanly
+      // instead of resolving '' relative to the document URL and reloading XProf.
+      this.url = 'about:blank';
     }
   }
 
@@ -820,6 +1014,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       }
     } finally {
       // Unsubscribes all pending subscriptions.
+      this.advanceDatasetGeneration();
+      this.datasetReset.complete();
       this.destroyed.next();
       this.destroyed.complete();
       window.removeEventListener(
@@ -859,13 +1055,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   getCurrentHost(event: NavigationEvent = this.navigationEvent): string {
-    if (event.hosts) {
-      const hostsList = parseHostsList(event.hosts);
-      if (hostsList.length > 0) {
-        return hostsList[0];
-      }
-    }
-    return event.host || (this.hostList && this.hostList[0]) || '';
+    return this.resolveHosts(event).currentHost;
   }
 
   // START Trace Viewer V2 WASM App Methods
@@ -1054,7 +1244,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         host,
         params,
       )
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntil(this.datasetReset), takeUntil(this.destroyed))
       .subscribe((data) => {
         const details = parseEventDetails(data as TraceData | null);
         if (details) {
@@ -1110,7 +1300,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         host,
         params,
       )
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntil(this.datasetReset), takeUntil(this.destroyed))
       .subscribe((data) => {
         const details = parseEventDetails(data as TraceData | null);
         if (details) {
@@ -1409,6 +1599,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         params,
       )
       .pipe(
+        takeUntil(this.datasetReset),
         takeUntil(this.destroyed),
         finalize(() => {
           this.pendingAdjacentNodesFetches.delete(key);
@@ -1670,13 +1861,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!dataProvider || !dataProvider.getFlowCategories) return;
     const presentCategories = dataProvider.getFlowCategories();
     if (!presentCategories) return;
-    const presentCategoriesSet = new Set();
+    const presentCategoriesSet = new Set<number>();
     for (let i = 0; i < presentCategories.size(); i++) {
       presentCategoriesSet.add(presentCategories.get(i));
     }
     this.flowCategories = this.allFlowCategories.filter(
       (category: FlowCategory) => presentCategoriesSet.has(category.id),
     );
+    for (const id of this.selectedFlowCategoryIds) {
+      if (!presentCategoriesSet.has(id)) {
+        this.selectedFlowCategoryIds.delete(id);
+      }
+    }
   }
 
   // END Support of flow categories view

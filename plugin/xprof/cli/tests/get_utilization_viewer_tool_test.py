@@ -7,6 +7,14 @@ from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_utilization_viewer_tool
 
+# Two cores whose HBM rows are both on node 0, as the backend emits them.
+_PER_CORE_PAYLOAD = """Host,Device,Sample,Node,Name,Achieved,Peak,Unit
+0,0,0,0,HBM Rd+Wr - core 0,8.0,16.0,bytes
+0,0,0,0,HBM Rd+Wr - core 1,4.0,16.0,bytes
+0,0,0,0,MXU0,6.0,12.0,instructions
+0,0,0,1,MXU0,3.0,12.0,instructions
+"""
+
 
 class GetUtilizationViewerToolTest(parameterized.TestCase):
 
@@ -264,7 +272,6 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
           kwargs={"node": 1},
           expected_result={
               "vector_alu_utilization_percent": 50.0,
-              "idleness_percent": 100.0,
               "metrics": {
                   "Vector ALUs": 50.0,
               },
@@ -285,7 +292,6 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
           # Unweighted mean of the per-sample ratios would be 45%.
           expected_result={
               "vector_alu_utilization_percent": 9.0,
-              "idleness_percent": 100.0,
               "metrics": {"Vector ALUs": 9.0},
               "peak_sample_percent": {"Vector ALUs": 90.0},
           },
@@ -317,7 +323,6 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
           expected_result={
               "hbm_bandwidth_utilization_percent": 50.0,
               "vmem_cmem_stores_utilization_percent": 50.0,
-              "idleness_percent": 100.0,
               "metrics": {
                   "HBM Rd+Wr - core 0": 50.0,
                   "Vmem Stores": 50.0,
@@ -326,6 +331,43 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
                   "HBM Rd+Wr - core 0": 50.0,
                   "Vmem Stores": 50.0,
               },
+          },
+      ),
+      dict(
+          # Idleness is derived from MXU counters only; without them it is
+          # unmeasurable and must be omitted rather than reported as 100%.
+          testcase_name="no_mxu_rows_omits_idleness",
+          payload="""Host,Device,Sample,Node,Name,Achieved,Peak,Unit
+0,0,0,0,Scalar Unit,1.0,4.0,instructions
+""",
+          kwargs={},
+          expected_result={
+              "scalar_unit_utilization_percent": 25.0,
+              "metrics": {"Scalar Unit": 25.0},
+          },
+      ),
+      dict(
+          # The backend emits every core's HBM row on node 0; the core in
+          # the metric name selects the node.
+          testcase_name="per_core_hbm_selected_by_core_for_node_0",
+          payload=_PER_CORE_PAYLOAD,
+          kwargs={"node": 0},
+          expected_result={
+              "hbm_bandwidth_utilization_percent": 50.0,
+              "mxu_utilization_percent": 50.0,
+              "idleness_percent": 50.0,
+              "metrics": {"HBM Rd+Wr - core 0": 50.0, "MXU0": 50.0},
+          },
+      ),
+      dict(
+          testcase_name="per_core_hbm_selected_by_core_for_node_1",
+          payload=_PER_CORE_PAYLOAD,
+          kwargs={"node": 1},
+          expected_result={
+              "hbm_bandwidth_utilization_percent": 25.0,
+              "mxu_utilization_percent": 25.0,
+              "idleness_percent": 75.0,
+              "metrics": {"HBM Rd+Wr - core 1": 25.0, "MXU0": 25.0},
           },
       ),
   )

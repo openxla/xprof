@@ -210,7 +210,7 @@ def _calculate_mxu_utilization(node_rows: list[dict[str, Any]]) -> float | None:
 def _calculate_idleness_percentage(
     node_rows: list[dict[str, Any]],
 ) -> float | None:
-  """Calculates device idleness percentage."""
+  """Calculates MXU idleness percentage, or None without MXU counters."""
   no_mxu_busy_rows = _rows_for_metric(node_rows, "No MXU Busy")
   if no_mxu_busy_rows:
     return _get_percentage_from_rows(no_mxu_busy_rows)
@@ -227,7 +227,33 @@ def _calculate_idleness_percentage(
   if avg_mxu is not None:
     return round(100 - avg_mxu, 2)
 
-  return 100.0
+  # Without MXU counters idleness is unmeasurable, not 100%.
+  return None
+
+
+# Per-core metric names, e.g. "HBM Rd+Wr - core 1".
+_CORE_SUFFIX_RE = re.compile(r" - core (\d+)$")
+
+
+def _row_node(row: dict[str, Any]) -> int | None:
+  """Returns the node (core) a utilization row belongs to.
+
+  The backend emits per-core rows such as ``HBM Rd+Wr - core 1`` on node 0 for
+  every core, so the core named in the metric takes precedence over ``Node``.
+
+  Args:
+    row: One utilization row.
+
+  Returns:
+    The node index, or None when the row has no usable node.
+  """
+  match = _CORE_SUFFIX_RE.search(str(row.get("Name", "")))
+  if match:
+    return int(match.group(1))
+  node = row.get("Node")
+  if node is None or str(node).lower() in ("nan", "none", ""):
+    return None
+  return int(_safe_float(node, -1.0))
 
 
 def _parse_utilization_data(
@@ -302,13 +328,7 @@ def _format_utilization_viewer_output(
         "Node" in r for r in rows
     )
     if has_node:
-      node_rows = [
-          r
-          for r in node_rows
-          if r.get("Node") is not None
-          and str(r.get("Node")).lower() not in ("nan", "none", "")
-          and int(_safe_float(r.get("Node"), -1.0)) == node
-      ]
+      node_rows = [r for r in node_rows if _row_node(r) == node]
     elif node != 0:
       warnings.append(f"Node column missing; ignoring node={node} filter")
 

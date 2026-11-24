@@ -1110,7 +1110,7 @@ void Timeline::SyncMinimapState() {
   const bool viewport_changed =
       std::abs(visible_start - last_minimap_visible_start_) > 1e-3 ||
       std::abs(visible_end - last_minimap_visible_end_) > 1e-3 ||
-      std::abs(label_width_ - last_minimap_label_width_) > 0.5f;
+      std::abs(effective_label_width_ - last_minimap_label_width_) > 0.5f;
 
   if (!include_schedule && !viewport_changed) {
     return;
@@ -1120,7 +1120,7 @@ void Timeline::SyncMinimapState() {
   last_minimap_data_end_ = data_end;
   last_minimap_visible_start_ = visible_start;
   last_minimap_visible_end_ = visible_end;
-  last_minimap_label_width_ = label_width_;
+  last_minimap_label_width_ = effective_label_width_;
   last_minimap_palette_version_ = palette_.GetVersion();
   last_minimap_trace_version_ = palette_.GetTraceVersion();
 
@@ -1129,7 +1129,8 @@ void Timeline::SyncMinimapState() {
   payload.try_emplace("dataEndUs", data_end);
   payload.try_emplace("visibleStartUs", visible_start);
   payload.try_emplace("visibleEndUs", visible_end);
-  payload.try_emplace("labelWidthPx", static_cast<double>(label_width_));
+  payload.try_emplace("labelWidthPx",
+                      static_cast<double>(effective_label_width_));
   payload.try_emplace(
       "timeAxisUnit",
       (time_axis_unit_ == TimeAxisUnit::kUnitless || !event_tooltip_enabled_)

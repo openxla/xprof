@@ -725,6 +725,19 @@ std::string JsonEscapeString(absl::string_view input) {
   return escaped;
 }
 
+// Converts a CounterUnit enum to its wire string name, or empty for kNone.
+std::string CounterUnitToString(CounterUnit unit) {
+  switch (unit) {
+    case CounterUnit::kFraction:
+      return "fraction";
+    case CounterUnit::kBytes:
+      return "bytes";
+    case CounterUnit::kNone:
+      return "";
+  }
+  return "";
+}
+
 // RAII helper to temporarily apply fonts::body_large if loaded.
 class ScopedBodyLargeFont {
  public:
@@ -3587,6 +3600,8 @@ void Timeline::ResetForNewDataset() {
   selection_end_pos_.reset();
   is_dragging_ = false;
   is_selecting_ = false;
+  close_button_hovered_this_frame_ = false;
+  close_button_click_in_progress_ = false;
 
   // Timeline player.
   is_playing_ = false;
@@ -3669,9 +3684,16 @@ void Timeline::Draw() {
   // window's available width, minus the scrollbar size.
   const Pixel content_region_avail_width =
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
+  const Pixel max_label_width =
+      std::max(kMinLabelWidth, content_region_avail_width -
+                                   kTimelinePaddingRight - kMinTimelineWidth);
+  effective_label_width_ =
+      content_region_avail_width > 0.0f
+          ? std::clamp(label_width_, kMinLabelWidth, max_label_width)
+          : label_width_;
 
-  current_timeline_width_ =
-      content_region_avail_width - label_width_ - kTimelinePaddingRight;
+  current_timeline_width_ = content_region_avail_width -
+                            effective_label_width_ - kTimelinePaddingRight;
 
   const double px_per_time_unit_val = px_per_time_unit(current_timeline_width_);
   const TickInfo tick_info = CalculateTickInfo(px_per_time_unit_val);
@@ -3679,6 +3701,9 @@ void Timeline::Draw() {
   const ImVec2 ruler_start_pos = ImGui::GetCursorPos();
   const ImVec2 ruler_start_screen_pos = ImGui::GetCursorScreenPos();
   ruler_screen_y_ = ruler_start_screen_pos.y;
+
+  HandleOverlayCloseButtonClicks(current_timeline_width_, px_per_time_unit_val,
+                                 tick_info.tick_interval);
 
   // Draw Ruler background anchored to the top (outside the scrollable child
   // window). The background covers the entire row.
@@ -3831,26 +3856,35 @@ void Timeline::Draw() {
     ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
 
     // Handle label resizing manually since we removed the table
-    ImGui::SetCursorPos(ImVec2(
-        tracks_start_pos.x + label_width_ - kSplitterOffset,
-        tracks_start_pos.y));
-    ImGui::InvisibleButton("##LabelResizer",
-                           ImVec2(kSplitterWidth, group_offsets_.back()));
-    if (ImGui::IsItemActive()) {
-      label_width_ += ImGui::GetIO().MouseDelta.x;
-      label_width_ = std::max(10.0f, label_width_);
-      is_resizing_label_column_ = true;
+    if (!close_button_hovered_this_frame_ && !close_button_click_in_progress_) {
+      ImGui::SetCursorPos(
+          ImVec2(tracks_start_pos.x + effective_label_width_ - kSplitterOffset,
+                 tracks_start_pos.y));
+      ImGui::InvisibleButton("##LabelResizer",
+                             ImVec2(kSplitterWidth, group_offsets_.back()));
+      if (ImGui::IsItemActive()) {
+        if (content_region_avail_width > 0.0f &&
+            ImGui::GetIO().MouseDelta.x != 0.0f) {
+          label_width_ =
+              std::clamp(effective_label_width_ + ImGui::GetIO().MouseDelta.x,
+                         kMinLabelWidth, max_label_width);
+          effective_label_width_ = label_width_;
+        }
+        is_resizing_label_column_ = true;
+      } else {
+        is_resizing_label_column_ = false;
+      }
+      is_resizer_hovered = ImGui::IsItemHovered();
+      if (is_resizer_hovered) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (!is_resizing_label_column_) {
+          ImGui::SetTooltip("%s", kDragToResizeTooltip);
+        }
+      } else if (is_resizing_label_column_) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
     } else {
       is_resizing_label_column_ = false;
-    }
-    is_resizer_hovered = ImGui::IsItemHovered();
-    if (is_resizer_hovered) {
-      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-      if (!is_resizing_label_column_) {
-        ImGui::SetTooltip("%s", kDragToResizeTooltip);
-      }
-    } else if (is_resizing_label_column_) {
-      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
     }
   } else {
     is_resizing_label_column_ = false;
@@ -3949,7 +3983,8 @@ void Timeline::Draw() {
   // Draw vertical split line between sidebar and tracks
   // Drawn last inside SelectionOverlay so it sits on top of other elements,
   // and extends upwards to the beginning of the ruler.
-  Pixel split_x = std::floor(ruler_start_screen_pos.x + label_width_) + 0.5f;
+  Pixel split_x =
+      std::floor(ruler_start_screen_pos.x + effective_label_width_) + 0.5f;
   ImU32 splitter_col = ImGui::GetColorU32(ImGuiCol_TableBorderLight);
   Pixel splitter_thickness = kSplitterDefaultThickness;
   if (is_resizing_label_column_) {
@@ -4000,6 +4035,10 @@ void Timeline::Draw() {
   ImGui::PopStyleVar();  // WindowRounding
   ImGui::End();          // Timeline viewer
 
+  if (close_button_click_in_progress_ && !ImGui::IsMouseDown(0)) {
+    close_button_click_in_progress_ = false;
+  }
+
   SyncMinimapState();
 
   if (needs_layout_update) {
@@ -4033,7 +4072,7 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
 
   const ImVec2 row_min(tracks_start_screen_pos.x,
                        tracks_start_screen_pos.y + group_top);
-  const ImVec2 row_max(tracks_start_screen_pos.x + label_width_,
+  const ImVec2 row_max(tracks_start_screen_pos.x + effective_label_width_,
                        tracks_start_screen_pos.y + group_bottom);
   const ImU32 foreground_color =
       palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
@@ -4050,7 +4089,9 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   const Pixel hit_right = row_max.x - kSplitterOffset - trailing_width;
   bool toggled = false;
   bool hovered = false;
-  if (hit_right > row_min.x && row_max.y > row_min.y) {
+  const bool allow_header_input =
+      !close_button_hovered_this_frame_ && !close_button_click_in_progress_;
+  if (allow_header_input && hit_right > row_min.x && row_max.y > row_min.y) {
     ImGui::SetCursorScreenPos(row_min);
     // Rows are pointer targets only; keyboard arrows navigate the timeline.
     ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
@@ -4069,7 +4110,8 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   // highlighted while the pointer moves onto the trailing button.
   const bool tracks_window_hovered =
       ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !is_dragging_ &&
-      !is_resizing_label_column_ && !is_dragging_track();
+      !is_resizing_label_column_ && !is_dragging_track() &&
+      !close_button_hovered_this_frame_ && !close_button_click_in_progress_;
   const bool row_hovered =
       hovered || (trailing_width > 0.0f && tracks_window_hovered &&
                   ImGui::IsMouseHoveringRect(
@@ -4133,7 +4175,7 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
           TrackIconColor(btn, /*active=*/false, foreground_color),
           state.all_expanded);
     }
-    if (btn.clicked) {
+    if (allow_header_input && btn.clicked) {
       HandleCollapseExpandAllClick(group_ptr, header_id, !state.all_expanded,
                                    *expanded);
       layout_changed = true;
@@ -4297,7 +4339,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   const Pixel row_top = tracks_start_screen_pos.y + group_offsets_[group_index];
   const Pixel row_height = group_heights_[group_index];
   const Pixel row_bottom = row_top + row_height;
-  const Pixel label_right = row_left + label_width_ - kSplitterOffset;
+  const Pixel label_right = row_left + effective_label_width_ - kSplitterOffset;
   // The height of the first line of the row, used to vertically align the
   // chevron and the track name. Multi-level flame tracks align their label
   // with their first level.
@@ -4366,7 +4408,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   bool row_hovered_for_tooltip = false;
   ImGui::SetCursorScreenPos(ImVec2(row_left, row_top));
   bool row_right_clicked = false;
-  if (hit_right > row_left && row_height > 0.0f) {
+  if (!close_button_hovered_this_frame_ && !close_button_click_in_progress_ &&
+      hit_right > row_left && row_height > 0.0f) {
     // Rows are pointer targets only; keyboard arrows navigate the timeline.
     ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
     row_clicked = ImGui::InvisibleButton(
@@ -4382,7 +4425,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   // react to the pointer while a track is dragged over them.
   const bool tracks_window_hovered =
       ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !is_dragging_ &&
-      !is_resizing_label_column_ && !is_dragging_track();
+      !is_resizing_label_column_ && !is_dragging_track() &&
+      !close_button_hovered_this_frame_ && !close_button_click_in_progress_;
   const bool label_area_hovered =
       row_hovered ||
       (trailing_buttons_width > 0.0f && tracks_window_hovered &&
@@ -4427,7 +4471,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   // Hover feedback highlights the entire row (both the track's label pill and
   // its events' row on the canvas) whether the pointer is over the label or
   // over the canvas row.
-  const Pixel splitter_x = row_left + label_width_;
+  const Pixel splitter_x = row_left + effective_label_width_;
   const float label_emphasis =
       HoverFade(ImGui::GetID("##label_hover"), label_area_hovered);
   const float row_emphasis = HoverFade(
@@ -4618,13 +4662,13 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   if (IsGroupReorderable(group_index)) {
     // The drag handle is the rightmost icon button of the label column.
     ImGui::SetCursorPos(
-        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset -
+        ImVec2(tracks_start_pos.x + effective_label_width_ - kSplitterOffset -
                    kTrackIconButtonMarginRight - kTrackIconButtonSize,
                tracks_start_pos.y + group_offsets_[group_index]));
     DrawTrackReorderHandle(group_index, first_line_height);
   }
 
-  ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + label_width_,
+  ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + effective_label_width_,
                              tracks_start_pos.y + group_offsets_[group_index]));
 
   if (is_collapsed) {
@@ -4652,10 +4696,15 @@ bool Timeline::HandleProcessTrackHeaderClick(
       !IsGroupExpandable(group_index, timeline_data_)) {
     return false;
   }
-  // Releasing the mouse to drop a dragged track is not a click.
-  if (is_dragging_track()) return false;
+  // Releasing the mouse to drop a dragged track or dismiss an overlay close
+  // button is not a header click.
+  if (is_dragging_track() || close_button_hovered_this_frame_ ||
+      close_button_click_in_progress_) {
+    return false;
+  }
 
-  const Pixel timeline_start_x = tracks_start_screen_pos.x + label_width_;
+  const Pixel timeline_start_x =
+      tracks_start_screen_pos.x + effective_label_width_;
   const Pixel timeline_end_x =
       tracks_start_screen_pos.x + content_region_avail_width;
   if (timeline_start_x >= timeline_end_x) {
@@ -5069,10 +5118,14 @@ void Timeline::RevealEvent(int event_index) {
 
   if (time_left > end) {
     double delta = time_left - end + min_entry_time_window;
-    SetVisibleRange({time_left - delta, time_right - delta}, /*animate=*/true);
+    TimeRange new_range = {time_left - delta, time_right - delta};
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
   } else if (time_right < start) {
     double delta = start - time_right + min_entry_time_window;
-    SetVisibleRange({time_left + delta, time_right + delta}, /*animate=*/true);
+    TimeRange new_range = {time_left + delta, time_right + delta};
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
   }
 
   EmitEventSelected(event_index);
@@ -5234,6 +5287,10 @@ std::optional<TimeRange> Timeline::GetSelectionTimeRange() const {
 }
 
 void Timeline::ExpandRelatedTracks(int event_index) {
+  if (event_index < 0 ||
+      static_cast<size_t>(event_index) >= timeline_data_.entry_levels.size()) {
+    return;
+  }
   int level = timeline_data_.entry_levels[event_index];
   int group_index = -1;
   for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
@@ -5252,6 +5309,8 @@ void Timeline::ExpandRelatedTracks(int event_index) {
       changed = true;
     }
     int current_nesting = timeline_data_.groups[group_index].nesting_level;
+    int root_process_index =
+        current_nesting == kProcessNestingLevel ? group_index : -1;
     for (int i = group_index - 1; i >= 0 && current_nesting > 0; --i) {
       if (timeline_data_.groups[i].nesting_level < current_nesting) {
         if (!timeline_data_.groups[i].expanded) {
@@ -5259,6 +5318,37 @@ void Timeline::ExpandRelatedTracks(int event_index) {
           changed = true;
         }
         current_nesting = timeline_data_.groups[i].nesting_level;
+        if (current_nesting == kProcessNestingLevel) {
+          root_process_index = i;
+        }
+      }
+    }
+    if (track_management_enabled_) {
+      bool is_hidden = false;
+      bool is_pinned = false;
+      if (root_process_index != -1) {
+        const std::string& process_name =
+            timeline_data_.groups[root_process_index].name;
+        // Match CategorizeGroupsForTrackManagement precedence: Hidden before
+        // Pinned, otherwise All.
+        is_hidden = hidden_track_names_.contains(process_name);
+        is_pinned = !is_hidden && pinned_track_names_.contains(process_name);
+      }
+      if (is_hidden) {
+        if (!header_hidden_expanded_) {
+          header_hidden_expanded_ = true;
+          changed = true;
+        }
+      } else if (is_pinned) {
+        if (!header_pinned_expanded_) {
+          header_pinned_expanded_ = true;
+          changed = true;
+        }
+      } else {
+        if (!header_all_expanded_) {
+          header_all_expanded_ = true;
+          changed = true;
+        }
       }
     }
     if (changed) {
@@ -5611,6 +5701,10 @@ double Timeline::px_per_time_unit(Pixel timeline_width) const {
 Timeline::TickInfo Timeline::CalculateTickInfo(
     double px_per_time_unit_val) const {
   const Microseconds view_start = visible_range().start();
+  if (!std::isfinite(px_per_time_unit_val) || px_per_time_unit_val <= 0.0) {
+    return {/*tick_interval=*/1.0, /*major_tick_dist_px=*/0.0f,
+            /*first_tick_time=*/std::isfinite(view_start) ? view_start : 0.0};
+  }
   const Microseconds min_time_interval =
       kMinTickDistancePx / px_per_time_unit_val;
   Microseconds tick_interval = CalculateNiceInterval(min_time_interval);
@@ -5658,7 +5752,7 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
       palette_.GetColor(ColorPalette::Key::kRulerLine)
           .value_or(kRulerLineColor);
 
-  ImGui::SetCursorScreenPos(ImVec2(pos.x + label_width_, pos.y));
+  ImGui::SetCursorScreenPos(ImVec2(pos.x + effective_label_width_, pos.y));
 
   ImDrawList* const draw_list = ImGui::GetWindowDrawList();
 
@@ -5666,11 +5760,11 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
   if (px_per_time_unit_val > 0) {
     // Draw horizontal line
     const Pixel line_y = pos.y + kRulerHeight;
-    draw_list->AddLine(
-        ImVec2(pos.x + label_width_, line_y),
-        ImVec2(pos.x + label_width_ + timeline_width + kTimelinePaddingRight,
-               line_y),
-        ruler_line_color);
+    draw_list->AddLine(ImVec2(pos.x + effective_label_width_, line_y),
+                       ImVec2(pos.x + effective_label_width_ + timeline_width +
+                                  kTimelinePaddingRight,
+                              line_y),
+                       ruler_line_color);
 
     const Microseconds tick_interval = info.tick_interval;
     const Pixel major_tick_dist_px = info.major_tick_dist_px;
@@ -5688,7 +5782,7 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
          std::floor(minor_tick_interval) == minor_tick_interval);
 
     const Pixel first_tick_x = TimeToScreenX(
-        first_tick_time, pos.x + label_width_, px_per_time_unit_val);
+        first_tick_time, pos.x + effective_label_width_, px_per_time_unit_val);
 
     for (int tick_idx = 0;; ++tick_idx) {
       Microseconds t = first_tick_time + tick_idx * tick_interval;
@@ -5696,11 +5790,12 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
         t = std::round(t / tick_interval) * tick_interval;
       }
       const Pixel x = first_tick_x + tick_idx * major_tick_dist_px;
-      if (x > pos.x + label_width_ + timeline_width + kRulerScreenBuffer) {
+      if (x > pos.x + effective_label_width_ + timeline_width +
+                  kRulerScreenBuffer) {
         break;
       }
 
-      if (x >= pos.x + label_width_ - kRulerScreenBuffer) {
+      if (x >= pos.x + effective_label_width_ - kRulerScreenBuffer) {
         // Draw major tick marks on the ruler.
         draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
                            ruler_line_color);
@@ -5717,11 +5812,11 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
       // Draw minor ticks for the current interval.
       for (int i = 1; i < kMinorTickDivisions; ++i) {
         const Pixel minor_x = x + i * minor_tick_dist_px;
-        if (minor_x >
-            pos.x + label_width_ + timeline_width + kRulerScreenBuffer) {
+        if (minor_x > pos.x + effective_label_width_ + timeline_width +
+                          kRulerScreenBuffer) {
           break;
         }
-        if (minor_x >= pos.x + label_width_ - kRulerScreenBuffer) {
+        if (minor_x >= pos.x + effective_label_width_ - kRulerScreenBuffer) {
           draw_list->AddLine(ImVec2(minor_x, line_y - kRulerMinorTickHeight),
                              ImVec2(minor_x, line_y), ruler_line_color);
         }
@@ -5754,7 +5849,7 @@ void Timeline::DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
   const double px_per_time_unit_val = px_per_time_unit(timeline_width);
   if (px_per_time_unit_val <= 0) return;
 
-  const Pixel timeline_x_start = pos.x + label_width_;
+  const Pixel timeline_x_start = pos.x + effective_label_width_;
   const Pixel line_y_top = pos.y;
 
   const Microseconds tick_interval = info.tick_interval;
@@ -5840,19 +5935,21 @@ void Timeline::DrawEvent(int group_index, int event_index,
     bool is_hovered = false;
     // As the shapes for instant events are triangles, we need to check for
     // hover in a different way than regular events.
-    if (is_instant) {
-      // Even if the instant event is triangular, to solve the "fat finger"
-      // problem, we still want to check for hover in a rectangle around the
-      // triangle.
-      is_hovered = ImGui::IsMouseHoveringRect(
-          ImVec2(rect.left - kInstantEventChevronHalfWidth, rect.top),
-          ImVec2(rect.left + kInstantEventChevronHalfWidth,
-                 rect.top + kInstantEventChevronHeight));
-    } else {
-      is_hovered = ImGui::IsMouseHoveringRect(
-          ImVec2(rect.left, rect.top),
-          ImVec2(rect.right + kEventPaddingRight,
-                 rect.bottom + kEventPaddingBottom));
+    if (!close_button_hovered_this_frame_ && !close_button_click_in_progress_) {
+      if (is_instant) {
+        // Even if the instant event is triangular, to solve the "fat finger"
+        // problem, we still want to check for hover in a rectangle around the
+        // triangle.
+        is_hovered = ImGui::IsMouseHoveringRect(
+            ImVec2(rect.left - kInstantEventChevronHalfWidth, rect.top),
+            ImVec2(rect.left + kInstantEventChevronHalfWidth,
+                   rect.top + kInstantEventChevronHeight));
+      } else {
+        is_hovered = ImGui::IsMouseHoveringRect(
+            ImVec2(rect.left, rect.top),
+            ImVec2(rect.right + kEventPaddingRight,
+                   rect.bottom + kEventPaddingBottom));
+      }
     }
 
     const Pixel corner_rounding =
@@ -6617,7 +6714,23 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
           // selected.
           event_data.try_emplace(kEventSelectedIndex, -1);
           event_data.try_emplace(kEventSelectedName, name);
-          if (!event_tooltip_enabled_) {
+          if (event_tooltip_enabled_) {
+            const Microseconds sample_ts = data.timestamps[index];
+            event_data.try_emplace(kEventSelectedTrackName, name);
+            event_data.try_emplace("trackType", std::string("counter"));
+            event_data.try_emplace(kEventSelectedStart, sample_ts);
+            event_data.try_emplace(
+                kEventSelectedStartFormatted,
+                FormatRulerLabel(sample_ts, /*tick_interval=*/0.0));
+            event_data.try_emplace("counterValue", val);
+            if (!data.event_stats.empty()) {
+              event_data.try_emplace("counterSeries", data.event_stats);
+            }
+            const std::string counter_unit = CounterUnitToString(data.unit);
+            if (!counter_unit.empty()) {
+              event_data.try_emplace("counterUnit", counter_unit);
+            }
+          } else {
             PopulateCounterSelectedScheduleDetails(
                 group_index, index, static_cast<Microseconds>(clicked_bundle),
                 event_data);
@@ -6787,7 +6900,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
                          /*thickness=*/kSelectedBorderThickness);
   }
 
-  if (ImGui::IsWindowHovered()) {
+  if (!close_button_hovered_this_frame_ && !close_button_click_in_progress_ &&
+      ImGui::IsWindowHovered()) {
     DrawCounterTooltip(group_index, data, px_per_time_unit_val, pos, height,
                        y_ratio, draw_list);
   }
@@ -7287,7 +7401,8 @@ void Timeline::DrawUtilizationAreaChart(int group_index, int start_level,
   }
 
   // Draw tooltips when hovering over the chart.
-  if (ImGui::IsWindowHovered()) {
+  if (!close_button_hovered_this_frame_ && !close_button_click_in_progress_ &&
+      ImGui::IsWindowHovered()) {
     const ImVec2 mouse_pos = ImGui::GetMousePos();
     if (mouse_pos.x >= pos.x && mouse_pos.x < pos.x + timeline_width &&
         mouse_pos.y >= pos.y && mouse_pos.y < pos.y + group_height) {
@@ -7381,7 +7496,7 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
   }
 
   const ImVec2 table_rect_min = ImGui::GetItemRectMin();
-  const Pixel timeline_x_start = table_rect_min.x + label_width_;
+  const Pixel timeline_x_start = table_rect_min.x + effective_label_width_;
 
   // Use ForegroundDrawList to draw on top of opaque child windows (groups).
   ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
@@ -7389,7 +7504,8 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
   // Clip to the current window ("Tracks") to avoid drawing outside the timeline
   // area.
   const ImVec2 window_pos = ImGui::GetWindowPos();
-  const ImVec2 clip_min = ImVec2(window_pos.x + label_width_, window_pos.y);
+  const ImVec2 clip_min =
+      ImVec2(window_pos.x + effective_label_width_, window_pos.y);
   const ImVec2 clip_max = ImVec2(window_pos.x + ImGui::GetWindowWidth(),
                                  window_pos.y + ImGui::GetWindowHeight());
   draw_list->PushClipRect(clip_min, clip_max,
@@ -7496,15 +7612,17 @@ void Timeline::DrawDependencyArrows(Pixel timeline_width,
   const double px_per_time = px_per_time_unit(timeline_width);
   if (px_per_time <= 0) return;
 
-  const Pixel timeline_x_start = ImGui::GetItemRectMin().x + label_width_;
+  const Pixel timeline_x_start =
+      ImGui::GetItemRectMin().x + effective_label_width_;
   // Drawn like the flow lines: on the foreground draw list, clipped to the
   // timeline area of the current window.
   ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
   const ImVec2 window_pos = ImGui::GetWindowPos();
-  draw_list->PushClipRect(ImVec2(window_pos.x + label_width_, window_pos.y),
-                          ImVec2(window_pos.x + ImGui::GetWindowWidth(),
-                                 window_pos.y + ImGui::GetWindowHeight()),
-                          /*intersect_with_current_clip_rect=*/true);
+  draw_list->PushClipRect(
+      ImVec2(window_pos.x + effective_label_width_, window_pos.y),
+      ImVec2(window_pos.x + ImGui::GetWindowWidth(),
+             window_pos.y + ImGui::GetWindowHeight()),
+      /*intersect_with_current_clip_rect=*/true);
 
   const ImU32 producer_color =
       palette_.GetColor(ColorPalette::Key::kHloProducerArrow)
@@ -7534,145 +7652,112 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
                                      double px_per_time_unit_val,
                                      bool show_delete_button,
                                      std::optional<size_t> range_index) {
-  const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  const Pixel timeline_x_start = viewport->Pos.x + label_width_;
+  const std::optional<SelectedTimeRangeLayout> layout =
+      ComputeSelectedTimeRangeLayout(range, timeline_width,
+                                     px_per_time_unit_val);
+  if (!layout.has_value()) return;
+
   const ImU32 color = palette_.GetColor(ColorPalette::Key::kSelection)
                           .value_or(kSelectedTimeRangeColor);
+  const Pixel timeline_x_start = layout->timeline_x_start;
+  const Pixel time_range_x_start = layout->time_range_x_start;
+  const Pixel time_range_x_end = layout->time_range_x_end;
+  const Pixel clipped_x_start = layout->clipped_x_start;
+  const Pixel clipped_x_end = layout->clipped_x_end;
+  const Pixel rect_y_min = layout->rect_y_min;
+  const Pixel rect_y_max = layout->rect_y_max;
 
-  const Pixel time_range_x_start =
-      TimeToScreenX(range.start(), timeline_x_start, px_per_time_unit_val);
-  const Pixel time_range_x_end =
-      TimeToScreenX(range.end(), timeline_x_start, px_per_time_unit_val) -
-      kEventPaddingRight;
-  // Clip the selection rectangle to the visible timeline bounds.
-  // If the selection starts before the timeline's visible area,
-  // clipped_x_start ensures we only start drawing from timeline_x_start.
-  const Pixel clipped_x_start = std::max(time_range_x_start, timeline_x_start);
-  // If the selection ends after the timeline's visible area, clipped_x_end
-  // ensures we stop drawing at the right edge of the timeline.
-  const Pixel clipped_x_end =
-      std::min(time_range_x_end, timeline_x_start + timeline_width);
+  // Use the window draw list to render over all other timeline content.
+  ImDrawList* const draw_list = ImGui::GetWindowDrawList();
 
-  if (clipped_x_end > clipped_x_start) {
-    // Use the window draw list to render over all other timeline content.
-    ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilledMultiColor(
+      ImVec2(clipped_x_start, rect_y_min), ImVec2(clipped_x_end, rect_y_max),
+      (color & 0x00FFFFFF) | (0x99 << 24), (color & 0x00FFFFFF) | (0x99 << 24),
+      (color & 0x00FFFFFF) | (0x1A << 24), (color & 0x00FFFFFF) | (0x1A << 24));
 
-    const Pixel rect_y_min = ruler_screen_y_ + kRulerHeight;
-    const Pixel rect_y_max = viewport->Pos.y + viewport->Size.y;
-
-    draw_list->AddRectFilledMultiColor(ImVec2(clipped_x_start, rect_y_min),
-                                       ImVec2(clipped_x_end, rect_y_max),
-                                       (color & 0x00FFFFFF) | (0x99 << 24),
-                                       (color & 0x00FFFFFF) | (0x99 << 24),
-                                       (color & 0x00FFFFFF) | (0x1A << 24),
-                                       (color & 0x00FFFFFF) | (0x1A << 24));
-
-    // Only draw the border if the edge of the time range is visible.
-    if (time_range_x_start >= timeline_x_start) {
-      bool is_hovering_start = false;
-      if (range_index.has_value() && !is_dragging_ &&
-          std::abs(ImGui::GetMousePos().x - time_range_x_start) <=
-              kSelectionEdgeThreshold &&
-          ImGui::IsMouseHoveringRect(
-              ImVec2(time_range_x_start - kSelectionEdgeThreshold, rect_y_min),
-              ImVec2(time_range_x_start + kSelectionEdgeThreshold,
-                     rect_y_max))) {
-        is_hovering_start = true;
-      }
-
-      ImU32 start_edge_color = color;
-      bool is_resizing_start = false;
-      if (range_index.has_value()) {
-        is_resizing_start =
-            time_range_resizing_state_.has_value() &&
-            time_range_resizing_state_->range_index == *range_index &&
-            time_range_resizing_state_->is_start_edge;
-      } else if (is_dragging_ && is_selecting_ &&
-                 current_selected_time_range_.has_value() &&
-                 *current_selected_time_range_ == range) {
-        is_resizing_start =
-            std::abs(ImGui::GetMousePos().x - time_range_x_start) <
-            std::abs(ImGui::GetMousePos().x - time_range_x_end);
-      }
-      if (is_hovering_start || is_resizing_start) {
-        start_edge_color = kSelectedTimeRangeResizeColor;
-      }
-      draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
-                         ImVec2(time_range_x_start, rect_y_max),
-                         start_edge_color,
-                         /*thickness=*/kSelectedTimeRangeThickness);
-
-      if (is_hovering_start) {
-        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-      }
-    }
-    if (time_range_x_end <= timeline_x_start + timeline_width) {
-      bool is_hovering_end = false;
-      if (range_index.has_value() && !is_dragging_ &&
-          std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
-              kSelectionEdgeThreshold &&
-          ImGui::IsMouseHoveringRect(
-              ImVec2(time_range_x_end - kSelectionEdgeThreshold, rect_y_min),
-              ImVec2(time_range_x_end + kSelectionEdgeThreshold, rect_y_max))) {
-        is_hovering_end = true;
-      }
-
-      ImU32 end_edge_color = color;
-      bool is_resizing_end = false;
-      if (range_index.has_value()) {
-        is_resizing_end =
-            time_range_resizing_state_.has_value() &&
-            time_range_resizing_state_->range_index == *range_index &&
-            !time_range_resizing_state_->is_start_edge;
-      } else if (is_dragging_ && is_selecting_ &&
-                 current_selected_time_range_.has_value() &&
-                 *current_selected_time_range_ == range) {
-        is_resizing_end = std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
-                          std::abs(ImGui::GetMousePos().x - time_range_x_start);
-      }
-      if (is_hovering_end || is_resizing_end) {
-        end_edge_color = kSelectedTimeRangeResizeColor;
-      }
-      draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
-                         ImVec2(time_range_x_end, rect_y_max), end_edge_color,
-                         /*thickness=*/kSelectedTimeRangeThickness);
-
-      if (is_hovering_end) {
-        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-      }
+  // Only draw the border if the edge of the time range is visible.
+  if (time_range_x_start >= timeline_x_start) {
+    bool is_hovering_start = false;
+    if (range_index.has_value() && !is_dragging_ &&
+        !close_button_hovered_this_frame_ && !close_button_click_in_progress_ &&
+        std::abs(ImGui::GetMousePos().x - time_range_x_start) <=
+            kSelectionEdgeThreshold &&
+        ImGui::IsMouseHoveringRect(
+            ImVec2(time_range_x_start - kSelectionEdgeThreshold, rect_y_min),
+            ImVec2(time_range_x_start + kSelectionEdgeThreshold, rect_y_max))) {
+      is_hovering_start = true;
     }
 
-    const std::string text = FormatDuration(range.duration(), time_axis_unit_);
-    const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
-    const ImU32 kTextColor =
-        palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
-
-    // Move the text to the top, below the ruler.
-    const Pixel text_y = rect_y_min + kSelectedTimeRangeTextTopPadding;
-    const Pixel text_x = clipped_x_start +
-                         (clipped_x_end - clipped_x_start - text_size.x) / 2.0f;
-    const ImVec2 text_pos(text_x, text_y);
-
-    const ImRect visible_range_rect(ImVec2(clipped_x_start, rect_y_min),
-                                    ImVec2(clipped_x_end, rect_y_max));
-    const ImRect full_range_rect(ImVec2(time_range_x_start, rect_y_min),
-                                 ImVec2(time_range_x_end, rect_y_max));
-
-    if (show_delete_button) {
-      const DeleteButtonLayout layout = GetDeleteButtonLayout(
-          text_size, text_pos, visible_range_rect, full_range_rect);
-
-      if (layout.text_fits) {
-        draw_list->AddText(text_pos, kTextColor, text.c_str());
-      }
-
-      DrawDeleteButton(draw_list, layout.button_pos, layout.hover_rect, range);
-    } else {
-      bool text_fits = visible_range_rect.GetWidth() > text_size.x;
-      if (text_fits) {
-        draw_list->AddText(text_pos, kTextColor, text.c_str());
-      }
+    ImU32 start_edge_color = color;
+    bool is_resizing_start = false;
+    if (range_index.has_value()) {
+      is_resizing_start =
+          time_range_resizing_state_.has_value() &&
+          time_range_resizing_state_->range_index == *range_index &&
+          time_range_resizing_state_->is_start_edge;
+    } else if (is_dragging_ && is_selecting_ &&
+               current_selected_time_range_.has_value() &&
+               *current_selected_time_range_ == range) {
+      is_resizing_start =
+          std::abs(ImGui::GetMousePos().x - time_range_x_start) <
+          std::abs(ImGui::GetMousePos().x - time_range_x_end);
     }
+    if (is_hovering_start || is_resizing_start) {
+      start_edge_color = kSelectedTimeRangeResizeColor;
+    }
+    draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
+                       ImVec2(time_range_x_start, rect_y_max), start_edge_color,
+                       /*thickness=*/kSelectedTimeRangeThickness);
+
+    if (is_hovering_start) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    }
+  }
+  if (time_range_x_end <= timeline_x_start + timeline_width) {
+    bool is_hovering_end = false;
+    if (range_index.has_value() && !is_dragging_ &&
+        !close_button_hovered_this_frame_ && !close_button_click_in_progress_ &&
+        std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
+            kSelectionEdgeThreshold &&
+        ImGui::IsMouseHoveringRect(
+            ImVec2(time_range_x_end - kSelectionEdgeThreshold, rect_y_min),
+            ImVec2(time_range_x_end + kSelectionEdgeThreshold, rect_y_max))) {
+      is_hovering_end = true;
+    }
+
+    ImU32 end_edge_color = color;
+    bool is_resizing_end = false;
+    if (range_index.has_value()) {
+      is_resizing_end =
+          time_range_resizing_state_.has_value() &&
+          time_range_resizing_state_->range_index == *range_index &&
+          !time_range_resizing_state_->is_start_edge;
+    } else if (is_dragging_ && is_selecting_ &&
+               current_selected_time_range_.has_value() &&
+               *current_selected_time_range_ == range) {
+      is_resizing_end = std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
+                        std::abs(ImGui::GetMousePos().x - time_range_x_start);
+    }
+    if (is_hovering_end || is_resizing_end) {
+      end_edge_color = kSelectedTimeRangeResizeColor;
+    }
+    draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
+                       ImVec2(time_range_x_end, rect_y_max), end_edge_color,
+                       /*thickness=*/kSelectedTimeRangeThickness);
+
+    if (is_hovering_end) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    }
+  }
+
+  const ImU32 kTextColor =
+      palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
+  if (layout->delete_button.text_fits) {
+    draw_list->AddText(layout->text_pos, kTextColor, layout->text.c_str());
+  }
+  if (show_delete_button) {
+    DrawDeleteButton(draw_list, layout->delete_button.button_pos,
+                     layout->delete_button.hover_rect, range);
   }
 }
 
@@ -7736,6 +7821,139 @@ void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
   }
 }
 
+std::optional<Timeline::SelectedTimeRangeLayout>
+Timeline::ComputeSelectedTimeRangeLayout(const TimeRange& range,
+                                         Pixel timeline_width,
+                                         double px_per_time_unit_val) const {
+  if (px_per_time_unit_val <= 0.0 || timeline_width <= 0.0f) {
+    return std::nullopt;
+  }
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const Pixel timeline_x_start = viewport->Pos.x + effective_label_width_;
+  const Pixel time_range_x_start =
+      TimeToScreenX(range.start(), timeline_x_start, px_per_time_unit_val);
+  const Pixel time_range_x_end =
+      TimeToScreenX(range.end(), timeline_x_start, px_per_time_unit_val) -
+      kEventPaddingRight;
+  // Clip the selection rectangle to the visible timeline bounds.
+  const Pixel clipped_x_start = std::max(time_range_x_start, timeline_x_start);
+  const Pixel clipped_x_end =
+      std::min(time_range_x_end, timeline_x_start + timeline_width);
+  if (clipped_x_end <= clipped_x_start) {
+    return std::nullopt;
+  }
+
+  const Pixel rect_y_min = ruler_screen_y_ + kRulerHeight;
+  const Pixel rect_y_max = viewport->Pos.y + viewport->Size.y;
+  std::string text = FormatDuration(range.duration(), time_axis_unit_);
+  const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+  // Move the text to the top, below the ruler.
+  const Pixel text_y = rect_y_min + kSelectedTimeRangeTextTopPadding;
+  const Pixel text_x =
+      clipped_x_start + (clipped_x_end - clipped_x_start - text_size.x) / 2.0f;
+  const ImVec2 text_pos(text_x, text_y);
+  const ImRect visible_range_rect(ImVec2(clipped_x_start, rect_y_min),
+                                  ImVec2(clipped_x_end, rect_y_max));
+  const ImRect full_range_rect(ImVec2(time_range_x_start, rect_y_min),
+                               ImVec2(time_range_x_end, rect_y_max));
+  const DeleteButtonLayout delete_button = GetDeleteButtonLayout(
+      text_size, text_pos, visible_range_rect, full_range_rect);
+  return SelectedTimeRangeLayout{
+      .timeline_x_start = timeline_x_start,
+      .time_range_x_start = time_range_x_start,
+      .time_range_x_end = time_range_x_end,
+      .clipped_x_start = clipped_x_start,
+      .clipped_x_end = clipped_x_end,
+      .rect_y_min = rect_y_min,
+      .rect_y_max = rect_y_max,
+      .text = std::move(text),
+      .text_pos = text_pos,
+      .delete_button = delete_button,
+  };
+}
+
+Timeline::BookmarkCloseButtonLayout Timeline::ComputeBookmarkCloseButtonLayout(
+    Microseconds time, const ImRect& timeline_area, double px_per_time_unit_val,
+    Microseconds tick_interval) const {
+  const Pixel x =
+      TimeToScreenX(time, timeline_area.Min.x, px_per_time_unit_val);
+  std::string label =
+      time_axis_unit_ == TimeAxisUnit::kUnitless
+          ? absl::StrCat("Bundle ",
+                         FormatRulerLabel(std::floor(time), tick_interval))
+          : FormatRulerLabel(time, tick_interval);
+  ImGui::PushFont(fonts::label_small);
+  const ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
+  ImGui::PopFont();
+  const ImVec2 label_pos(x + kBookmarkLabelPadding,
+                         timeline_area.Min.y + kBookmarkLabelPadding);
+  const ImVec2 button_pos(label_pos.x + label_size.x + kBookmarkLabelPadding,
+                          label_pos.y);
+  return {std::move(label), label_pos, button_pos};
+}
+
+void Timeline::HandleOverlayCloseButtonClicks(Pixel timeline_width,
+                                              double px_per_time_unit_val,
+                                              Microseconds tick_interval) {
+  close_button_hovered_this_frame_ = false;
+  if (close_button_click_in_progress_ || is_dragging_ ||
+      is_resizing_label_column_ || is_dragging_track() ||
+      px_per_time_unit_val <= 0.0 || timeline_width <= 0.0f) {
+    return;
+  }
+
+  const auto is_hovered = [](const ImVec2& button_pos) {
+    return ImGui::IsMouseHoveringRect(button_pos,
+                                      ImVec2(button_pos.x + kCloseButtonSize,
+                                             button_pos.y + kCloseButtonSize));
+  };
+
+  if (bookmarks_enabled_ && !bookmarks_.empty()) {
+    const ImRect timeline_area = GetTimelineArea();
+    for (size_t i = bookmarks_.size(); i-- > 0;) {
+      const Microseconds time = bookmarks_[i];
+      const Pixel x =
+          TimeToScreenX(time, timeline_area.Min.x, px_per_time_unit_val);
+      if (x < timeline_area.Min.x || x > timeline_area.Max.x) continue;
+      const BookmarkCloseButtonLayout layout = ComputeBookmarkCloseButtonLayout(
+          time, timeline_area, px_per_time_unit_val, tick_interval);
+      if (is_hovered(layout.button_pos)) {
+        close_button_hovered_this_frame_ = true;
+        if (ImGui::IsMouseClicked(0)) {
+          RemoveBookmark(time);
+          close_button_click_in_progress_ = true;
+          event_clicked_this_frame_ = true;
+        }
+        return;
+      }
+    }
+  }
+
+  if (!selected_time_ranges_.empty()) {
+    for (size_t i = selected_time_ranges_.size(); i-- > 0;) {
+      const std::optional<SelectedTimeRangeLayout> layout =
+          ComputeSelectedTimeRangeLayout(selected_time_ranges_[i],
+                                         timeline_width, px_per_time_unit_val);
+      if (!layout.has_value()) continue;
+      if (is_hovered(layout->delete_button.button_pos)) {
+        close_button_hovered_this_frame_ = true;
+        if (ImGui::IsMouseClicked(0)) {
+          const TimeRange removed = selected_time_ranges_[i];
+          selected_time_ranges_.erase(selected_time_ranges_.begin() + i);
+          if (current_selected_time_range_ &&
+              *current_selected_time_range_ == removed) {
+            current_selected_time_range_.reset();
+          }
+          close_button_click_in_progress_ = true;
+          event_clicked_this_frame_ = true;
+          if (redraw_callback_) redraw_callback_();
+        }
+        return;
+      }
+    }
+  }
+}
+
 bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
                                const ImRect& hover_rect) {
   const Pixel button_size = kCloseButtonSize;
@@ -7746,7 +7964,8 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
   bool clicked = false;
   ImU32 button_color = kCloseButtonColor;
 
-  if (ImGui::IsMouseHoveringRect(button_min, button_max)) {
+  if (!close_button_click_in_progress_ &&
+      ImGui::IsMouseHoveringRect(button_min, button_max)) {
     button_color = kCloseButtonHoverColor;
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     if (ImGui::IsMouseClicked(0)) {
@@ -7786,9 +8005,9 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
           ? kTrackIconButtonSize + kTrackIconButtonGap
           : 0.0f;
   const Pixel row_y = tracks_start_pos.y + group_offsets_[group_index];
-  const Pixel hide_x = tracks_start_pos.x + label_width_ - kSplitterOffset -
-                       kTrackIconButtonMarginRight - kTrackIconButtonSize -
-                       drag_handle_width;
+  const Pixel hide_x = tracks_start_pos.x + effective_label_width_ -
+                       kSplitterOffset - kTrackIconButtonMarginRight -
+                       kTrackIconButtonSize - drag_handle_width;
   const Pixel pin_x = hide_x - kTrackManagementButtonSpacing;
 
   // The overlap between the two 32x32 hit targets resolves deterministically
@@ -8204,6 +8423,9 @@ void Timeline::ProcessPendingScroll() {
 }
 
 void Timeline::HandleEventDeselection() {
+  if (close_button_click_in_progress_) {
+    return;
+  }
   const bool has_single_selection =
       (selected_event_index_ != -1 || selected_group_index_ != -1);
   const bool has_rectangle_selection =
@@ -8254,6 +8476,10 @@ void Timeline::HandleEventDeselection() {
 }
 
 bool Timeline::HandleMouse() {
+  if (close_button_click_in_progress_ ||
+      (close_button_hovered_this_frame_ && !is_dragging_)) {
+    return false;
+  }
   const ImRect timeline_area = GetTimelineArea();
   const bool is_mouse_over_timeline =
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
@@ -8548,7 +8774,7 @@ bool Timeline::HandleSelectionOrTimeRangeAddition() {
 ImRect Timeline::GetTimelineArea() const {
   const ImVec2 window_pos = ImGui::GetWindowPos();
   const ImVec2 content_min = ImGui::GetWindowContentRegionMin();
-  const Pixel start_x = window_pos.x + content_min.x + label_width_;
+  const Pixel start_x = window_pos.x + content_min.x + effective_label_width_;
   const Pixel start_y = window_pos.y + content_min.y;
 
   const Pixel end_x = start_x + current_timeline_width_;
@@ -9333,14 +9559,26 @@ void Timeline::CalculateAndEmitMetrics() {
     std::string counters_json = "[";
     bool first = true;
     for (const auto& [group_index, point_index] : selected_counter_points_) {
+      if (group_index < 0 ||
+          static_cast<size_t>(group_index) >= timeline_data_.groups.size()) {
+        continue;
+      }
       const auto& group = timeline_data_.groups[group_index];
       const auto it =
           timeline_data_.counter_data_by_group_index.find(group_index);
       if (it == timeline_data_.counter_data_by_group_index.end()) continue;
       const auto& counter_data = it->second;
+      if (point_index < 0 ||
+          static_cast<size_t>(point_index) >= counter_data.timestamps.size() ||
+          static_cast<size_t>(point_index) >= counter_data.values.size()) {
+        continue;
+      }
 
-      Microseconds ts = counter_data.timestamps[point_index];
-      double val = counter_data.values[point_index];
+      const Microseconds ts = counter_data.timestamps[point_index];
+      const double val = counter_data.values[point_index];
+      if (!std::isfinite(ts) || !std::isfinite(val)) {
+        continue;
+      }
 
       if (!first) absl::StrAppend(&counters_json, ",");
       first = false;
@@ -9410,29 +9648,20 @@ void Timeline::DrawBookmarks(Pixel timeline_width,
                        ImVec2(x, timeline_area.Max.y), kBookmarkColor,
                        kBookmarkThickness);
 
-    // Draw label (timestamp)
-    const std::string label =
-        time_axis_unit_ == TimeAxisUnit::kUnitless
-            ? absl::StrCat("Bundle ",
-                           FormatRulerLabel(std::floor(time), tick_interval))
-            : FormatRulerLabel(time, tick_interval);
+    // Draw label (timestamp) and close button.
+    const BookmarkCloseButtonLayout layout = ComputeBookmarkCloseButtonLayout(
+        time, timeline_area, px_per_time_unit_val, tick_interval);
     ImGui::PushFont(fonts::label_small);
-    const ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
-    const ImVec2 label_pos = ImVec2(
-        x + kBookmarkLabelPadding, timeline_area.Min.y + kBookmarkLabelPadding);
-    draw_list->AddText(label_pos, kBookmarkColor, label.c_str());
+    draw_list->AddText(layout.label_pos, kBookmarkColor, layout.label.c_str());
 
-    // Unified Delete Button logic (matches TimeRange selection behavior)
-    const ImVec2 button_pos =
-        ImVec2(label_pos.x + label_size.x + kBookmarkLabelPadding, label_pos.y);
-    const ImRect button_rect(button_pos,
-                             ImVec2(button_pos.x + kCloseButtonSize,
-                                    button_pos.y + kCloseButtonSize));
+    const ImRect button_rect(layout.button_pos,
+                             ImVec2(layout.button_pos.x + kCloseButtonSize,
+                                    layout.button_pos.y + kCloseButtonSize));
 
     // Hover area includes label and button
-    const ImRect hover_rect(label_pos, button_rect.Max);
+    const ImRect hover_rect(layout.label_pos, button_rect.Max);
 
-    if (DrawCloseButton(draw_list, button_pos, hover_rect)) {
+    if (DrawCloseButton(draw_list, layout.button_pos, hover_rect)) {
       bookmark_to_delete = time;
     }
 

@@ -751,9 +751,17 @@ class Timeline {
   }
   void set_label_width_for_test(Pixel width) {
     label_width_ = width;
+    effective_label_width_ = width;
+  }
+  Pixel stored_label_width_for_test() const { return label_width_; }
+  Pixel current_timeline_width_for_test() const {
+    return current_timeline_width_;
   }
   bool get_is_resizing_label_column_for_test() const {
     return is_resizing_label_column_;
+  }
+  bool has_time_range_resizing_state_for_test() const {
+    return time_range_resizing_state_.has_value();
   }
   void set_track_management_enabled_for_test(bool enabled) {
     track_management_enabled_ = enabled;
@@ -1165,7 +1173,7 @@ class Timeline {
   }
   void ClearObservedTrackLevels() { observed_track_levels_.Clear(); }
 
-  Pixel GetLabelWidth() const { return label_width_; }
+  Pixel GetLabelWidth() const { return effective_label_width_; }
 
   void SetVisibleFlowCategory(int category_id) {
     flow_category_filter_ = category_id;
@@ -1315,6 +1323,23 @@ class Timeline {
   }
   void set_header_all_expanded_for_test(bool expanded) {
     header_all_expanded_ = expanded;
+  }
+  void set_header_pinned_expanded_for_test(bool expanded) {
+    header_pinned_expanded_ = expanded;
+  }
+  bool header_all_expanded_for_test() const { return header_all_expanded_; }
+  bool header_hidden_expanded_for_test() const {
+    return header_hidden_expanded_;
+  }
+  bool header_pinned_expanded_for_test() const {
+    return header_pinned_expanded_;
+  }
+  void pin_track_for_test(absl::string_view name) {
+    pinned_track_names_.insert(std::string(name));
+    UpdateLevelPositions(timeline_data_);
+  }
+  const std::vector<bool>& group_visible_for_test() const {
+    return group_visible_;
   }
   const Group& header_hidden_for_test() const { return header_hidden_; }
   const Group& header_pinned_for_test() const { return header_pinned_; }
@@ -1551,6 +1576,25 @@ class Timeline {
     ThreadId tid = 0;
     Pixel local_pixel_offset = 0.0f;
     bool is_async = false;
+  };
+
+  struct SelectedTimeRangeLayout {
+    Pixel timeline_x_start = 0.0f;
+    Pixel time_range_x_start = 0.0f;
+    Pixel time_range_x_end = 0.0f;
+    Pixel clipped_x_start = 0.0f;
+    Pixel clipped_x_end = 0.0f;
+    Pixel rect_y_min = 0.0f;
+    Pixel rect_y_max = 0.0f;
+    std::string text;
+    ImVec2 text_pos;
+    DeleteButtonLayout delete_button;
+  };
+
+  struct BookmarkCloseButtonLayout {
+    std::string label;
+    ImVec2 label_pos;
+    ImVec2 button_pos;
   };
 
   EntryBitset matching_event_indices_;
@@ -1945,6 +1989,25 @@ class Timeline {
   // Draws all the bookmarks as vertical lines.
   void DrawBookmarks(Pixel timeline_width, double px_per_time_unit_val);
 
+  // Computes screen geometry, label placement, and delete-button layout for a
+  // visible selected time range, or std::nullopt if outside the visible bounds.
+  std::optional<SelectedTimeRangeLayout> ComputeSelectedTimeRangeLayout(
+      const TimeRange& range, Pixel timeline_width,
+      double px_per_time_unit_val) const;
+
+  // Computes the label and close button positions for a bookmark at `time`.
+  BookmarkCloseButtonLayout ComputeBookmarkCloseButtonLayout(
+      Microseconds time, const ImRect& timeline_area,
+      double px_per_time_unit_val, Microseconds tick_interval) const;
+
+  // Pre-hit-tests overlay close buttons (bookmarks and selected time ranges)
+  // before the "Tracks" child handles input, deleting on press and latching
+  // `close_button_click_in_progress_` through release so clicks do not leak
+  // into underlying tracks.
+  void HandleOverlayCloseButtonClicks(Pixel timeline_width,
+                                      double px_per_time_unit_val,
+                                      Microseconds tick_interval);
+
   // Draws a generic close (x) button. Returns true if the button was clicked.
   bool DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
                        const ImRect& hover_rect);
@@ -2110,7 +2173,11 @@ class Timeline {
   size_t max_uncompacted_overview_entries_ = 200000;
 
   // TODO - b/444026851: Set the label width based on the real screen width.
+  // User-preferred label column width; preserved across transient viewport
+  // shrinks and clamped when dragged.
   Pixel label_width_ = kDefaultLabelWidth;
+  // Effective label column width actually rendered in the current frame.
+  Pixel effective_label_width_ = kDefaultLabelWidth;
   // The width of the timeline track area in pixels. Calculated in Draw() and
   // cached for use in interaction handlers (Zoom, Pan).
   Pixel current_timeline_width_ = 0.0f;
@@ -2228,6 +2295,11 @@ class Timeline {
   // Flag to track if an event was clicked in the current frame. This is used
   // to detect clicks in empty areas for deselection logic.
   bool event_clicked_this_frame_ = false;
+  // True when the pointer hovers an overlay close (X) button this frame.
+  bool close_button_hovered_this_frame_ = false;
+  // Latched true from pressing an overlay close (X) button until the left
+  // mouse button is released, suppressing underlying track interactions.
+  bool close_button_click_in_progress_ = false;
 
   // Whether the user is currently dragging the mouse on the timeline.
   bool is_dragging_ = false;

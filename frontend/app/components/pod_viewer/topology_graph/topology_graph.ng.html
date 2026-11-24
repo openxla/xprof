@@ -45,11 +45,11 @@
     <pre>The chips are displayed along the x,y axis. A new row is created for each z axis</pre>
   </div>
   <div
-    *ngFor="let z_nodes of nodes; let z_axis=index;"
+    *ngFor="let z_nodes of nodes;"
     class="container"
     [style.width]="containerWidth + 'px'"
     [style.height]="containerHeight + 'px'">
-    <p>Z = {{z_axis}}</p>
+    <p>Z = {{z_nodes.z}}</p>
     <div
       *ngFor="let label of labels"
       class="label"

@@ -62,6 +62,7 @@ export class PodViewer extends PodViewerCommon implements OnDestroy {
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
     setLoadingState(false, this.store);
+    this.clearActivePodViewerInfo();
     this.destroyed.next();
     this.destroyed.complete();
   }

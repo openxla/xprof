@@ -11,12 +11,20 @@
 
   <!-- Component Selection -->
   <div class="component-selection" style="display: flex; gap: var(--spacing-2); flex-wrap: wrap;">
-    <button type="button" mat-stroked-button [color]="selectedComponent === 'tc' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('tc_sampling')" [class.is-selected]="selectedComponent === 'tc'" (click)="selectedComponent = 'tc'">TC</button>
-    <button type="button" mat-stroked-button [color]="selectedComponent === 'scs' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('scs_sampling')" [class.is-selected]="selectedComponent === 'scs'" (click)="selectedComponent = 'scs'">SCS</button>
-    <button type="button" mat-stroked-button [color]="selectedComponent === 'sctc' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('sctc_sampling')" [class.is-selected]="selectedComponent === 'sctc'" (click)="selectedComponent = 'sctc'">SCTC</button>
-    <button type="button" mat-stroked-button [color]="selectedComponent === 'sctd' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('sctd_sampling')" [class.is-selected]="selectedComponent === 'sctd'" (click)="selectedComponent = 'sctd'">SCTD</button>
-    <button type="button" mat-stroked-button [color]="selectedComponent === 'cmn' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('cmn_sampling')" [class.is-selected]="selectedComponent === 'cmn'" (click)="selectedComponent = 'cmn'">CMN</button>
-    <button type="button" mat-stroked-button [color]="selectedComponent === 'icr' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('icr_sampling')" [class.is-selected]="selectedComponent === 'icr'" (click)="selectedComponent = 'icr'">ICR</button>
+    <button
+      *ngFor="let tab of componentTabs"
+      type="button"
+      mat-stroked-button
+      [color]="selectedComponent === tab.id ? 'primary' : 'basic'"
+      [class.in-use]="isComponentInUse(tab.groupName)"
+      [class.is-selected]="selectedComponent === tab.id"
+      [class.has-error]="isComponentInvalid(tab.groupName)"
+      [attr.title]="isComponentInvalid(tab.groupName) ? 'Invalid sampling options' : null"
+      [attr.aria-label]="isComponentInvalid(tab.groupName) ? tab.label + ' (invalid options)' : tab.label"
+      (click)="selectedComponent = tab.id">
+      <mat-icon *ngIf="isComponentInvalid(tab.groupName)" class="tab-error-icon" aria-hidden="true">error_outline</mat-icon>
+      {{ tab.label }}
+    </button>
   </div>
 
   <mat-divider style="margin: 0 0 var(--spacing-4);"></mat-divider>
@@ -51,7 +59,17 @@
         <div class="field-container row" style="display: flex; align-items: center; gap: var(--spacing-2);">
           <mat-form-field appearance="outline" style="flex: 1;">
             <mat-label>Interval (us)</mat-label>
-            <input matInput type="number" formControlName="interval_us">
+            <input
+              matInput
+              type="number"
+              formControlName="interval_us"
+              min="0"
+              max="2147483647"
+              step="1"
+              [errorStateMatcher]="invalidErrorStateMatcher">
+            <mat-error class="validation-error" *ngIf="getIntervalError(groupName) as error">
+              {{ error }}
+            </mat-error>
           </mat-form-field>
           <mat-checkbox formControlName="is_external_trigger">Use external trigger</mat-checkbox>
         </div>
@@ -60,10 +78,17 @@
         <div class="field-container">
           <mat-form-field appearance="outline" class="full-width" style="width: 100%;">
             <mat-label>Scaling</mat-label>
-            <input matInput type="number" formControlName="scaling" min="0" max="63">
+            <input
+              matInput
+              type="number"
+              formControlName="scaling"
+              min="0"
+              max="63"
+              step="1"
+              [errorStateMatcher]="invalidErrorStateMatcher">
             <mat-hint>Amount to right shift 64-bit counter values</mat-hint>
-            <mat-error *ngIf="$any(formGroup.get(groupName + '.scaling'))?.hasError('min') || $any(formGroup.get(groupName + '.scaling'))?.hasError('max')">
-              Must be between 0 and 63
+            <mat-error class="validation-error" *ngIf="getScalingError(groupName) as error">
+              {{ error }}
             </mat-error>
           </mat-form-field>
         </div>

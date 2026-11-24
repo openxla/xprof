@@ -16,8 +16,8 @@ import {setActivePodViewerInfoAction} from 'org_xprof/frontend/app/store/actions
 /** A common class of pod viewer component. */
 export class PodViewerCommon {
   data: PodViewerDatabase | null = null;
-  minStep = 0;
-  maxStep = 0;
+  selectedStepIndex = 0;
+  maxStepIndex = 0;
   selectedStep = '';
   allReduceOpDb?: AllReduceOpInfo[];
   allReduceOpChartData?: Array<Array<PrimitiveTypeNumberString | undefined>>;
@@ -37,58 +37,70 @@ export class PodViewerCommon {
 
   constructor(readonly store: Store<{}>) {}
 
-  private updateSteps() {
-    this.minStep = 0;
-    this.maxStep = 0;
-    if (
-      !this.data ||
-      !this.data.podStatsSequence ||
-      !this.data.podStatsSequence.podStatsMap
-    ) {
-      this.updateSelectedStep(this.minStep);
-      return;
-    }
-    const podStats = this.data.podStatsSequence.podStatsMap[0];
-    if (!podStats) {
-      this.updateSelectedStep(this.minStep);
-      return;
-    }
-    this.minStep = podStats.stepNum || 0;
-    this.maxStep = Math.max(
-      this.minStep,
-      this.minStep + this.data.podStatsSequence.podStatsMap.length - 1,
+  protected clearActivePodViewerInfo() {
+    this.store.dispatch(
+      setActivePodViewerInfoAction({activePodViewerInfo: null}),
     );
-    this.updateSelectedStep(this.minStep);
   }
 
-  updateSelectedStep(step: number) {
+  private resetStepData() {
+    this.selectedStep = '';
+    this.allReduceOpDb = undefined;
+    this.allReduceOpChartData = undefined;
+    this.channelDb = undefined;
+    this.channelDbForChart = undefined;
+    this.channelChartData = undefined;
+    this.coreIdToReplicaIdMap = undefined;
+    this.podStatsPerCore = undefined;
+    this.podStatsForChart = undefined;
+    this.podStatsChartData = undefined;
+  }
+
+  private updateSteps() {
+    this.selectedStepIndex = 0;
+    this.maxStepIndex = 0;
+    const podStatsMap = this.data?.podStatsSequence?.podStatsMap;
+    if (!podStatsMap || podStatsMap.length === 0) {
+      this.updateSelectedStep(0);
+      return;
+    }
+    this.maxStepIndex = podStatsMap.length - 1;
+    this.updateSelectedStep(0);
+  }
+
+  updateSelectedStep(stepIndex: number) {
+    this.clearActivePodViewerInfo();
+    const podStatsMap = this.data?.podStatsSequence?.podStatsMap;
     if (
-      !this.data ||
-      !this.data.podStatsSequence ||
-      !this.data.podStatsSequence.podStatsMap
+      !podStatsMap ||
+      !Number.isInteger(stepIndex) ||
+      stepIndex < 0 ||
+      stepIndex >= podStatsMap.length
     ) {
-      this.selectedStep = '';
-      this.channelDb = undefined;
-      this.podStatsPerCore = undefined;
+      this.selectedStepIndex = 0;
+      this.resetStepData();
       return;
     }
 
-    const podStats =
-      this.data.podStatsSequence.podStatsMap[step - this.minStep];
+    const podStats = podStatsMap[stepIndex];
     if (!podStats) {
-      this.selectedStep = '';
-      this.channelDb = undefined;
-      this.podStatsPerCore = undefined;
+      this.selectedStepIndex = 0;
+      this.resetStepData();
       return;
     }
+    this.selectedStepIndex = stepIndex;
+    const stepNum = podStats.stepNum ?? 0;
     // Negative step number indicates incomplete step.
-    this.selectedStep = step >= 0 ? step.toString() : 'incomplete step';
+    this.selectedStep = stepNum >= 0 ? stepNum.toString() : 'incomplete step';
     this.coreIdToReplicaIdMap = podStats.coreIdToReplicaIdMap || {};
     this.processAllReduceOpChart(podStats);
     this.processChannelDb(podStats);
     this.podStatsPerCore = podStats.podStatsPerCore;
     if (this.podStatsPerCore) {
       this.processStepBreakdownChart(this.podStatsPerCore);
+    } else {
+      this.podStatsForChart = undefined;
+      this.podStatsChartData = undefined;
     }
   }
 
@@ -107,9 +119,9 @@ export class PodViewerCommon {
   }
 
   processChannelDb(podStats: PodStatsMap) {
-    this.channelDb = (podStats.channelDb || []).sort((a, b) =>
-      (a.channelId || '0') > (b.channelId || '0') ? 1 : -1,
-    );
+    this.channelDb = (podStats.channelDb || [])
+      .slice(0)
+      .sort((a, b) => ((a.channelId || '0') > (b.channelId || '0') ? 1 : -1));
     this.channelDbForChart = (podStats.channelDb || [])
       .slice(0)
       .sort((a, b) => ((a.durationUs || 0) < (b.durationUs || 0) ? 1 : -1));
@@ -177,9 +189,7 @@ export class PodViewerCommon {
   selectedAllReduceOpChart(allReduceOpIndex: number) {
     this.store.dispatch(
       setActivePodViewerInfoAction({
-        activePodViewerInfo: this.allReduceOpDb
-          ? this.allReduceOpDb[allReduceOpIndex]
-          : null,
+        activePodViewerInfo: this.allReduceOpDb?.[allReduceOpIndex] ?? null,
       }),
     );
   }
@@ -187,9 +197,7 @@ export class PodViewerCommon {
   selectedChannelDb(channelDbIndex: number) {
     this.store.dispatch(
       setActivePodViewerInfoAction({
-        activePodViewerInfo: this.channelDb
-          ? this.channelDb[channelDbIndex]
-          : null,
+        activePodViewerInfo: this.channelDb?.[channelDbIndex] ?? null,
       }),
     );
   }
@@ -197,43 +205,41 @@ export class PodViewerCommon {
   selectedChannelChart(channelIndex: number) {
     this.store.dispatch(
       setActivePodViewerInfoAction({
-        activePodViewerInfo: this.channelDbForChart
-          ? this.channelDbForChart[channelIndex]
-          : null,
+        activePodViewerInfo: this.channelDbForChart?.[channelIndex] ?? null,
       }),
     );
   }
 
   convertRecordForDetailsCard(record: PodStatsRecord): PodStatsRecord {
-    const breakdown: {[key: /* uint32 */ string]: /* double */ number} = {};
-    if (!record.stepBreakdownUs) return record;
-    if (!this.isTPU) {
-      // Set an invalid chip id so that the details card only show hostname.
-      record.chipId = -1;
+    // Set an invalid chip id on non-TPU so the details card only shows hostname.
+    const chipId = this.isTPU ? record.chipId : -1;
+    if (!record.stepBreakdownUs) {
+      return {...record, chipId};
     }
+    const breakdown: {[key: /* uint32 */ string]: /* double */ number} = {};
     for (const event of this.stepBreakdownEvents) {
       breakdown[event.name] = record.stepBreakdownUs[event.id] || 0;
     }
-    return {...record, stepBreakdownUs: breakdown};
+    return {...record, chipId, stepBreakdownUs: breakdown};
   }
 
   selectedPodStatsChart(podStatsIndex: number) {
+    const record = this.podStatsForChart?.[podStatsIndex];
     this.store.dispatch(
       setActivePodViewerInfoAction({
-        activePodViewerInfo: this.podStatsForChart
-          ? this.convertRecordForDetailsCard(
-              this.podStatsForChart[podStatsIndex],
-            )
+        activePodViewerInfo: record
+          ? this.convertRecordForDetailsCard(record)
           : null,
       }),
     );
   }
 
   setDiagnostics(data: PodViewerDatabase | null) {
-    if (!data || !data.diagnostics) return;
-    this.diagnostics.info = data.diagnostics.info || [];
-    this.diagnostics.warnings = data.diagnostics.warnings || [];
-    this.diagnostics.errors = data.diagnostics.errors || [];
+    this.diagnostics = {
+      info: data?.diagnostics?.info || [],
+      warnings: data?.diagnostics?.warnings || [],
+      errors: data?.diagnostics?.errors || [],
+    };
   }
 
   setStepBreakdownChartDescription(isTPU: boolean) {

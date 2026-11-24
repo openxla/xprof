@@ -178,12 +178,16 @@ class Cache:
             set_time REAL
           )
         """))
-        # Prune expired entries on startup.
-        conn.execute(
-            "DELETE FROM cache WHERE expire IS NOT NULL AND expire < ?",
-            (time.time(),),
-        )
-        conn.commit()
+        # Prune expired entries on startup. This is best effort, like every
+        # other cache write: another process may hold the write lock.
+        try:
+          conn.execute(
+              "DELETE FROM cache WHERE expire IS NOT NULL AND expire < ?",
+              (time.time(),),
+          )
+          conn.commit()
+        except sqlite3.OperationalError:
+          pass
 
   def _get_conn(self):
     """Returns a SQLite connection configured with WAL mode."""
@@ -294,13 +298,19 @@ class Cache:
 
   @contextlib.contextmanager
   def transact(self):
-    """Acquires a transaction lock on the database."""
+    """Acquires a transaction lock on the database.
+
+    Yields:
+      The connection that holds the lock. Reads and writes that belong to the
+      transaction must use it: `get` and `set` use another connection, whose
+      writes wait for this lock until they time out.
+    """
     with self._lock:
       conn = self._get_conn()
       try:
         conn.execute("BEGIN IMMEDIATE")
         try:
-          yield
+          yield conn
           conn.commit()
         except Exception:
           if conn.in_transaction:
@@ -795,16 +805,23 @@ class _SharedRateLimiter:
     """Blocks until a token is available."""
     while True:
       try:
-        with self._cache.transact():
+        with self._cache.transact() as conn:
           now = time.time()
-          tokens, last_update = self._cache.get(
-              self._key, default=(self._burst, now)
+          row = conn.execute(
+              "SELECT value FROM cache WHERE key = ?", (self._key,)
+          ).fetchone()
+          tokens, last_update = (
+              json.loads(row[0]) if row and row[0] else (self._burst, now)
           )
           elapsed = now - last_update
           tokens = min(self._burst, tokens + elapsed * self._rate)
 
           if tokens >= 1.0:
-            self._cache.set(self._key, (tokens - 1.0, now))
+            conn.execute(
+                "INSERT OR REPLACE INTO cache (key, value, expire, set_time)"
+                " VALUES (?, ?, ?, ?)",
+                (self._key, json.dumps((tokens - 1.0, now)), None, now),
+            )
             return
 
           wait_time = (1.0 - tokens) / self._rate

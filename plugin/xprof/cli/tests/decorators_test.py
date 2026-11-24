@@ -6,6 +6,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -257,6 +258,72 @@ class DecoratorsTest(unittest.TestCase):
     tool("run", bypass_cache=True)
     self.assertEqual(calls[-1], ("run", True))
     self.assertEqual(len(calls), 3)
+
+  def test_rate_limiter_stores_tokens_without_blocking_itself(self):
+    """Verifies the limiter writes its row inside its own transaction."""
+    limiter = decorators._SharedRateLimiter(self.cache, "tool", 1.0, 2)
+
+    start = time.time()
+    limiter.sleep_and_advance()
+    elapsed = time.time() - start
+
+    # A write on another connection would wait 5 s for the transaction's lock.
+    self.assertLess(elapsed, 2.0)
+    with decorators.sqlite3.connect(self.cache.db_path) as conn:
+      row = conn.execute(
+          "SELECT value FROM cache WHERE key = ?", ("ratelimit:tool",)
+      ).fetchone()
+    self.assertIsNotNone(row)
+    tokens, last_update = json.loads(row[0])
+    self.assertEqual(tokens, 1.0)
+    self.assertAlmostEqual(last_update, start, delta=2.0)
+
+  def test_rate_limiter_shares_tokens_across_cache_instances(self):
+    """Verifies a second process sees the token the first one consumed."""
+    decorators._SharedRateLimiter(
+        self.cache, "tool", 0.01, 1
+    ).sleep_and_advance()
+    other_cache = decorators.Cache(self.temp_dir)
+    self.addCleanup(other_cache.close)
+    limiter = decorators._SharedRateLimiter(other_cache, "tool", 0.01, 1)
+
+    # The bucket is empty, so the second caller has to wait for a token.
+    with mock.patch.object(decorators.time, "sleep", side_effect=TimeoutError):
+      with self.assertRaises(TimeoutError):
+        limiter.sleep_and_advance()
+
+  def test_init_db_tolerates_locked_database(self):
+    """Verifies start-up skips the prune when another process holds the lock."""
+    blocker = decorators.sqlite3.connect(self.cache.db_path)
+    self.addCleanup(blocker.close)
+    blocker.execute("BEGIN IMMEDIATE")
+
+    other_cache = decorators.Cache(self.temp_dir)
+    self.addCleanup(other_cache.close)
+
+    blocker.rollback()
+    other_cache.set("key", {"value": 1})
+    self.assertEqual(self.cache.get("key"), {"value": 1})
+
+  def test_cache_start_up_while_rate_limiters_run(self):
+    """Verifies a process can start while two others take rate-limit tokens."""
+    threads = []
+    for _ in range(2):
+      limiter_cache = decorators.Cache(self.temp_dir)
+      self.addCleanup(limiter_cache.close)
+      limiter = decorators._SharedRateLimiter(limiter_cache, "tool", 1.0, 2)
+      threads.append(threading.Thread(target=limiter.sleep_and_advance))
+    for thread in threads:
+      thread.start()
+    time.sleep(0.5)
+
+    other_cache = decorators.Cache(self.temp_dir)
+    self.addCleanup(other_cache.close)
+
+    for thread in threads:
+      thread.join()
+    # Both limiters took a token from the bucket of two.
+    self.assertLess(other_cache.get("ratelimit:tool")[0], 1.0)
 
 
 if __name__ == "__main__":

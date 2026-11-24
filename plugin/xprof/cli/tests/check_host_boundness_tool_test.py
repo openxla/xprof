@@ -814,6 +814,104 @@ class CheckHostBoundnessToolTest(absltest.TestCase):
     self.assertEqual(result["metrics"]["mxu_idleness_percent"], 90.0)
     self.assertNotIn("not_applicable_metrics", result)
 
+  def test_barrier_cores_lookup_uses_short_rpc_deadline(self):
+    self.mock_client.get_hosts.return_value = [
+        {"hostname": "test-host", "hasDeviceTrace": True}
+    ]
+    self.mock_client.fetch.return_value = (
+        "application/json",
+        json.dumps({"traceEvents": [{"name": "barrier-cores", "dur": 2000.0}]}),
+    )
+
+    avg_ms, count = (
+        check_host_boundness_tool._get_avg_barrier_cores_time_per_event(
+            "test-session", self.mock_client
+        )
+    )
+
+    self.assertEqual((avg_ms, count), (2.0, 1))
+    deadline = check_host_boundness_tool._BARRIER_CORES_RPC_DEADLINE_S
+    self.mock_client.get_hosts.assert_called_once_with(
+        "test-session", rpc_deadline_s=deadline, with_metadata=True
+    )
+    self.mock_client.fetch.assert_called_once_with(
+        tool_name="trace_viewer.json",
+        session_id="test-session",
+        rpc_deadline_s=deadline,
+        trace_filter_config=mock.ANY,
+        hosts="test-host",
+    )
+
+  def test_trace_viewer_timeout_falls_back_to_no_barrier_time(self):
+    overview = [
+        {"p": {"device_duty_cycle_percent": "15.0%"}},
+        {"p": {"steptime_ms_average": "100.0"}, "rows": [{}] * 10},
+        {"p": {"device_core_count": "8", "host_count": "1"}},
+    ]
+    hlo_data = {
+        "byCategory": {
+            "children": [{
+                "name": "matmul",
+                "metrics": {"occurrences": 1, "rawTime": 3000.0},
+            }]
+        }
+    }
+    self.mock_client.get_hosts.return_value = []
+    self.mock_client.fetch.side_effect = [
+        ("application/json", json.dumps(overview)),
+        ("application/json", json.dumps(hlo_data)),
+        TimeoutError("trace_viewer.json deadline exceeded"),
+    ]
+
+    with mock.patch.object(
+        get_utilization_viewer_tool,
+        "get_utilization_viewer",
+        return_value=json.dumps({
+            "idleness_percent": 99.0,
+            "hbm_bandwidth_utilization_percent": 3.0,
+            "ici_read_utilization_percent": 5.0,
+            "ici_write_utilization_percent": 5.0,
+        }),
+    ):
+      result = json.loads(
+          check_host_boundness_tool.check_host_boundness("test-session")
+      )
+
+    self.assertEqual(result["status"], "HOST_BOUND")
+    self.assertEqual(result["metrics"]["scaled_barrier_time_ms"], 0.0)
+    self.assertEqual(self.mock_client.fetch.call_count, 3)
+
+  def test_skips_trace_viewer_when_hlo_data_missing(self):
+    overview = [
+        {"p": {"device_duty_cycle_percent": "98.0%"}},
+        {"p": {"steptime_ms_average": "100.0"}, "rows": [{}] * 10},
+        {"p": {"device_core_count": "8", "host_count": "1"}},
+    ]
+    self.mock_client.fetch.side_effect = [
+        ("application/json", json.dumps(overview)),
+        ("application/json", b"{}"),
+    ]
+
+    with mock.patch.object(
+        get_utilization_viewer_tool,
+        "get_utilization_viewer",
+        return_value=json.dumps({
+            "idleness_percent": 90.0,
+            "hbm_bandwidth_utilization_percent": 10.0,
+            "ici_read_utilization_percent": 5.0,
+            "ici_write_utilization_percent": 5.0,
+        }),
+    ):
+      result = json.loads(
+          check_host_boundness_tool.check_host_boundness("test-session")
+      )
+
+    self.assertEqual(result["status"], "UNKNOWN")
+    self.assertEqual(self.mock_client.fetch.call_count, 2)
+    for call in self.mock_client.fetch.call_args_list:
+      self.assertNotEqual(call.kwargs["tool_name"], "trace_viewer.json")
+    self.mock_client.get_hosts.assert_not_called()
+
 
 if __name__ == "__main__":
   absltest.main()

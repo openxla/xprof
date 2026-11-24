@@ -27,6 +27,12 @@ _TPU_ONLY_METRICS: tuple[str, ...] = (
     "ici_write_utilization_percent",
 )
 
+# RPC deadline for each fetch of the optional barrier-cores lookup. On large
+# sessions `trace_viewer.json` can take minutes (the client's default deadline
+# is 600 s). The deadline is short so that the lookup cannot dominate the
+# check; when it times out the check falls back to no barrier time.
+_BARRIER_CORES_RPC_DEADLINE_S: int = 30
+
 
 def _parse_json_safely(response: Any) -> dict[str, Any]:
   """Parses JSON string or object safely with robust error handling and logging."""
@@ -133,7 +139,11 @@ def _get_avg_barrier_cores_time_per_event(
 ) -> tuple[float, int]:
   """Calculates the average duration per barrier-cores event and total count."""
   try:
-    hosts = client.get_hosts(session_id, with_metadata=True)
+    hosts = client.get_hosts(
+        session_id,
+        rpc_deadline_s=_BARRIER_CORES_RPC_DEADLINE_S,
+        with_metadata=True,
+    )
     target_host = None
     if isinstance(hosts, list):
       for host in hosts:
@@ -157,6 +167,7 @@ def _get_avg_barrier_cores_time_per_event(
     result = client.fetch(
         tool_name="trace_viewer.json",
         session_id=session_id,
+        rpc_deadline_s=_BARRIER_CORES_RPC_DEADLINE_S,
         trace_filter_config=trace_filter_config,
         **kwargs,
     )
@@ -459,21 +470,15 @@ def check_host_boundness(
       )
 
     # --- 3. Barrier Cores Telemetry ---
-    try:
+    # Barrier time only adjusts the HLO-based idle time, so skip the costly
+    # trace viewer fetch when there is no HLO data to adjust.
+    scaled_barrier_time_ms = 0.0
+    if hlo_data_available:
       avg_barrier_ms_per_event, num_barrier_events = (
           _get_avg_barrier_cores_time_per_event(session_id, client)
       )
-      if num_barrier_events > 0 and number_of_steps > 0:
+      if num_barrier_events > 0:
         scaled_barrier_time_ms = avg_barrier_ms_per_event * number_of_steps
-      else:
-        scaled_barrier_time_ms = 0.0
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.warning(
-          "Failed to fetch barrier cores duration for session %s: %s",
-          session_id,
-          e,
-      )
-      scaled_barrier_time_ms = 0.0
 
     # --- 4. Idle Time Calculations ---
     sum_scaled_hlo_ms = (

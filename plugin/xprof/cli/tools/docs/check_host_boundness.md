@@ -61,6 +61,8 @@ graph TD
      count to get average synchronization latency: `avg_barrier_ms_per_event`.
    - Scales by step count:
      `scaled_barrier_time_ms = avg_barrier_ms_per_event * number_of_steps`.
+   - Fetched only when HLO data is available, with a 30 s RPC deadline. If
+     the fetch fails or times out, `scaled_barrier_time_ms` is 0.
 
 4. **`utilization_viewer.json` (Hardware Subsystem Utilization)**:
    - Queries `idleness_percent` (percentage of time MXU is completely idle).

@@ -1,4 +1,18 @@
-import {AfterViewInit, Component, DestroyRef, ElementRef, HostListener, inject, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy, EventEmitter, Output} from '@angular/core';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  EventEmitter,
+  HostListener,
+  inject,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {clampDataTableNumericValues} from 'org_xprof/frontend/app/common/utils/chart_utils';
@@ -62,14 +76,24 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
     const newWidth =
         Math.min(MAX_CHART_WIDTH, this.chartRef.nativeElement.offsetWidth);
 
-    if (!this.chart || !this.inputPipelineAnalysis || this.width === newWidth) {
+    if (!this.inputPipelineAnalysis) {
+      this.chart?.clearChart?.();
       return;
     }
 
-    const dataTable =
-        new google.visualization.DataTable(this.inputPipelineAnalysis);
-    const columnsIds =
-        dataTable.getTableProperty('step_time_graph_column_ids').split(',');
+    if (!this.chart || this.width === newWidth) {
+      return;
+    }
+
+    const dataTable = new google.visualization.DataTable(
+      this.inputPipelineAnalysis,
+    );
+    const columnsIds = (
+      dataTable.getTableProperty('step_time_graph_column_ids') || ''
+    )
+      .split(',')
+      .map((id: string) => id.trim())
+      .filter(Boolean);
     let colors = this.columnColors;
     this.height = 300;
     this.inputPipelineAnalysis.p = this.inputPipelineAnalysis.p || {};

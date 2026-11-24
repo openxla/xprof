@@ -33,6 +33,7 @@ limitations under the License.
 #include "xprof/convert/repository.h"
 #include "xprof/convert/xplane_to_dcn_collective_stats.h"
 #include "xprof/convert/xplane_to_llo.h"
+#include "xprof/convert/xplane_to_utilization_viewer.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -79,6 +80,7 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     bool has_hlo = false;
     bool has_dcn_collective_stats = false;
     bool has_perf_counters = false;
+    bool has_supported_utilization_device = false;
     bool has_kernel_viewer = false;
 
     // Use only the first host, as the sessions would consist of similar
@@ -113,16 +115,28 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     for (const XPlane* plane : tpu_planes) {
       tsl::profiler::XPlaneVisitor visitor =
           tsl::profiler::CreateTfXPlaneVisitor(plane);
+      bool plane_has_perf_counters = false;
       visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
         line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
           if (event.GetStat(tsl::profiler::StatType::kCounterValue)) {
-            has_perf_counters = true;
+            plane_has_perf_counters = true;
             return;
           }
         });
-        if (has_perf_counters) return;
+        if (plane_has_perf_counters) return;
       });
-      if (has_perf_counters) break;
+      if (plane_has_perf_counters) {
+        has_perf_counters = true;
+        if (!has_supported_utilization_device) {
+          if (auto device_type_stat =
+                  visitor.GetStat(tsl::profiler::StatType::kDeviceTypeString);
+              device_type_stat.has_value() &&
+              xprof::ShouldProcessDevice(device_type_stat->StrOrRefValue())) {
+            has_supported_utilization_device = true;
+          }
+        }
+      }
+      if (has_perf_counters && has_supported_utilization_device) break;
     }
 
     if (has_kernel_stats) {
@@ -140,8 +154,10 @@ absl::StatusOr<std::string> GetAvailableToolNames(
 
     if (has_perf_counters) {
       tools.push_back("perf_counters");
-      tools.push_back("utilization_viewer");
-      tools.push_back("kernel_utilization");
+      if (has_supported_utilization_device) {
+        tools.push_back("utilization_viewer");
+        tools.push_back("kernel_utilization");
+      }
     }
 
     if (has_kernel_viewer) {

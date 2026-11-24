@@ -702,6 +702,22 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(properties.at("sc_step_time_ms_average"), "40.0");
 }
 
+TEST(TfOpStatsToInputPipelineAnalysisTest,
+     GenerateGenericInputPipelineAnalysisDataTableColumnIdsHaveNoSpaces) {
+  GenericStepTimeBreakdown breakdown;
+  InputPipelineAnalysisResult result;
+  result.set_hardware_type("GPU");
+  result.mutable_step_time_breakdown()->PackFrom(breakdown);
+
+  DataTable data_table = GenerateGenericInputPipelineAnalysisDataTable(result);
+
+  const auto& properties = data_table.GetCustomProperties();
+  EXPECT_EQ(properties.at("step_time_graph_column_ids"),
+            "stepnum,deviceComputeTimeMs,deviceToDeviceTimeMs,"
+            "deviceCollectivesTimeMs,hostComputeTimeMs,kernelLaunchTimeMs,"
+            "infeedTimeMs,outfeedTimeMs,compileTimeMs,otherTimeMs,tooltip");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

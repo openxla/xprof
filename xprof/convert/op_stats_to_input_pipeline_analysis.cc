@@ -2103,7 +2103,7 @@ DataTable GenerateGenericInputPipelineAnalysisDataTable(
       "step_time_graph_column_ids",
       "stepnum,deviceComputeTimeMs,deviceToDeviceTimeMs,"
       "deviceCollectivesTimeMs,hostComputeTimeMs,kernelLaunchTimeMs,"
-      "infeedTimeMs,outfeedTimeMs,compileTimeMs,otherTimeMs, tooltip");
+      "infeedTimeMs,outfeedTimeMs,compileTimeMs,otherTimeMs,tooltip");
   data_table.AddCustomProperty("hardware_type", result.hardware_type());
   data_table.AddCustomProperty("steptime_ms_average",
                                OneDigit(step_time_summary.average()));

@@ -20,7 +20,10 @@ import {
 } from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {
+  createSessionIdResolver,
+  getSessionIdFromParams,
   parseDiagnosticsDataTable,
+  resolveHostFromParams,
   setLoadingState,
 } from 'org_xprof/frontend/app/common/utils/utils';
 import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view_module';
@@ -34,7 +37,12 @@ import {
   type DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/diff_service';
-import {BehaviorSubject, combineLatest, ReplaySubject} from 'rxjs';
+import {
+  BehaviorSubject,
+  combineLatest,
+  ReplaySubject,
+  Subscription,
+} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const GENERAL_ANALYSIS_INDEX = 0;
@@ -82,6 +90,7 @@ export class OverviewPage implements OnDestroy {
   enableSmartSuggestion = false;
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private dataSubscription?: Subscription;
 
   private readonly readyChartsCount = new BehaviorSubject<number>(0);
 
@@ -92,6 +101,7 @@ export class OverviewPage implements OnDestroy {
     this.readyChartsCount.pipe(takeUntil(this.destroyed)).subscribe(() => {
       this.checkReady();
     });
+    const resolveSessionId = createSessionIdResolver();
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
@@ -100,8 +110,8 @@ export class OverviewPage implements OnDestroy {
         const oldHost = this.host;
         const oldBaseSessionId = this.baseSessionId;
 
-        this.sessionId = params['sessionId'] || this.sessionId;
-        this.processQueryParams(queryParams);
+        this.sessionId = resolveSessionId(params, queryParams, this.sessionId);
+        this.processQueryParams(queryParams, oldSessionId);
 
         // Trigger update only if the parameters actually changed.
         const hasChanged =
@@ -131,9 +141,14 @@ export class OverviewPage implements OnDestroy {
     return !this.isInference;
   }
 
-  processQueryParams(params: Params) {
-    this.host = params['host'] || this.host || '';
-    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+  processQueryParams(params: Params, prevSessionId = this.sessionId) {
+    this.sessionId = getSessionIdFromParams(undefined, params, this.sessionId);
+    this.host = resolveHostFromParams(
+      params,
+      prevSessionId,
+      this.sessionId,
+      this.host,
+    );
     this.tool = params['tag'] || 'overview_page';
     if (
       params['base_session_id'] !== undefined ||
@@ -152,10 +167,11 @@ export class OverviewPage implements OnDestroy {
   }
 
   update() {
+    this.dataSubscription?.unsubscribe();
     setLoadingState(true, this.store, 'Loading overview data');
     this.isLoaded = false;
 
-    this.diffService
+    this.dataSubscription = this.diffService
       .getDiffData<OverviewPageDataTuple>(this.sessionId, this.tool, {
         baselineSessionId:
           this.baseSessionId || this.diffService.getBaseSessionId() || '',
@@ -168,6 +184,8 @@ export class OverviewPage implements OnDestroy {
           this.onDataLoaded.emit(active as OverviewPageDataTuple);
           if (active) {
             this.parseOverviewPageData(active as OverviewPageDataTuple);
+          } else {
+            this.clearOverviewPageData();
           }
           if (baseline) {
             this.parseBaselineOverviewPageData(
@@ -180,6 +198,8 @@ export class OverviewPage implements OnDestroy {
         },
         error: () => {
           setLoadingState(false, this.store);
+          this.clearOverviewPageData();
+          this.clearBaselineData();
           this.isLoaded = true;
         },
       });
@@ -210,26 +230,37 @@ export class OverviewPage implements OnDestroy {
     this.generalAnalysis = data[GENERAL_ANALYSIS_INDEX];
     this.inputPipelineAnalysis = data[INPUT_PIPELINE_ANALYSIS_INDEX];
     this.runEnvironment = data[RUN_ENVIRONMENT_INDEX];
-    if (data.length > INFERENCE_LATENCY_CHART_INDEX + 1) {
-      this.inferenceLatencyData = data[INFERENCE_LATENCY_CHART_INDEX];
-    }
-    if (data.length > DISAGGREGATED_SERVING_LATENCY_INDEX) {
-      this.disaggregatedServingLatencyData =
-        data[DISAGGREGATED_SERVING_LATENCY_INDEX];
-    }
+    this.inferenceLatencyData =
+      data.length > INFERENCE_LATENCY_CHART_INDEX + 1
+        ? data[INFERENCE_LATENCY_CHART_INDEX]
+        : null;
+    this.disaggregatedServingLatencyData =
+      data.length > DISAGGREGATED_SERVING_LATENCY_INDEX
+        ? data[DISAGGREGATED_SERVING_LATENCY_INDEX]
+        : null;
     this.diagnostics = parseDiagnosticsDataTable(data[DIAGNOSTICS_INDEX]);
+  }
+
+  clearOverviewPageData() {
+    this.generalAnalysis = null;
+    this.inputPipelineAnalysis = null;
+    this.runEnvironment = null;
+    this.inferenceLatencyData = null;
+    this.disaggregatedServingLatencyData = null;
+    this.diagnostics = {info: [], warnings: [], errors: []};
   }
 
   parseBaselineOverviewPageData(data: OverviewPageDataTuple) {
     this.baselineGeneralAnalysis = data[GENERAL_ANALYSIS_INDEX];
     this.baselineInputPipelineAnalysis = data[INPUT_PIPELINE_ANALYSIS_INDEX];
-    if (data.length > INFERENCE_LATENCY_CHART_INDEX + 1) {
-      this.baselineInferenceLatencyData = data[INFERENCE_LATENCY_CHART_INDEX];
-    }
-    if (data.length > DISAGGREGATED_SERVING_LATENCY_INDEX) {
-      this.baselineDisaggregatedServingLatencyData =
-        data[DISAGGREGATED_SERVING_LATENCY_INDEX];
-    }
+    this.baselineInferenceLatencyData =
+      data.length > INFERENCE_LATENCY_CHART_INDEX + 1
+        ? data[INFERENCE_LATENCY_CHART_INDEX]
+        : null;
+    this.baselineDisaggregatedServingLatencyData =
+      data.length > DISAGGREGATED_SERVING_LATENCY_INDEX
+        ? data[DISAGGREGATED_SERVING_LATENCY_INDEX]
+        : null;
   }
 
   clearBaselineData() {
@@ -241,6 +272,7 @@ export class OverviewPage implements OnDestroy {
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
+    this.dataSubscription?.unsubscribe();
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

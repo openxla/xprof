@@ -1,4 +1,10 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  SimpleChanges,
+} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineDeviceAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -68,10 +74,12 @@ export class DeviceSideAnalysisDetail implements OnChanges {
     this.inputPipelineDeviceAnalysis = analysis;
     analysis = analysis || DEFAULT_SIMPLE_DATA_TABLE;
     analysis.p = analysis.p || {};
+    this.isTpu = (analysis.p['hardware_type'] || 'TPU') === 'TPU';
+    this.steptimeMsMetrics = {};
+    this.infeedPercentMetrics = {};
     if (!analysis.rows || analysis.rows.length === 0) {
       return;
     }
-    this.isTpu = (analysis.p['hardware_type'] || 'TPU') === 'TPU';
     this.steptimeMsMetrics.average = analysis.p['steptime_ms_average'] || '';
     this.steptimeMsMetrics.max = analysis.p['steptime_ms_maximum'] || '';
     this.steptimeMsMetrics.min = analysis.p['steptime_ms_minimum'] || '';
@@ -141,8 +149,18 @@ export class DeviceSideAnalysisDetail implements OnChanges {
   };
 
   ngOnChanges(changes: SimpleChanges) {
+    const dynamicColumnIds = (
+      this.inputPipelineDeviceAnalysis?.p?.['step_time_graph_column_ids'] || ''
+    )
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const fallbackColumnIds = this.isTpu
+      ? this.columnIds
+      : STEPTIME_COLUMN_IDS_FOR_GPU;
     this.dataProviderForAreaChart.setColumnIds(
-        this.isTpu ? this.columnIds : STEPTIME_COLUMN_IDS_FOR_GPU);
+      dynamicColumnIds.length > 0 ? dynamicColumnIds : fallbackColumnIds,
+    );
     this.dataInfoForAreaChart = {
       ...this.dataInfoForAreaChart,
       data: this.inputPipelineDeviceAnalysis,

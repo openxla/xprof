@@ -1,4 +1,11 @@
-import {Component, Input, OnChanges, OnInit, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineHostAnalysis, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
@@ -76,21 +83,28 @@ export class HostSideAnalysisDetail implements OnInit, OnChanges {
     };
   }
 
-  parseColumnChartData(hostAnalysis: InputPipelineHostAnalysis|null) {
-    if (!hostAnalysis) {
-      this.hasHostOps = false;
+  parseColumnChartData(hostAnalysis: InputPipelineHostAnalysis | null) {
+    const hasRows = Boolean(hostAnalysis?.rows?.length);
+    this.hasHostOps = hasRows;
+    if (!hostAnalysis || !hasRows) {
+      this.dataInfoForColumnChart = {
+        ...this.dataInfoForColumnChart,
+        data: null,
+      };
       return;
     }
-    this.hasHostOps = true;
 
     const kUsPerMs = 1000.0;
     const p = hostAnalysis.p || {};
-    const unclassifiedNonEnqueueMs =
-        Number(p['unclassified_nonequeue_us']) / kUsPerMs;
-    const demandedFileReadMs = Number(p['demanded_file_read_us']) / kUsPerMs;
-    const advancedFileReadMs = Number(p['advanced_file_read_us']) / kUsPerMs;
-    const preprocessingMs = Number(p['preprocessing_us']) / kUsPerMs;
-    const enqueueMs = Number(p['enqueue_us']) / kUsPerMs;
+    const toMs = (value: unknown): number => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num / kUsPerMs : 0;
+    };
+    const unclassifiedNonEnqueueMs = toMs(p['unclassified_nonequeue_us']);
+    const demandedFileReadMs = toMs(p['demanded_file_read_us']);
+    const advancedFileReadMs = toMs(p['advanced_file_read_us']);
+    const preprocessingMs = toMs(p['preprocessing_us']);
+    const enqueueMs = toMs(p['enqueue_us']);
 
     const data = [
       [

@@ -53,12 +53,14 @@ struct XPlaneToToolsTestCase {
   bool has_dcn_collective_stats;
   bool has_perf_counters;
   std::vector<std::string> expected_tools;
+  std::string_view device_type = "";
 };
 
 SessionSnapshot CreateSessionSnapshot(std::unique_ptr<XSpace> xspace,
                                       bool has_hlo_module,
                                       bool has_dcn_collective_stats,
-                                      bool has_perf_counters) {
+                                      bool has_perf_counters,
+                                      std::string_view device_type = "") {
   std::string test_name =
       ::testing::UnitTest::GetInstance()->current_test_info()->name();
   std::string path = absl::StrCat("ram://", test_name, "/");
@@ -87,6 +89,12 @@ SessionSnapshot CreateSessionSnapshot(std::unique_ptr<XSpace> xspace,
     XPlane* device_plane = xspace->add_planes();
     tsl::profiler::XPlaneBuilder plane_builder(device_plane);
     plane_builder.SetName(tsl::profiler::kTpuPlanePrefix);
+    if (!device_type.empty()) {
+      plane_builder.AddStatValue(
+          *plane_builder.GetOrCreateStatMetadata(tsl::profiler::GetStatTypeStr(
+              tsl::profiler::StatType::kDeviceTypeString)),
+          device_type);
+    }
     tsl::profiler::XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
     line_builder
         .AddEvent(*plane_builder.GetOrCreateEventMetadata("dummy_event"))
@@ -114,9 +122,10 @@ TEST_P(XPlaneToToolsTest, ToolsList) {
   tsl::profiler::FindOrAddMutablePlaneWithName(xspace.get(),
                                                test_case.plane_name);
 
-  SessionSnapshot sessionSnapshot = CreateSessionSnapshot(
-      std::move(xspace), test_case.has_hlo_module,
-      test_case.has_dcn_collective_stats, test_case.has_perf_counters);
+  SessionSnapshot sessionSnapshot =
+      CreateSessionSnapshot(std::move(xspace), test_case.has_hlo_module,
+                            test_case.has_dcn_collective_stats,
+                            test_case.has_perf_counters, test_case.device_type);
 
   absl::StatusOr<std::string> toolsString =
       GetAvailableToolNames(sessionSnapshot);
@@ -180,7 +189,28 @@ INSTANTIATE_TEST_SUITE_P(
          false,
          false,
          true,
-         {"perf_counters", "utilization_viewer", "kernel_utilization"}},
+         {"perf_counters"}},
+        {"ToolsForUnsupportedTpuV5eWithPerfCounters",
+         tsl::profiler::kTpuPlanePrefix,
+         false,
+         false,
+         true,
+         {"perf_counters"},
+         "TPU v5e"},
+        {"ToolsForTpuV6eWithPerfCounters",
+         tsl::profiler::kTpuPlanePrefix,
+         false,
+         false,
+         true,
+         {"perf_counters", "utilization_viewer", "kernel_utilization"},
+         "TPU v6 Lite"},
+        {"ToolsForTpuV7xWithPerfCounters",
+         tsl::profiler::kTpuPlanePrefix,
+         false,
+         false,
+         true,
+         {"perf_counters", "utilization_viewer", "kernel_utilization"},
+         "TPU v7x"},
     }),
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;

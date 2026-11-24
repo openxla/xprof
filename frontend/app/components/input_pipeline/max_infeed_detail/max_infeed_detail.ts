@@ -1,5 +1,6 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
@@ -7,7 +8,7 @@ import {
   Input,
   OnChanges,
   SimpleChanges,
-  ViewChild, ChangeDetectionStrategy,
+  ViewChild,
 } from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
@@ -40,13 +41,18 @@ export class MaxInfeedDetail implements AfterViewInit, OnChanges {
   }
 
   drawTable() {
-    if (!this.table || !this.maxInfeedCoreTable) {
+    if (!this.table) {
+      return;
+    }
+    if (!this.maxInfeedCoreTable) {
+      this.table.clearChart?.();
       return;
     }
     const dataTable = new google.visualization.DataTable(
       this.maxInfeedCoreTable,
     );
     if (dataTable.getNumberOfColumns() < 1) {
+      this.table.clearChart?.();
       return;
     }
     const options = {

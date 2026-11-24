@@ -418,6 +418,56 @@ TEST(XPlaneToTfDataStatsTest, MapAndBatch) {
       )pb"));
 }
 
+TEST(XPlaneToTfDataStatsTest, ZeroDurationRootIteratorDoesNotAbort) {
+  XPlane host_plane;
+  XPlaneBuilder host_plane_builder(&host_plane);
+  XLineBuilder thread = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &thread, "Iterator::Batch", 0, 0,
+               {{StatType::kStepId, 123}});
+
+  CombinedTfDataStats combined_tf_data_stats;
+  CombinedTfDataStatsBuilder builder(&combined_tf_data_stats);
+  builder.Add("host1", &host_plane);
+  builder.Finalize();
+
+  EXPECT_TRUE(combined_tf_data_stats.bottleneck_analysis().empty());
+  EXPECT_FALSE(combined_tf_data_stats.is_input_bound());
+}
+
+TEST(XPlaneToTfDataStatsTest, FullyOverlappedChildWithoutStepIdDoesNotAbort) {
+  XPlane host_plane;
+  XPlaneBuilder host_plane_builder(&host_plane);
+  XLineBuilder thread = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &thread, "Iterator::Map", 0, 100000000,
+               {{StatType::kStepId, 123}});
+  CreateXEvent(&host_plane_builder, &thread, "Iterator::Map::Range", 0,
+               100000000);
+
+  CombinedTfDataStats combined_tf_data_stats;
+  CombinedTfDataStatsBuilder builder(&combined_tf_data_stats);
+  builder.Add("host1", &host_plane);
+  builder.Finalize();
+
+  EXPECT_TRUE(combined_tf_data_stats.bottleneck_analysis().empty());
+  EXPECT_FALSE(combined_tf_data_stats.is_input_bound());
+}
+
+TEST(XPlaneToTfDataStatsTest, EmptyPipelineStatsDoesNotAbort) {
+  CombinedTfDataStats combined_tf_data_stats;
+  TfDataStats& host_stats =
+      (*combined_tf_data_stats.mutable_tf_data_stats())["host1"];
+  InputPipelineStats& pipeline_stats =
+      (*host_stats.mutable_input_pipelines())[1];
+  pipeline_stats.mutable_metadata()->set_id(1);
+  pipeline_stats.mutable_metadata()->set_type(InputPipelineMetadata::HOST);
+  pipeline_stats.mutable_metadata()->set_name("Host:0");
+
+  CombinedTfDataStatsBuilder builder(&combined_tf_data_stats);
+  builder.Finalize();
+
+  EXPECT_TRUE(combined_tf_data_stats.bottleneck_analysis().empty());
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

@@ -442,7 +442,7 @@ export class PerformanceSummary implements OnChanges, OnInit {
         value = propValue;
         valueStr = config.unit ? `${value} ${config.unit}` : value;
       }
-    } else if (config.getValue && customInput) {
+    } else if (config.getValue && customInput && customInput.length > 0) {
       value = config.getValue(customInput);
       valueStr = config.unit ? `${value} ${config.unit}` : value;
     }

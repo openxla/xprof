@@ -33,6 +33,20 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "tpu_generic_utilization_utils_test",
+    srcs = ["tpu_generic_utilization_utils_test.cc"],
+    deps = [
+        ":tpu_counter_util",
+        ":tpu_generic_utilization_utils",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v6e",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v7x",
+    ],
+)
+
 cc_library(
     name = "profile_processor_factory",
     srcs = ["profile_processor_factory.cc"],
@@ -2886,6 +2900,7 @@ cc_library(
         ":repository",
         ":xplane_to_dcn_collective_stats",
         ":xplane_to_llo",
+        ":xplane_to_utilization_viewer",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

@@ -518,6 +518,91 @@ TEST(OpStatsToOverviewPageTest, ComputeTpuAnalysisResult_FlatMetrics) {
       analysis.memory_bw_utilization_relative_to_hw_limit_percent(), 50.0);
 }
 
+TEST(OpStatsToOverviewPageTest,
+     ConvertOpStatsToOverviewPagePopulatesTpuRooflineFromPerfEnv) {
+  OpStats op_stats = ParseTextProtoOrDie(R"pb(
+    run_environment { device_type: "TPU" }
+    perf_env {
+      peak_tera_flops_per_second: 0.002
+      peak_bws_giga_bytes_per_second: 2.0
+    }
+    hlo_metrics_db_complete_steps_only {
+      total_time_ps: 1000000
+      metrics_db {
+        occurrences: 1
+        category: "convolution"
+        flops_v2: 1000
+        time_ps: 1000000
+        memory_accessed_breakdown {
+          memory_space: 1
+          operation_type: READ
+          bytes_accessed: 500
+        }
+        memory_accessed_breakdown {
+          memory_space: 1
+          operation_type: WRITE
+          bytes_accessed: 500
+        }
+      }
+    }
+  )pb");
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+
+  EXPECT_DOUBLE_EQ(overview_page.analysis()
+                       .flop_rate_utilization_relative_to_roofline_percent(),
+                   50.0);
+  EXPECT_DOUBLE_EQ(overview_page.analysis()
+                       .memory_bw_utilization_relative_to_hw_limit_percent(),
+                   50.0);
+}
+
+TEST(OpStatsToOverviewPageTest,
+     ConvertOpStatsToOverviewPageZeroRooflineWithoutPerfEnv) {
+  OpStats op_stats = ParseTextProtoOrDie(R"pb(
+    run_environment { device_type: "TPU" }
+    hlo_metrics_db_complete_steps_only {
+      total_time_ps: 1000000
+      metrics_db {
+        occurrences: 1
+        category: "convolution"
+        flops_v2: 1000
+        time_ps: 1000000
+        memory_accessed_breakdown {
+          memory_space: 1
+          operation_type: READ
+          bytes_accessed: 500
+        }
+      }
+    }
+  )pb");
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+
+  EXPECT_DOUBLE_EQ(overview_page.analysis()
+                       .flop_rate_utilization_relative_to_roofline_percent(),
+                   0.0);
+  EXPECT_DOUBLE_EQ(overview_page.analysis()
+                       .memory_bw_utilization_relative_to_hw_limit_percent(),
+                   0.0);
+}
+
+TEST(OpStatsToOverviewPageTest,
+     GenerateInferenceLatencyDataTableSetsSessionsPerSecond) {
+  OverviewInferenceLatency with_throughput;
+  with_throughput.set_sessions_per_second(7.54);
+
+  std::unique_ptr<DataTable> table_with =
+      GenerateInferenceLatencyDataTable(with_throughput);
+  EXPECT_EQ(table_with->GetCustomProperties().at("sessionsPerSecond"), "7.5");
+
+  OverviewInferenceLatency without_throughput;
+  std::unique_ptr<DataTable> table_without =
+      GenerateInferenceLatencyDataTable(without_throughput);
+  EXPECT_THAT(table_without->GetCustomProperties(),
+              Not(Contains(Key("sessionsPerSecond"))));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

@@ -56,6 +56,8 @@ import {
     '[attr.empty]': 'isEmpty() ? "" : null',
     '[class.drawer-collapsed]': 'isDrawerCollapsed()',
     '[attr.drawer-collapsed]': 'isDrawerCollapsed() ? "" : null',
+    '[class.first-visible]': 'isFirstVisible()',
+    '[attr.first-visible]': 'isFirstVisible() ? "" : null',
   },
   template: `
     <button
@@ -104,6 +106,10 @@ export class RackNavigationGroup {
     const hasPinned = this.items().some((item) => item.pinned());
     return !hasPinned;
   });
+
+  readonly isFirstVisible = computed(
+    () => this.parentDrawer?.firstVisibleGroup() === this,
+  );
 
   toggleExpand() {
     const next = !this.expanded();

@@ -12,10 +12,15 @@ import {
   DEFAULT_HOST,
   filterUiTools,
   HLO_TOOLS,
+  KERNEL_VIEWER_TOOL_NAME,
+  stripToolSuffix,
+  TOOL_DISPLAY_INFO,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
 import {
+  cleanParentHash,
+  getParentLocationParams,
   getSessionIdFromParams,
   resolveHostFromParams,
 } from 'org_xprof/frontend/app/common/utils/utils';
@@ -45,24 +50,17 @@ function normalizeRouteParamValue(
   return key === 'hosts' ? value.join(',') : (value[value.length - 1] ?? '');
 }
 
-/** Extracts query parameters from window.parent location search. */
-export function getParentLocationParams(): Map<string, string> {
-  const parentParams = new Map<string, string>();
-  try {
-    if (window.parent?.location?.search) {
-      const urlParams = new URLSearchParams(window.parent.location.search);
-      for (const [key, value] of urlParams) {
-        parentParams.set(key, value);
-      }
-      const parentHosts = urlParams.getAll('hosts');
-      if (parentHosts.length > 0) {
-        parentParams.set('hosts', parentHosts.join(','));
-      }
+const MAX_MULTI_HOSTS = 10;
+
+function sanitizeHostList(hosts: readonly string[]): string[] {
+  const uniqueHosts = new Set<string>();
+  for (const host of hosts) {
+    const trimmed = host.trim();
+    if (trimmed) {
+      uniqueHosts.add(trimmed);
     }
-  } catch {
-    // In case window.parent access is blocked by cross-origin iframe security
   }
-  return parentParams;
+  return [...uniqueHosts];
 }
 
 /** Interface for normalized navigation parameters. */
@@ -82,10 +80,33 @@ export interface NavigationParamsRecord {
 const TOOL_TAG_ALIASES: Record<string, string> = {
   'kernel_utilization': 'utilization_viewer',
   'hlo_op_stats': 'hlo_stats',
+  'input_pipeline': 'input_pipeline_analyzer',
+  'hlo_op_profile': 'op_profile',
+  'tensorflow_stats': 'framework_op_stats',
 };
 
 function normalizeToolTag(tag: string): string {
-  return TOOL_TAG_ALIASES[tag] ?? tag;
+  const cleanTag = stripToolSuffix(tag);
+  const canonical = TOOL_TAG_ALIASES[cleanTag];
+  if (!canonical) {
+    return tag;
+  }
+  return tag.endsWith('@') ? `${canonical}@` : canonical;
+}
+
+function tagMatches(validTag: string, targetTag: string): boolean {
+  if (!targetTag) {
+    return false;
+  }
+  if (validTag.startsWith(targetTag)) {
+    return true;
+  }
+  const canonicalValid = normalizeToolTag(stripToolSuffix(validTag));
+  const canonicalTarget = normalizeToolTag(stripToolSuffix(targetTag));
+  return (
+    canonicalValid === canonicalTarget ||
+    canonicalValid.startsWith(canonicalTarget)
+  );
 }
 
 /** Normalizes navigation parameters and aliases. */
@@ -143,16 +164,23 @@ const STANDALONE_NON_SIDENAV_ROUTES = [
   'stack_trace_page',
 ];
 
+const DIRECT_ACCESS_TOOL_ROUTES: ReadonlySet<string> = new Set([
+  KERNEL_VIEWER_TOOL_NAME,
+]);
+
 const SIDENAV_TOOL_ROUTES = new Set([
   'overview_page',
   'input_pipeline_analyzer',
+  'input_pipeline',
   'kernel_stats',
   'kernel_viewer',
   'memory_profile',
   'memory_viewer',
   'op_profile',
+  'hlo_op_profile',
   'pod_viewer',
   'framework_op_stats',
+  'tensorflow_stats',
   'trace_viewer',
   'trace_viewer@',
   'utilization_viewer',
@@ -220,8 +248,6 @@ export class SideNav implements OnInit, OnDestroy {
     this.currentRun$ = this.store
       .select(getCurrentRun)
       .pipe(takeUntil(this.destroyed));
-    // TODO(b/241842487): stream is not updated when the state change, should
-    // trigger subscribe reactively
     this.runToolsMap$.subscribe((runTools: RunToolsMap) => {
       this.runToolsMap = runTools;
       this.runs = Object.keys(this.runToolsMap);
@@ -267,13 +293,16 @@ export class SideNav implements OnInit, OnDestroy {
     if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
       return '';
     }
-    return (
-      this.tags.find((validTag) =>
-        validTag.startsWith(this.selectedTagInternal),
-      ) ||
-      this.tags[0] ||
-      ''
+    const matchedTag = this.tags.find((validTag) =>
+      tagMatches(validTag, this.selectedTagInternal),
     );
+    if (matchedTag) {
+      return matchedTag;
+    }
+    if (DIRECT_ACCESS_TOOL_ROUTES.has(this.selectedTagInternal)) {
+      return this.selectedTagInternal;
+    }
+    return this.tags[0] || '';
   }
 
   /**
@@ -297,18 +326,49 @@ export class SideNav implements OnInit, OnDestroy {
       : '';
   }
 
-  private getSidenavToolFromPath(url?: string): string {
+  private getSidenavPathInfo(url?: string): {tool: string; run: string} {
     const rawUrl =
-      url ?? (this.router.url || this.router.routerState?.snapshot?.url || '');
+      url ??
+      (this.router.url && this.router.url !== '/'
+        ? this.router.url
+        : this.router.routerState?.snapshot?.url ||
+          window.location.pathname ||
+          '');
     let cleanPath = rawUrl.split('?')[0].split('#')[0];
     if (cleanPath.includes('/data/plugin/profile')) {
       cleanPath = cleanPath.split('/data/plugin/profile')[1] || '';
     }
-    const firstSegment = cleanPath.split('/').find(Boolean) || '';
+    const segments = cleanPath.split('/').filter(Boolean);
+    const firstSegment = segments[0] || '';
     if (!SIDENAV_TOOL_ROUTES.has(firstSegment)) {
-      return '';
+      return {tool: '', run: ''};
     }
-    return normalizeToolTag(firstSegment);
+    let pathRun = segments[1] || '';
+    if (pathRun) {
+      try {
+        pathRun = decodeURIComponent(pathRun);
+      } catch {
+        // Keep raw segment if percent-encoding is malformed.
+      }
+    }
+    return {tool: normalizeToolTag(firstSegment), run: pathRun};
+  }
+
+  private hasKernelViewerSessionPathParam(): boolean {
+    const rootSnapshot = this.router.routerState?.snapshot?.root;
+    const stack: ActivatedRouteSnapshot[] = rootSnapshot ? [rootSnapshot] : [];
+    while (stack.length > 0) {
+      const route = stack.pop();
+      if (!route) continue;
+      if (
+        route.routeConfig?.path === `${KERNEL_VIEWER_TOOL_NAME}/:sessionId` ||
+        (!route.routeConfig && Boolean(route.params?.['sessionId']))
+      ) {
+        return true;
+      }
+      stack.push(...route.children);
+    }
+    return false;
   }
 
   // Getter for valid host given url router or user selection.
@@ -411,8 +471,9 @@ export class SideNav implements OnInit, OnDestroy {
     const parent = parseNavigationParams(parentParams);
     const route = parseNavigationParams(routeParams);
 
-    const run = route.run || parent.run;
-    const tag = route.tag || this.getSidenavToolFromPath(url) || parent.tag;
+    const pathInfo = this.getSidenavPathInfo(url);
+    const run = route.run || pathInfo.run || parent.run;
+    const tag = route.tag || pathInfo.tool || parent.tag;
     const host = route.host || parent.host;
     const hostsParam = route.hosts || parent.hosts;
     const sessionPath = route.sessionPath || parent.sessionPath;
@@ -459,8 +520,8 @@ export class SideNav implements OnInit, OnDestroy {
       (this.selectedRunInternal === run ||
         (this.hasNavigated && this.selectedRun === run)) &&
       !STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal) &&
-      (this.selectedTagInternal === tag ||
-        (this.hasNavigated && this.selectedTag === tag)) &&
+      (normalizeToolTag(this.selectedTagInternal) === tag ||
+        (this.hasNavigated && normalizeToolTag(this.selectedTag) === tag)) &&
       this.selectedModuleInternal === moduleName &&
       this.runPathInternal === runPath &&
       this.sessionPathInternal === sessionPath &&
@@ -507,11 +568,7 @@ export class SideNav implements OnInit, OnDestroy {
 
     if (this.multiHostEnabledTools.includes(tag)) {
       if (hostsParam) {
-        let hostsList = hostsParam.split(',');
-        if (hostsList.length > 10) {
-          hostsList = hostsList.slice(0, 10);
-        }
-        this.selectedHostsInternal = hostsList;
+        this.selectedHostsInternal = sanitizeHostList(hostsParam.split(','));
       }
       this.selectedHostsPending = [...this.selectedHostsInternal];
       this.updateAllHostsSelectedState();
@@ -590,30 +647,8 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   getDisplayTagName(tag: string): string {
-    const tagName =
-      tag && tag.length && tag[tag.length - 1] === '@'
-        ? tag.slice(0, -1)
-        : tag || '';
-
-    const toolsDisplayMap = new Map([
-      ['overview_page', 'Overview Page'],
-      ['framework_op_stats', 'Framework Op Stats'],
-      ['input_pipeline_analyzer', 'Input Pipeline Analysis'],
-      ['memory_profile', 'Memory Profile'],
-      ['pod_viewer', 'Pod Viewer'],
-      ['op_profile', 'HLO Op Profile'],
-      ['memory_viewer', 'Memory Viewer'],
-      ['graph_viewer', 'Graph Viewer'],
-      ['hlo_stats', 'HLO Op Stats'],
-      ['inference_profile', 'Inference Profile'],
-      ['roofline_model', 'Roofline Model'],
-      ['kernel_stats', 'Kernel Stats'],
-      ['trace_viewer', 'Trace Viewer'],
-      ['megascale_stats', 'Megascale Viewer'],
-      ['perf_counters', 'Perf Counters'],
-      ['utilization_viewer', 'Utilization Viewer'],
-    ]);
-    return toolsDisplayMap.get(tagName) || tagName;
+    const tagName = stripToolSuffix(tag);
+    return TOOL_DISPLAY_INFO.get(tagName)?.label || tagName;
   }
 
   async getToolsForSelectedRun() {
@@ -785,8 +820,9 @@ export class SideNav implements OnInit, OnDestroy {
       this.selectedTagInternal &&
       this.tags.length > 0 &&
       !STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal) &&
+      !DIRECT_ACCESS_TOOL_ROUTES.has(this.selectedTagInternal) &&
       !this.tags.some((validTag) =>
-        validTag.startsWith(this.selectedTagInternal),
+        tagMatches(validTag, this.selectedTagInternal),
       )
     ) {
       this.selectedTagInternal = this.tags[0];
@@ -866,9 +902,10 @@ export class SideNav implements OnInit, OnDestroy {
     this.hosts = await this.getHostsForSelectedTag();
 
     if (this.isMultiHostsEnabled) {
-      this.selectedHostsInternal = this.selectedHostsInternal.filter((host) =>
-        this.hosts.includes(host),
-      );
+      this.selectedHostsInternal = sanitizeHostList(this.selectedHostsInternal)
+        .filter((host) => this.hosts.includes(host))
+        .sort()
+        .slice(0, MAX_MULTI_HOSTS);
       if (this.selectedHostsInternal.length === 0 && this.hosts.length > 0) {
         this.selectedHostsInternal = [this.hosts[0]];
       }
@@ -911,15 +948,32 @@ export class SideNav implements OnInit, OnDestroy {
       this.selectedHostsPending.length === this.hosts.length;
   }
 
+  onMultiHostSelectOpenedChange(opened: boolean): void {
+    if (!opened) {
+      this.resetPendingHosts();
+    }
+  }
+
+  resetPendingHosts(): void {
+    this.selectedHostsPending = [...this.selectedHostsInternal];
+    this.updateAllHostsSelectedState();
+  }
+
   onSubmitHosts() {
+    const normalizedHosts = sanitizeHostList(this.selectedHostsPending).sort();
+    if (normalizedHosts.length === 0) {
+      return;
+    }
     this.store.dispatch(setErrorMessageStateAction({errorMessage: ''}));
-    if (this.selectedHostsPending.length > 10) {
+    if (normalizedHosts.length > MAX_MULTI_HOSTS) {
       alert(
         'Warning: Maximum 10 selected hosts allowed. Loading the first 10 hosts in alphabetical order.',
       );
-      this.selectedHostsPending = this.selectedHostsPending.slice(0, 10);
-      this.updateAllHostsSelectedState();
+      this.selectedHostsPending = normalizedHosts.slice(0, MAX_MULTI_HOSTS);
+    } else {
+      this.selectedHostsPending = normalizedHosts;
     }
+    this.updateAllHostsSelectedState();
     this.selectedHostsInternal = [...this.selectedHostsPending];
     this.navigateTools();
   }
@@ -954,6 +1008,7 @@ export class SideNav implements OnInit, OnDestroy {
       const queryParams: {
         [key: string]: string | string[] | boolean | undefined;
       } = {...navigationEvent, ...extraQueryParams};
+      delete queryParams['firstLoad'];
       // A standalone route has no sidebar tool, so record the route itself.
       if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
         queryParams['tag'] = this.selectedTagInternal;
@@ -972,10 +1027,11 @@ export class SideNav implements OnInit, OnDestroy {
 
       // Get current path to avoid changing the base URL
       const pathname = window.parent?.location?.pathname ?? '';
+      const hash = cleanParentHash(window.parent?.location?.hash ?? '');
 
       // Use the custom serialization helper
       const queryString = serializeQueryParams(queryParams);
-      const url = pathname + queryString;
+      const url = pathname + queryString + hash;
 
       if (replace) {
         window.parent?.history?.replaceState({}, '', url);
@@ -1024,7 +1080,14 @@ export class SideNav implements OnInit, OnDestroy {
       const queryParams: Params = Array.isArray(navigationEvent.hosts)
         ? {...navigationEvent, 'hosts': navigationEvent.hosts.join(',')}
         : {...navigationEvent};
-      this.router.navigate([this.selectedTag || 'empty'], {
+      const targetTag = this.selectedTag || 'empty';
+      const commands =
+        targetTag === KERNEL_VIEWER_TOOL_NAME &&
+        this.selectedRun &&
+        this.hasKernelViewerSessionPathParam()
+          ? [targetTag, this.selectedRun]
+          : [targetTag];
+      this.router.navigate(commands, {
         queryParams,
         replaceUrl,
       });

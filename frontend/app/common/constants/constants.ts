@@ -193,6 +193,7 @@ export const TOOL_CATEGORIES: Record<ToolCategory, readonly string[]> = {
     'hlo_op_stats',
     'hlo_stats',
     'framework_op_stats',
+    'tensorflow_stats',
   ],
   [ToolCategory.HARDWARE]: [
     'memory_profile',
@@ -233,3 +234,40 @@ export const OPEN_KERNEL_VIEWER_LABEL = 'Open Kernel Viewer';
 
 /** Button label for opening Kernel Viewer from Op Details. */
 export const KERNEL_VIEWER_BUTTON_LABEL = '> Kernel Viewer';
+
+/** Display label and Material icon metadata for an XProf tool. */
+export interface ToolDisplayInfo {
+  readonly label: string;
+  readonly icon: string;
+}
+
+/** Shared display labels and Material icons for XProf tools and aliases. */
+export const TOOL_DISPLAY_INFO: ReadonlyMap<string, ToolDisplayInfo> = new Map([
+  ['overview_page', {label: 'Overview Page', icon: 'home'}],
+  ['trace_viewer', {label: 'Trace Viewer', icon: 'view_object_track'}],
+  ['graph_viewer', {label: 'Graph Viewer', icon: 'graph_2'}],
+  ['kernel_viewer', {label: 'Kernel Viewer', icon: 'view_timeline'}],
+  ['op_profile', {label: 'HLO Op Profile', icon: 'bar_chart'}],
+  ['hlo_op_profile', {label: 'HLO Op Profile', icon: 'bar_chart'}],
+  ['hlo_stats', {label: 'HLO Op Stats', icon: 'query_stats'}],
+  ['hlo_op_stats', {label: 'HLO Op Stats', icon: 'query_stats'}],
+  [
+    'input_pipeline_analyzer',
+    {label: 'Input Pipeline Analysis', icon: 'input'},
+  ],
+  ['input_pipeline', {label: 'Input Pipeline Analysis', icon: 'input'}],
+  ['framework_op_stats', {label: 'Framework Op Stats', icon: 'pie_chart'}],
+  ['tensorflow_stats', {label: 'Framework Op Stats', icon: 'pie_chart'}],
+  ['kernel_stats', {label: 'Kernel Stats', icon: 'memory'}],
+  ['memory_profile', {label: 'Memory Profile', icon: 'monitoring'}],
+  ['memory_viewer', {label: 'Memory Viewer', icon: 'overview_key'}],
+  ['roofline_model', {label: 'Roofline Model', icon: 'stacked_line_chart'}],
+  ['pod_viewer', {label: 'Pod Viewer', icon: 'hive'}],
+  ['inference_profile', {label: 'Inference Profile', icon: 'avg_pace'}],
+  ['perf_counters', {label: 'Perf Counters', icon: 'av_timer'}],
+  [
+    'utilization_viewer',
+    {label: 'Utilization Viewer', icon: 'bar_chart_4_bars'},
+  ],
+  ['megascale_stats', {label: 'Megascale Viewer', icon: 'monitoring'}],
+]);

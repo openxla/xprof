@@ -15,6 +15,7 @@ import {
   filterUiTools,
   stripToolSuffix,
   TOOL_CATEGORIES,
+  TOOL_DISPLAY_INFO,
   ToolCategory,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
@@ -107,50 +108,14 @@ export class MainPage implements OnDestroy {
   collapsedCategories = new Set<string>();
   pinnedTools = new Set<string>();
 
-  private readonly toolIconMap: {[key: string]: string} = {
-    'overview_page': 'home',
-    'trace_viewer': 'view_object_track',
-    'trace_viewer@': 'view_object_track',
-    'graph_viewer': 'graph_2',
-    'op_profile': 'bar_chart',
-    'hlo_stats': 'query_stats',
-    'input_pipeline_analyzer': 'input',
-    'kernel_stats': 'memory',
-    'memory_profile': 'monitoring',
-    'memory_viewer': 'overview_key',
-    'roofline_model': 'stacked_line_chart',
-    'pod_viewer': 'hive',
-    'framework_op_stats': 'pie_chart',
-    'inference_profile': 'avg_pace',
-    'perf_counters': 'av_timer',
-    'utilization_viewer': 'bar_chart_4_bars',
-    'megascale_stats': 'monitoring',
-  };
-
-  private readonly toolsDisplayMap = new Map<string, string>([
-    ['overview_page', 'Overview Page'],
-    ['framework_op_stats', 'Framework Op Stats'],
-    ['input_pipeline_analyzer', 'Input Pipeline Analysis'],
-    ['memory_profile', 'Memory Profile'],
-    ['pod_viewer', 'Pod Viewer'],
-    ['op_profile', 'HLO Op Profile'],
-    ['memory_viewer', 'Memory Viewer'],
-    ['graph_viewer', 'Graph Viewer'],
-    ['hlo_stats', 'HLO Op Stats'],
-    ['inference_profile', 'Inference Profile'],
-    ['roofline_model', 'Roofline Model'],
-    ['kernel_stats', 'Kernel Stats'],
-    ['trace_viewer', 'Trace Viewer'],
-    ['megascale_stats', 'Megascale Viewer'],
-    ['perf_counters', 'Perf Counters'],
-    ['utilization_viewer', 'Utilization Viewer'],
-  ]);
-
   constructor() {
     this.loadNavPreferences();
     const searchParams = new URLSearchParams(window.location.search);
     const newNavParam = searchParams.get('new_nav');
     this.isNewNavEnabled = newNavParam === 'true' || newNavParam === '1';
+    if (this.isNewNavEnabled && this.isSmallScreen) {
+      this.isSideNavOpen = false;
+    }
 
     searchParams.delete('use_pb');
     if (searchParams.toString()) {
@@ -267,12 +232,13 @@ export class MainPage implements OnDestroy {
   }
 
   getToolIcon(tag: string): string {
-    return this.toolIconMap[tag] || 'dashboard';
+    const cleanTag = stripToolSuffix(tag);
+    return TOOL_DISPLAY_INFO.get(cleanTag)?.icon || 'dashboard';
   }
 
   getToolLabel(tag: string): string {
     const cleanTag = stripToolSuffix(tag);
-    return this.toolsDisplayMap.get(cleanTag) || cleanTag;
+    return TOOL_DISPLAY_INFO.get(cleanTag)?.label || cleanTag;
   }
 
   getToolQueryParams(tag: string): Params {
@@ -330,20 +296,21 @@ export class MainPage implements OnDestroy {
   onResize() {
     const wasSmallScreen = this.isSmallScreen;
     this.isSmallScreen = window.innerWidth < 960;
-    // Close the overlay side panel only when the window shrinks below the
-    // breakpoint, so resizing an already narrow window keeps a panel that the
-    // user opened.
-    if (
-      !wasSmallScreen &&
-      this.isSmallScreen &&
-      !this.isNewNavEnabled &&
-      this.navigationReady &&
-      this.currentTag &&
-      this.currentTag !== 'empty' &&
-      !this.isToolWithSideNav(this.currentTag)
-    ) {
-      this.isSideNavOpen = false;
-      this.sidenav?.close();
+    // Collapse the navigation drawer only when the window shrinks below the
+    // breakpoint, so resizing an already narrow window preserves a panel that
+    // the user opened.
+    if (!wasSmallScreen && this.isSmallScreen) {
+      if (this.isNewNavEnabled) {
+        this.isSideNavOpen = false;
+      } else if (
+        this.navigationReady &&
+        this.currentTag &&
+        this.currentTag !== 'empty' &&
+        !this.isToolWithSideNav(this.currentTag)
+      ) {
+        this.isSideNavOpen = false;
+        this.sidenav?.close();
+      }
     }
   }
 

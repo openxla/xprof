@@ -19,8 +19,9 @@
   padding-left: 16px;
 }
 
-// Target the custom panel class defined in sidenav.ng.html
-.multi-host-select-panel {
+// Target the custom panel class defined in sidenav.ng.html inside the CDK
+// overlay container.
+::ng-deep .multi-host-select-panel {
   .full-width {
     width: 100%;
   }

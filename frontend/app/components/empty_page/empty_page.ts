@@ -5,6 +5,15 @@ import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/fr
 import {firstValueFrom, ReplaySubject} from 'rxjs';
 import {defaultIfEmpty, takeUntil} from 'rxjs/operators';
 
+function isRunningInColab(): boolean {
+  try {
+    return Boolean(window.parent?.TENSORBOARD_ENV?.IN_COLAB);
+  } catch {
+    // Cross-origin or sandboxed iframe blocks reading window.parent.
+    return false;
+  }
+}
+
 /** An empty page component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
@@ -20,7 +29,7 @@ export class EmptyPage {
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
 
-  inColab = !!(window.parent.TENSORBOARD_ENV || {}).IN_COLAB;
+  inColab = isRunningInColab();
 
    ngOnInit() {
     this.fetchProfilerConfig();

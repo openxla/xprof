@@ -1,4 +1,11 @@
-import {Component, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  OnDestroy,
+  SimpleChanges,
+} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {setActiveOpProfileNodeAction} from 'org_xprof/frontend/app/store/actions';
 import {getTagsState} from 'org_xprof/frontend/app/store/selectors';
@@ -8,12 +15,13 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'op-table',
   templateUrl: './op_table.ng.html',
-  styleUrls: ['./op_table.scss']
+  styleUrls: ['./op_table.scss'],
 })
-export class OpTable implements OnDestroy {
+export class OpTable implements OnChanges, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
 
   /** The root node. */
@@ -44,6 +52,15 @@ export class OpTable implements OnDestroy {
         .subscribe((tags: string[]) => {
           this.tags = tags ?? [];
         });
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['rootNode']) {
+      this.selectedNode = undefined;
+      this.store.dispatch(
+        setActiveOpProfileNodeAction({activeOpProfileNode: null}),
+      );
+    }
   }
 
   updateSelected(node?: Node) {

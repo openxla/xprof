@@ -98,32 +98,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return this.httpClient.get<T>(url, options).pipe(
       catchError((error: HttpErrorResponse) => {
         console.log(error);
-        let errorMessage = '';
-        if (error.status === 0) {
-          errorMessage = 'Request failed : Unable to get the profile data';
-        } else {
-          const urlObj = new URL(error.url || '');
-          const errorString =
-            typeof error.error === 'object'
-              ? String(error.error?.error?.message)
-              : String(error.error);
-
-          errorMessage =
-            'There was an error in the requested URL ' +
-            urlObj.pathname +
-            urlObj.search +
-            '.<br><br>' +
-            '<b>message:</b> ' +
-            error.message +
-            '<br>' +
-            '<b>status:</b> ' +
-            String(error.status) +
-            '<br>' +
-            '<b>error:</b> ' +
-            errorString;
-        }
-
         if (notifyError) {
+          const errorMessage = utils.formatHttpErrorMessage(error, url);
           this.store.dispatch(setErrorMessageStateAction({errorMessage}));
         }
         return of(null);
@@ -293,9 +269,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
     ) {
       params = params.set('refresh_suggestion', 'true');
     }
-    return this.get<SmartSuggestionReport>(this.pathPrefix + DATA_API, {
-      'params': params,
-    });
+    return this.get<SmartSuggestionReport>(
+      this.pathPrefix + DATA_API,
+      {'params': params},
+      /* notifyError= */ false,
+    );
   }
 
   getModuleList(
@@ -343,7 +321,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       if (baseSessionId) {
         linkParams.set('base_session_id', baseSessionId);
       }
-      return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
+      return `${utils.getParentBaseUrl(this.pathPrefix)}?${linkParams.toString()}#profile`;
     }
     return '';
   }
@@ -373,13 +351,17 @@ export class DataServiceV2 implements DataServiceV2Interface {
     const searchParams = this.getSearchParams();
     const sessionPath = searchParams.get('session_path');
     const runPath = searchParams.get('run_path');
-    if (sessionPath) {
+    const baseSessionId = searchParams.get('base_session_id');
+    if (sessionPath && !linkParams.has('session_path')) {
       linkParams.set('session_path', sessionPath);
     }
-    if (runPath) {
+    if (runPath && !linkParams.has('run_path')) {
       linkParams.set('run_path', runPath);
     }
-    return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
+    if (baseSessionId && !linkParams.has('base_session_id')) {
+      linkParams.set('base_session_id', baseSessionId);
+    }
+    return `${utils.getParentBaseUrl(this.pathPrefix)}?${linkParams.toString()}#profile`;
   }
 
   getGraphTypes(sessionId: string) {
@@ -516,7 +498,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
         linkParams.set(key, val);
       }
     }
-    return `${window.parent.location.origin}${this.pathPrefix}${DATA_API}?${linkParams.toString()}#profile`;
+    return `${utils.getSafeParentOrigin()}${this.pathPrefix}${DATA_API}?${linkParams.toString()}#profile`;
   }
 
   getCustomCallTextLink(
@@ -623,11 +605,10 @@ export class DataServiceV2 implements DataServiceV2Interface {
     );
   }
   setSearchParams(searchParams: URLSearchParams) {
-    window.sessionStorage.setItem(
-      'searchParams',
-      new URLSearchParams(searchParams).toString(),
-    );
-    const newUrl = window.location.pathname + '?' + searchParams.toString();
+    const queryString = new URLSearchParams(searchParams).toString();
+    window.sessionStorage.setItem('searchParams', queryString);
+    const hash = utils.cleanParentHash(window.location.hash);
+    const newUrl = `${window.location.pathname}?${queryString}${hash}`;
     window.history.replaceState({}, '', newUrl);
   }
 
@@ -641,6 +622,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       searchParams.set('base_session_id', baseSessionId);
     } else {
       searchParams.delete('base_session_id');
+      searchParams.delete('diff_base');
     }
     this.setSearchParams(searchParams);
   }

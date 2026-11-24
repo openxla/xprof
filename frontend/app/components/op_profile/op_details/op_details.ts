@@ -360,7 +360,11 @@ export class OpDetails implements OnDestroy {
       i++
     ) {
       if (utils.hasBandwidthUtilization(this.node, i)) {
-        const utilization = utils.memoryBandwidthUtilization(this.node, i);
+        const utilization = utils.memoryBandwidthUtilization(
+          this.node,
+          i,
+          this.applyScalingFactor,
+        );
         if (utilization === 1) {
           this.showUtilizationWarning = true;
         }

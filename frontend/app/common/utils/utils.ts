@@ -1,9 +1,11 @@
 import {Store} from '@ngrx/store';
 import {
+  API_PREFIX,
   KERNEL_SCHEDULE_TOOLTIP_PREFIX,
   KERNEL_VIEWER_TOOL_NAME,
   LLO_DEBUG_TAG,
   OPEN_KERNEL_VIEWER_LABEL,
+  PLUGIN_NAME,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {
@@ -305,20 +307,30 @@ export function humanReadableText(
     suffix?: string;
   } = {},
 ): string {
+  if (!Number.isFinite(num)) {
+    return '';
+  }
   const {si = false, dp = 2, suffix = 'B'} = options;
   const base = si ? 1000 : 1024;
   const units = si
     ? ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y']
     : ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi', 'Yi'];
+  const sign = num < 0 ? '-' : '';
+  const absNum = Math.abs(num);
   const i =
-    num === 0 ? 0 : Math.max(0, Math.floor(Math.log(num) / Math.log(base)));
-  // Handle the case if num < 1 (e.g. 0.000123)
+    absNum === 0
+      ? 0
+      : Math.min(
+          units.length - 1,
+          Math.max(0, Math.floor(Math.log(absNum) / Math.log(base))),
+        );
+  // Handle the case if 0 < |num| < 1 (e.g. 0.000123)
   // we should return 1.23e-4 for better readability.
   const n =
-    0 < num && num < 1
-      ? num.toExponential(dp)
-      : Number(num / Math.pow(base, i)).toFixed(dp);
-  return n + ' ' + units[i] + suffix || '';
+    0 < absNum && absNum < 1
+      ? absNum.toExponential(dp)
+      : Number(absNum / Math.pow(base, i)).toFixed(dp);
+  return `${sign}${n} ${units[i]}${suffix}`;
 }
 
 /**
@@ -548,14 +560,19 @@ export function percent(fraction: number, defaultValueIfNull = '-'): string {
 export function timeWasted(
   node: OpProfileNode,
   rootNode: OpProfileNode,
+  applyScalingFactor = false,
 ): number {
   if (!node || !node.metrics) return NaN;
   return (
     (timeFraction(node, rootNode) || 0) *
     (1 -
       Math.max(
-        flopsUtilization(node, rootNode),
-        memoryBandwidthUtilization(node, MemBwType.MEM_BW_TYPE_HBM_RW),
+        flopsUtilization(node, rootNode, applyScalingFactor),
+        memoryBandwidthUtilization(
+          node,
+          MemBwType.MEM_BW_TYPE_HBM_RW,
+          applyScalingFactor,
+        ),
       ))
   );
 }
@@ -635,17 +652,28 @@ export function parseDiagnosticsDataTable(
   diagnosticsTable: SimpleDataTable | null,
 ): Diagnostics {
   const diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
-  if (!diagnosticsTable || !diagnosticsTable.rows) return diagnostics;
-  /** Convert data table to string arrays */
-  diagnosticsTable.rows.forEach((row) => {
-    if (String(row.c![0].v!) === 'ERROR') {
-      diagnostics.errors.push(String(row.c![1].v!));
-    } else if (String(row.c![0].v!) === 'WARNING') {
-      diagnostics.warnings.push(String(row.c![1].v!));
-    } else {
-      diagnostics.info.push(String(row.c![1].v!));
+  if (!diagnosticsTable || !Array.isArray(diagnosticsTable.rows)) {
+    return diagnostics;
+  }
+  for (const row of diagnosticsTable.rows) {
+    const cells = row?.c;
+    if (!Array.isArray(cells) || cells.length < 2) {
+      continue;
     }
-  });
+    const message = cells[1]?.v;
+    if (message == null) {
+      continue;
+    }
+    const severity = cells[0]?.v != null ? String(cells[0].v) : '';
+    const text = String(message);
+    if (severity === 'ERROR') {
+      diagnostics.errors.push(text);
+    } else if (severity === 'WARNING') {
+      diagnostics.warnings.push(text);
+    } else {
+      diagnostics.info.push(text);
+    }
+  }
   return diagnostics;
 }
 
@@ -808,6 +836,53 @@ export function parseFrameworkOpType(provenance?: string): string {
 export function cleanParentHash(rawHash: string): string {
   const cleanHash = rawHash.split('?')[0].split('&')[0];
   return cleanHash && cleanHash !== '#' ? cleanHash : '';
+}
+
+/**
+ * Returns `window.parent.location.origin` when accessible, falling back to
+ * `window.location.origin` in cross-origin or sandboxed iframes.
+ */
+export function getSafeParentOrigin(): string {
+  try {
+    return window.parent?.location?.origin || window.location.origin;
+  } catch {
+    return window.location.origin;
+  }
+}
+
+/**
+ * Returns the base URL (`origin + pathname`) of `window.parent.location` when
+ * accessible, falling back to `window.location.origin + (fallbackPath || '/')`
+ * in cross-origin or sandboxed iframes.
+ */
+export function getParentBaseUrl(fallbackPath = ''): string {
+  const fallbackOrigin = window.location.origin;
+  const normalizedFallbackPath = fallbackPath
+    ? fallbackPath.endsWith('/')
+      ? fallbackPath
+      : `${fallbackPath}/`
+    : '/';
+  const fallbackBase = `${fallbackOrigin}${normalizedFallbackPath}`;
+  try {
+    const origin = window.parent?.location?.origin;
+    if (!origin) {
+      return fallbackBase;
+    }
+    const rawPathname = window.parent?.location?.pathname || '/';
+    const pluginPrefix = API_PREFIX + PLUGIN_NAME;
+    if (rawPathname.includes(pluginPrefix)) {
+      const prefix = rawPathname.split(pluginPrefix)[0];
+      const normalizedPrefix = prefix
+        ? prefix.endsWith('/')
+          ? prefix
+          : `${prefix}/`
+        : '/';
+      return `${origin}${normalizedPrefix}`;
+    }
+    return `${origin}${rawPathname}`;
+  } catch {
+    return fallbackBase;
+  }
 }
 
 /**
@@ -1208,6 +1283,188 @@ export function formatFetchException(error: unknown): string {
   return error instanceof Error
     ? escapeHtml(error.message || error.name)
     : escapeHtml(String(error));
+}
+
+const MAX_HTTP_ERROR_DETAIL_LENGTH = 500;
+const HTML_DOCUMENT_REGEX = /^\s*<(?:!doctype\b|html\b|head\b|body\b)/i;
+
+/** Minimal structural shape of an HTTP error response. */
+export interface HttpErrorLike {
+  readonly status?: number;
+  readonly statusText?: string;
+  readonly message?: string;
+  readonly url?: string | null;
+  readonly error?: unknown;
+  readonly headers?: {get(name: string): string | null} | null;
+}
+
+/**
+ * Formats an HTTP error response into HTML-escaped banner markup shared by
+ * data services.
+ */
+export function formatHttpErrorMessage(
+  error: HttpErrorLike,
+  requestUrl = '',
+): string {
+  if (error.status === 0) {
+    return 'Request failed: Unable to get the profile data (network error).';
+  }
+  const displayUrl = resolveErrorUrlDisplay(error.url, requestUrl);
+  const urlSuffix = displayUrl ? ` ${escapeHtml(displayUrl)}` : '';
+  const message = escapeHtml(error.message ?? '');
+  const status = escapeHtml(error.status != null ? String(error.status) : '');
+  const statusText = escapeHtml(error.statusText ?? '');
+  const detail = escapeHtml(extractHttpErrorDetail(error));
+  return (
+    `There was an error in the requested URL${urlSuffix}.<br><br>` +
+    `<b>message:</b> ${message}<br>` +
+    `<b>status:</b> ${status}<br>` +
+    `<b>statusText:</b> ${statusText}<br>` +
+    `<b>error:</b> ${detail}`
+  );
+}
+
+function truncateErrorDetail(detail: string): string {
+  if (detail.length <= MAX_HTTP_ERROR_DETAIL_LENGTH) {
+    return detail;
+  }
+  return `${detail.slice(0, MAX_HTTP_ERROR_DETAIL_LENGTH)}...`;
+}
+
+function isHtmlResponse(error: HttpErrorLike, text?: string): boolean {
+  const contentType = error.headers?.get('content-type') ?? '';
+  if (contentType.toLowerCase().includes('text/html')) {
+    return true;
+  }
+  return text != null && HTML_DOCUMENT_REGEX.test(text);
+}
+
+function fallbackHttpErrorDetail(error: HttpErrorLike): string {
+  const statusText = error.statusText?.trim();
+  if (statusText) {
+    return statusText;
+  }
+  if (error.status != null && error.status !== 0) {
+    return `HTTP ${error.status}`;
+  }
+  return error.message?.trim() || 'Unknown error';
+}
+
+function extractTextFromObjectError(
+  body: Record<string, unknown>,
+): string | null {
+  const nestedError = body['error'];
+  if (nestedError != null && typeof nestedError === 'object') {
+    const nestedMessage = (nestedError as Record<string, unknown>)['message'];
+    if (typeof nestedMessage === 'string' && nestedMessage.trim()) {
+      return truncateErrorDetail(nestedMessage.trim());
+    }
+  }
+  if (typeof nestedError === 'string' && nestedError.trim()) {
+    return truncateErrorDetail(nestedError.trim());
+  }
+  const message = body['message'];
+  if (typeof message === 'string' && message.trim()) {
+    return truncateErrorDetail(message.trim());
+  }
+  try {
+    const serialized = JSON.stringify(body);
+    if (serialized && serialized !== '{}') {
+      return truncateErrorDetail(serialized);
+    }
+  } catch {
+    // Ignore serialization errors (e.g. circular references).
+  }
+  return null;
+}
+
+function extractHttpErrorDetail(error: HttpErrorLike): string {
+  const fallback = fallbackHttpErrorDetail(error);
+  if (isHtmlResponse(error)) {
+    return fallback;
+  }
+
+  const body = error.error;
+  if (body == null) {
+    return fallback;
+  }
+  if (typeof body === 'string') {
+    const trimmed = body.trim();
+    if (!trimmed || isHtmlResponse(error, trimmed)) {
+      return fallback;
+    }
+    return truncateErrorDetail(trimmed);
+  }
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+    if (typeof TextDecoder !== 'undefined') {
+      try {
+        const decoded = new TextDecoder('utf-8', {fatal: true})
+          .decode(body)
+          .trim();
+        if (decoded && !isHtmlResponse(error, decoded)) {
+          try {
+            const parsed: unknown = JSON.parse(decoded);
+            if (parsed != null && typeof parsed === 'object') {
+              const parsedDetail = extractTextFromObjectError(
+                parsed as Record<string, unknown>,
+              );
+              if (parsedDetail) {
+                return parsedDetail;
+              }
+            }
+          } catch {
+            // Not JSON; use decoded text directly.
+          }
+          return truncateErrorDetail(decoded);
+        }
+      } catch {
+        // Fall back to binary summary.
+      }
+    }
+    return body.byteLength > 0
+      ? `Binary error response (${body.byteLength} bytes)`
+      : fallback;
+  }
+  if (typeof Blob !== 'undefined' && body instanceof Blob) {
+    return body.size > 0
+      ? `Binary error response (${body.size} bytes)`
+      : fallback;
+  }
+  if (body instanceof Error) {
+    return body.message.trim()
+      ? truncateErrorDetail(body.message.trim())
+      : fallback;
+  }
+  if (typeof ProgressEvent !== 'undefined' && body instanceof ProgressEvent) {
+    return fallback;
+  }
+  if (typeof body === 'object') {
+    const extracted = extractTextFromObjectError(
+      body as Record<string, unknown>,
+    );
+    return extracted ?? fallback;
+  }
+  return truncateErrorDetail(String(body));
+}
+
+function resolveErrorUrlDisplay(
+  errorUrl: string | null | undefined,
+  requestUrl: string,
+): string {
+  const rawUrl = errorUrl || requestUrl;
+  if (!rawUrl) {
+    return '';
+  }
+  try {
+    const base =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'http://localhost';
+    const parsed = new URL(rawUrl, base);
+    return parsed.pathname + parsed.search;
+  } catch {
+    return rawUrl;
+  }
 }
 
 /**

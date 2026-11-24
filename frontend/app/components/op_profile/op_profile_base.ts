@@ -18,6 +18,7 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {
+  setActiveOpProfileNodeAction,
   setCurrentToolStateAction,
   setOpAnalysisScalingFactorAction,
   setOpProfileRootNodeAction,
@@ -91,9 +92,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   update(event: NavigationEvent) {}
   parseData(data: OpProfileProto | null) {
     this.profile = data;
-    this.updateRoot();
-    this.data.update(this.rootNode, this.applyScalingFactor);
-    this.summary = this.dataService.getOpProfileSummary(this.data);
+    this.refreshRootMetrics();
   }
 
   constructor(private readonly store: Store<{}>) {
@@ -121,17 +120,29 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    if (changes['opProfileData'] && this.opProfileData) {
+    if (changes['opProfileData']) {
       this.parseData(this.opProfileData);
     } else if (changes['groupBy']) {
-      this.updateRoot();
-      this.data.update(this.rootNode, this.applyScalingFactor);
+      this.refreshRootMetrics();
     }
+  }
+
+  private refreshRootMetrics() {
+    this.updateRoot();
+    this.data.update(this.rootNode, this.applyScalingFactor);
+    this.summary = this.rootNode
+      ? this.dataService.getOpProfileSummary(this.data)
+      : [];
   }
 
   private updateRoot() {
     if (!this.profile) {
       this.rootNode = undefined;
+      this.dvfsTimeScaleMultiplier = 1.0;
+      this.store.dispatch(setOpProfileRootNodeAction({rootNode: undefined}));
+      this.store.dispatch(
+        setActiveOpProfileNodeAction({activeOpProfileNode: null}),
+      );
       return;
     }
 
@@ -187,8 +198,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
 
   updateExcludeIdle() {
     this.excludeIdle = !this.excludeIdle;
-    this.updateRoot();
-    this.data.update(this.rootNode, this.applyScalingFactor);
+    this.refreshRootMetrics();
   }
 
   updateShowStackTrace() {
@@ -211,7 +221,9 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       }),
     );
     this.data.update(this.rootNode, this.applyScalingFactor);
-    this.summary = this.dataService.getOpProfileSummary(this.data);
+    this.summary = this.rootNode
+      ? this.dataService.getOpProfileSummary(this.data)
+      : [];
   }
 
   hasValidTimeScaleMultiplier(): boolean {
@@ -223,6 +235,9 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
     this.store.dispatch(setOpProfileRootNodeAction({rootNode: undefined}));
+    this.store.dispatch(
+      setOpAnalysisScalingFactorAction({applyScalingFactor: false}),
+    );
     this.destroyed.next();
     this.destroyed.complete();
   }

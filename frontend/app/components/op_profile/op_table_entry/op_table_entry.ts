@@ -110,7 +110,11 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
       .select(getOpAnalysisState)
       .pipe(takeUntil(this.destroyed))
       .subscribe((opAnalysisState: OpAnalysisState) => {
+        const prev = this.applyScalingFactor;
         this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+        if (this.applyScalingFactor !== prev) {
+          this.updateProperties();
+        }
       });
   }
 
@@ -223,12 +227,17 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
     this.offset = this.level.toString() + 'em';
     this.provenance = utils.parseFrameworkOpType(this.node?.xla?.provenance);
 
-    const activeWasted = utils.timeWasted(this.node, this.rootNode);
+    const activeWasted = utils.timeWasted(
+      this.node,
+      this.rootNode,
+      this.applyScalingFactor,
+    );
     let baseWasted = NaN;
     if (hasBaseline && diffNode?.baseline) {
       baseWasted = utils.timeWasted(
         diffNode.baseline,
         diffRoot?.baseline || this.rootNode,
+        this.applyScalingFactor,
       );
     }
     this.timeWasted = this.formatMetricDiff(
@@ -278,12 +287,14 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
     const hbmUtilization = utils.memoryBandwidthUtilization(
       this.node,
       utils.MemBwType.MEM_BW_TYPE_HBM_RW,
+      this.applyScalingFactor,
     );
     let baseHbmUtil = NaN;
     if (hasBaseline && diffNode?.baseline) {
       baseHbmUtil = utils.memoryBandwidthUtilization(
         diffNode.baseline,
         utils.MemBwType.MEM_BW_TYPE_HBM_RW,
+        this.applyScalingFactor,
       );
     }
     this.hbmUtilization = this.formatMetricDiff(
@@ -346,28 +357,55 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
     return utils.percent(activeVal, defaultValueIfNull);
   }
 
-  private get90ChildrenIndex() {
+  private get90ChildrenIndex(children: readonly Node[]) {
     if (
       !this.showP90 ||
       !this.node ||
       !this.rootNode ||
-      !this.node.children ||
-      this.node.children.length === 0 ||
-      !this.node.metrics ||
-      !this.node.metrics.rawTime
+      children.length === 0
     ) {
+      return this.childrenCount;
+    }
+
+    const targetCount = Math.min(this.childrenCount, children.length);
+    if (this.byWasted) {
+      const childWastedTimes = children.map((child) => {
+        const wasted = utils.timeWasted(
+          child,
+          this.rootNode!,
+          this.applyScalingFactor,
+        );
+        return Number.isFinite(wasted) && wasted > 0 ? wasted : 0;
+      });
+      const totalWasted = childWastedTimes.reduce(
+        (sum, wasted) => sum + wasted,
+        0,
+      );
+      if (totalWasted > 0) {
+        let tot = 0;
+        const targetP90Wasted = totalWasted * 0.9;
+        for (let i = 0; i < targetCount; i++) {
+          if (tot >= targetP90Wasted) {
+            return i;
+          }
+          tot += childWastedTimes[i];
+        }
+        return this.childrenCount;
+      }
+    }
+
+    if (!this.node.metrics?.rawTime) {
       return this.childrenCount;
     }
 
     let tot = 0;
     const targetP90NodeRawTimePs = this.node.metrics.rawTime * 0.9;
-    const targetCount = Math.min(this.childrenCount, this.node.children.length);
     for (let i = 0; i < targetCount; i++) {
       if (tot >= targetP90NodeRawTimePs) {
         return i;
       }
-      const child = this.node.children[i];
-      if (child && child.metrics && child.metrics.rawTime) {
+      const child = children[i];
+      if (child?.metrics?.rawTime) {
         tot += child.metrics.rawTime;
       }
     }
@@ -381,20 +419,28 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
     let children: Node[] = this.node.children.slice();
     if (this.byWasted && this.rootNode) {
       children.sort((a, b) => {
-        const timeWastedA = utils.timeWasted(a, this.rootNode!);
-        const timeWastedB = utils.timeWasted(b, this.rootNode!);
+        const timeWastedA = utils.timeWasted(
+          a,
+          this.rootNode!,
+          this.applyScalingFactor,
+        );
+        const timeWastedB = utils.timeWasted(
+          b,
+          this.rootNode!,
+          this.applyScalingFactor,
+        );
+        if (isNaN(timeWastedA) && isNaN(timeWastedB)) {
+          return 0;
+        }
         if (isNaN(timeWastedA)) {
           return 1;
         } else if (isNaN(timeWastedB)) {
           return -1;
         }
-        return (
-          utils.timeWasted(b, this.rootNode!) -
-          utils.timeWasted(a, this.rootNode!)
-        );
+        return timeWastedB - timeWastedA;
       });
     }
-    const k = this.get90ChildrenIndex();
+    const k = this.get90ChildrenIndex(children);
 
     children = this.level ? children.slice(0, k) : children;
 

@@ -989,6 +989,52 @@ TEST(FinalizeSortedTest, HandlesOrphanNodes) {
   EXPECT_EQ(db.total_op_time_ps(), 500);
 }
 
+TEST_F(XEventsFlatOpMetricsDbBuilderTest,
+       FinalizeSortedPreservesOpsWithoutExplicitOpId) {
+  XPlane plane = CreateTestXPlane();
+  XPlaneBuilder plane_builder(&plane);
+  XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+
+  CreateXEvent(plane_builder, line_builder, "op1", 1000, 500, 1, 1);
+  CreateXEvent(plane_builder, line_builder, "op2", 2000, 300, 1, 2);
+
+  XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
+  XEventVisitor ev1(&plane_visitor, &plane.lines(0), &plane.lines(0).events(0));
+  XEventVisitor ev2(&plane_visitor, &plane.lines(0), &plane.lines(0).events(1));
+
+  builder_->AddOpMetric(ev1);
+  builder_->AddOpMetric(ev2);
+  FlatOpMetricsDb db = builder_->FinalizeSorted();
+
+  ASSERT_EQ(db.op_instances_size(), 2);
+  std::string names[] = {db.op_instances(0).hlo_name(),
+                         db.op_instances(1).hlo_name()};
+  EXPECT_TRUE((names[0] == "op1" && names[1] == "op2") ||
+              (names[0] == "op2" && names[1] == "op1"));
+  EXPECT_EQ(db.total_op_time_ps(), 800);
+}
+
+TEST_F(XEventsFlatOpMetricsDbBuilderTest,
+       FinalizeSortedPreservesDuplicateNamesWithoutOpId) {
+  FlatOpMetrics first;
+  first.set_hlo_name("dup_op");
+  first.set_self_time_ps(500);
+  first.set_time_ps(500);
+  FlatOpMetrics second;
+  second.set_hlo_name("dup_op");
+  second.set_self_time_ps(300);
+  second.set_time_ps(300);
+
+  builder_->AddOpMetric(first, {/*program_id=*/1, /*symbol_id=*/1});
+  builder_->AddOpMetric(second, {/*program_id=*/1, /*symbol_id=*/2});
+  FlatOpMetricsDb db = builder_->FinalizeSorted();
+
+  ASSERT_EQ(db.op_instances_size(), 2);
+  EXPECT_EQ(db.op_instances(0).hlo_name(), "dup_op");
+  EXPECT_EQ(db.op_instances(1).hlo_name(), "dup_op");
+  EXPECT_EQ(db.total_op_time_ps(), 800);
+}
+
 TEST(FlatOpMetricsDbTest, IdleTimeRatio) {
   constexpr double kMaxError = 1E-10;
 

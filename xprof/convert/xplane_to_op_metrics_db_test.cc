@@ -865,6 +865,58 @@ TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithPerformanceInfo) {
   EXPECT_EQ(idle.name(), "IDLE");
 }
 
+TEST(ConvertXPlaneToOpMetricsDb,
+     EmptyTensorCorePlaneDoesNotUnderflowTotalTime) {
+  XPlane xplane;
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
+      sparse_core_metrics_map;
+  OpMetricsDb op_metrics = ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
+      xplane, sparse_core_metrics_map);
+  EXPECT_EQ(op_metrics.total_time_ps(), 0);
+}
+
+TEST(ConvertXPlaneToOpMetricsDb,
+     OverlappingChildrenDoNotUnderflowTensorCoreSelfTime) {
+  XPlane xplane;
+  XPlaneBuilder plane(&xplane);
+  XLineBuilder line = plane.GetOrCreateLine(0);
+  line.SetName(tsl::profiler::kXlaOpLineName);
+  auto* program_id_meta = plane.GetOrCreateStatMetadata(
+      tsl::profiler::GetStatTypeStr(StatType::kProgramId));
+  auto* symbol_id_meta = plane.GetOrCreateStatMetadata(
+      tsl::profiler::GetStatTypeStr(StatType::kSymbolId));
+  auto add_op_event = [&](absl::string_view name, int64_t offset_ps,
+                          int64_t duration_ps, uint64_t symbol_id) {
+    XEventMetadata* meta = plane.GetOrCreateEventMetadata(name);
+    auto* prog_stat = meta->add_stats();
+    prog_stat->set_metadata_id(program_id_meta->id());
+    prog_stat->set_uint64_value(1);
+    auto* sym_stat = meta->add_stats();
+    sym_stat->set_metadata_id(symbol_id_meta->id());
+    sym_stat->set_uint64_value(symbol_id);
+    XEventBuilder event = line.AddEvent(*meta);
+    event.SetOffsetPs(offset_ps);
+    event.SetDurationPs(duration_ps);
+  };
+  add_op_event("parent", /*offset_ps=*/0, /*duration_ps=*/100, /*symbol_id=*/1);
+  add_op_event("child_a", /*offset_ps=*/0, /*duration_ps=*/80, /*symbol_id=*/2);
+  add_op_event("child_b", /*offset_ps=*/20, /*duration_ps=*/80,
+               /*symbol_id=*/3);
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
+      sparse_core_metrics_map;
+  OpMetricsDb db = ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
+      xplane, sparse_core_metrics_map);
+  bool found_parent = false;
+  for (const OpMetrics& op : db.metrics_db()) {
+    if (op.name() == "parent") {
+      found_parent = true;
+      EXPECT_EQ(op.self_time_ps(), 0);
+      EXPECT_EQ(op.time_ps(), 100);
+    }
+  }
+  EXPECT_TRUE(found_parent);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

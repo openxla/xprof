@@ -2371,6 +2371,44 @@ ENTRY main {
   // GB300 (CC 10.3) has 6x FP4 throughput vs BF16.
   EXPECT_EQ(dot_metrics->flops(), kExpectedModelFlops / 6);
 }
+
+TEST(ConvertXPlaneToOpStats, CustomCallWith64BitFlopsIsOnDutyInHighConfidence) {
+  XSpace space;
+  XPlaneBuilder tc_plane_builder(
+      GetOrCreateTpuXPlane(&space, /*device_ordinal=*/0, "TPU v5p", 0, 0));
+  tc_plane_builder.SetId(0);
+  XLineBuilder tc_op_line = tc_plane_builder.GetOrCreateLine(0);
+  tc_op_line.SetName(kXlaOpLineName);
+
+  // 2^31 (2147483648) and 2^34 (17179869184) wrap to <= 0 if truncated to
+  // 32-bit signed int; both must be classified as ON-DUTY.
+  CreateXEventMetadata(&tc_plane_builder, "custom_call_2pow31",
+                       {{StatType::kHloCategory, "custom-call"},
+                        {StatType::kFlops, int64_t{1} << 31}});
+  CreateXEvent(&tc_plane_builder, &tc_op_line, "custom_call_2pow31",
+               /*offset_ps=*/0, /*duration_ps=*/50);
+
+  CreateXEventMetadata(&tc_plane_builder, "custom_call_2pow34",
+                       {{StatType::kHloCategory, "custom-call"},
+                        {StatType::kModelFlops, int64_t{1} << 34}});
+  CreateXEvent(&tc_plane_builder, &tc_op_line, "custom_call_2pow34",
+               /*offset_ps=*/50, /*duration_ps=*/50);
+
+  CreateXEventMetadata(&tc_plane_builder, "custom_call_ici_2pow32",
+                       {{StatType::kHloCategory, "custom-call"},
+                        {StatType::kUsesIci, int64_t{1} << 32}});
+  CreateXEvent(&tc_plane_builder, &tc_op_line, "custom_call_ici_2pow32",
+               /*offset_ps=*/100, /*duration_ps=*/50);
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(
+                           space, OpStatsOptions{.generate_op_metrics_db = true,
+                                                 .generate_step_db = true}));
+  EXPECT_EQ(op_stats.device_op_metrics_db().busy_time_ps(), 150);
+  EXPECT_EQ(op_stats.device_op_metrics_db().busy_time_high_confidence_ps(),
+            150);
+  EXPECT_EQ(op_stats.device_op_metrics_db().idle_time_high_confidence_ps(), 0);
+}
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

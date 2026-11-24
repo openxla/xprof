@@ -272,6 +272,79 @@ class GetOverviewToolTest(parameterized.TestCase):
         perf["flop_rate_utilization_relative_to_roofline"], "20.0%"
     )
 
+  def test_get_overview_custom_call_share_matches_case_and_expression(self):
+    overview_data = [{
+        "p": {
+            "flop_rate_utilization_relative_to_roofline": "20.0%",
+            "memory_bw_utilization_relative_to_hw_limit": "30.0%",
+            "device_type": "TPU v6 Lite",
+        }
+    }]
+    roofline_raw_data = [{
+        "cols": [
+            {"id": "rank", "type": "number"},
+            {"id": "operation", "type": "string"},
+            {"id": "category", "type": "string"},
+            {"id": "expression", "type": "string"},
+            {"id": "total_self_time_percent", "type": "number"},
+        ],
+        "rows": [
+            {
+                "c": [
+                    {"v": 0},
+                    {"v": "Program"},
+                    {"v": "Program"},
+                    {"v": ""},
+                    {"v": 1.0},
+                ]
+            },
+            {
+                "c": [
+                    {"v": 1},
+                    {"v": "%CUSTOM_CALL.2"},
+                    {"v": "other"},
+                    {"v": ""},
+                    {"v": 0.3},
+                ]
+            },
+            {
+                "c": [
+                    {"v": 2},
+                    {"v": "my_kernel"},
+                    {"v": "other"},
+                    {"v": "%my_kernel = f32[8] custom-call(f32[8] %p0)"},
+                    {"v": 0.2},
+                ]
+            },
+            {
+                "c": [
+                    {"v": 3},
+                    {"v": "fusion.1"},
+                    {"v": "loop fusion"},
+                    {"v": "%fusion.1 = f32[8] fusion(f32[8] %p0)"},
+                    {"v": 0.5},
+                ]
+            },
+        ],
+    }]
+
+    def fetch_side_effect(tool_name, session_id, **kwargs):
+      del session_id, kwargs
+      if tool_name in ("overview_page", "overview_page.json"):
+        return (81, json.dumps(overview_data).encode("utf-8"))
+      if tool_name in ("roofline_model", "roofline_model.json"):
+        return (
+            "application/json",
+            json.dumps(roofline_raw_data).encode("utf-8"),
+        )
+      return (None, None)
+
+    self.mock_client.fetch.side_effect = fetch_side_effect
+    result_json = json.loads(get_overview_tool.get_overview("session_cc2"))
+    perf = result_json["performance_summary"]
+    self.assertEqual(perf["custom_call_share_pct"], 50.0)
+    self.assertIn("custom_call_warning", perf)
+
   @parameterized.named_parameters(
       dict(testcase_name="both_zero", mxu="0.0%", hbm="0.0%"),
       dict(testcase_name="both_numeric_zero", mxu=0, hbm=0.0),

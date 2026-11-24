@@ -1,5 +1,6 @@
 """Tool to calculate TPU hardware kernel compute utilization in OSS."""
 
+from collections.abc import Iterator
 import json
 import logging
 import pathlib
@@ -11,19 +12,46 @@ from xprof.cli.internal.oss import xprof_client
 from xprof.convert import raw_to_tool_data as convert
 
 
+def _iter_kernels(parsed: dict[str, Any]) -> Iterator[dict[str, Any]]:
+  """Yields every kernel entry across all devices of `parsed`."""
+  for device in parsed.get("devices", []):
+    yield from device.get("kernels", [])
+
+
+def _kernel_needs_duration_fallback(kernel: dict[str, Any]) -> bool:
+  """Returns True if a kernel reports a non-positive duration_us."""
+  return "duration_us" in kernel and float(kernel["duration_us"] or 0.0) <= 0.0
+
+
 def _needs_duration_fallback(parsed: dict[str, Any]) -> bool:
   """Returns True if any device kernel has duration_us <= 0."""
-  devices = parsed.get("devices", [])
-  if not devices:
-    return False
-  for device in devices:
-    for kernel in device.get("kernels", []):
-      if (
-          "duration_us" in kernel
-          and float(kernel["duration_us"] or 0.0) <= 0.0
-      ):
-        return True
-  return False
+  return any(
+      _kernel_needs_duration_fallback(kernel)
+      for kernel in _iter_kernels(parsed)
+  )
+
+
+def _has_timed_kernel(parsed: dict[str, Any]) -> bool:
+  """Returns True if any device kernel does not need a duration fallback."""
+  return any(
+      not _kernel_needs_duration_fallback(kernel)
+      for kernel in _iter_kernels(parsed)
+  )
+
+
+def _zero_duration_kernel_names(parsed: dict[str, Any]) -> list[str]:
+  """Returns the unique named kernels that need a duration fallback."""
+  names: list[str] = []
+  for kernel in _iter_kernels(parsed):
+    name = kernel.get("kernel_name")
+    if (
+        _kernel_needs_duration_fallback(kernel)
+        and name
+        and name != "default_kernel"
+        and name not in names
+    ):
+      names.append(name)
+  return names
 
 
 def _clamp_utilization_metrics(parsed: dict[str, Any]) -> dict[str, Any]:
@@ -114,7 +142,7 @@ def _lookup_fallback_duration_us(
     kernel_name: str | None,
     bypass_cache: bool,
 ) -> float:
-  """Queries kernel_stats for total kernel duration in microseconds."""
+  """Queries kernel_stats for average single-execution kernel duration (us)."""
   records = None
   if kernel_name:
     try:
@@ -157,14 +185,73 @@ def _lookup_fallback_duration_us(
   if isinstance(records, list) and records:
     top_record = records[0]
     if isinstance(top_record, dict):
-      total_duration_us = float(top_record.get("total_duration_us") or 0.0)
-      if total_duration_us > 0.0:
-        return total_duration_us
-      execution_count = int(top_record.get("execution_count") or 1)
       avg_duration_us = float(top_record.get("avg_duration_us") or 0.0)
       if avg_duration_us > 0.0:
-        return avg_duration_us * max(1, execution_count)
+        return avg_duration_us
+      total_duration_us = float(top_record.get("total_duration_us") or 0.0)
+      execution_count = max(1, int(top_record.get("execution_count") or 1))
+      if total_duration_us > 0.0:
+        return total_duration_us / execution_count
   return 0.0
+
+
+def _patch_zero_duration_kernels(
+    parsed: dict[str, Any],
+    kernel_names: list[str],
+    *,
+    session_id: str,
+    source: Any,
+    device: int | None,
+    raw_bytes: bytes | None,
+    bypass_cache: bool,
+) -> None:
+  """Replaces zero-duration kernels in `parsed` with per-kernel fallbacks.
+
+  Each kernel is recomputed with its own kernel_stats duration, so kernels that
+  already report a hardware duration keep their measured values.
+
+  Args:
+    parsed: Parsed kernel utilization payload, updated in place.
+    kernel_names: Names of the zero-duration kernels to recompute.
+    session_id: The session ID, session path, or file path.
+    source: Session ID or raw bytes used to query kernel_stats.
+    device: Device filter (0-indexed integer).
+    raw_bytes: Optional raw protobuf bytes.
+    bypass_cache: Whether to bypass cache.
+  """
+  for name in kernel_names:
+    fallback_duration_us = _lookup_fallback_duration_us(
+        source, name, bypass_cache
+    )
+    if fallback_duration_us <= 0.0:
+      continue
+    patched = get_kernel_utilization(
+        session_id=session_id,
+        kernel_name=name,
+        duration_us=fallback_duration_us,
+        force_duration=True,
+        device=device,
+        output_format="dict",
+        raw_bytes=raw_bytes,
+        bypass_cache=bypass_cache,
+    )
+    if not isinstance(patched, dict):
+      continue
+    replacements = {}
+    for patched_device in patched.get("devices", []):
+      for kernel in patched_device.get("kernels", []):
+        key = (patched_device.get("device_id"), kernel.get("kernel_name"))
+        replacements[key] = kernel
+    for device_entry in parsed.get("devices", []):
+      kernels = device_entry.get("kernels", [])
+      for index, kernel in enumerate(kernels):
+        key = (device_entry.get("device_id"), kernel.get("kernel_name"))
+        if (
+            key[1] == name
+            and key in replacements
+            and _kernel_needs_duration_fallback(kernel)
+        ):
+          kernels[index] = replacements[key]
 
 
 @decorators.cached(expire=86400)
@@ -306,19 +393,14 @@ def get_kernel_utilization(
       decoded_str = str(raw_data)
 
   parsed = json.loads(decoded_str)
-  if _needs_duration_fallback(parsed):
-    if duration_us is None:
-      source = raw_bytes if raw_bytes is not None else session_id
-      target_kernel = kernel_name
-      if target_kernel is None:
-        for device_entry in parsed.get("devices", []):
-          for kernel_entry in device_entry.get("kernels", []):
-            kernel_name_found = kernel_entry.get("kernel_name")
-            if kernel_name_found and kernel_name_found != "default_kernel":
-              target_kernel = kernel_name_found
-              break
-          if target_kernel is not None:
-            break
+  if _needs_duration_fallback(parsed) and duration_us is None:
+    source = raw_bytes if raw_bytes is not None else session_id
+    zero_names = _zero_duration_kernel_names(parsed)
+    if kernel_name is not None or (
+        not _has_timed_kernel(parsed) and len(zero_names) <= 1
+    ):
+      # At most one kernel is in scope, so a single override is safe.
+      target_kernel = kernel_name or (zero_names[0] if zero_names else None)
       fallback_duration_us = _lookup_fallback_duration_us(
           source, target_kernel, bypass_cache
       )
@@ -333,6 +415,19 @@ def get_kernel_utilization(
             raw_bytes=raw_bytes,
             bypass_cache=bypass_cache,
         )
+    else:
+      # A global override would rewrite every kernel's duration, so only the
+      # zero-duration kernels are recomputed, one kernel at a time.
+      _patch_zero_duration_kernels(
+          parsed,
+          zero_names,
+          session_id=session_id,
+          source=source,
+          device=device,
+          raw_bytes=raw_bytes,
+          bypass_cache=bypass_cache,
+      )
+  if _needs_duration_fallback(parsed):
     raise RuntimeError(
         "Hardware counter duration is 0.0 us. Pass --duration_us=<us> "
         "--force_duration explicitly (obtainable via get_kernel_stats)."

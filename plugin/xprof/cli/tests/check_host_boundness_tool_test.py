@@ -569,6 +569,120 @@ class CheckHostBoundnessToolTest(absltest.TestCase):
     self.assertEqual(m_time, 300.0)
     self.assertEqual(i_time, 500.0)
 
+    # Fusion node with zero-rawTime fused sub-instruction children must count
+    # the fusion parent's own rawTime instead of dropping it.
+    fusion_tree = {
+        "children": [{
+            "name": "fusion.1",
+            "xla": {"category": "loop fusion"},
+            "metrics": {"occurrences": 4, "rawTime": 2500.0},
+            "children": [
+                {
+                    "name": "add.1",
+                    "metrics": {"occurrences": 1, "rawTime": 0.0},
+                },
+                {
+                    "name": "multiply.1",
+                    "metrics": {"occurrences": 1, "rawTime": 0.0},
+                },
+            ],
+        }]
+    }
+    fc_time, fm_time, fi_time = (
+        check_host_boundness_tool._traverse_and_sum_hlo_times(fusion_tree)
+    )
+    self.assertEqual(fc_time, 2500.0)
+    self.assertEqual(fm_time, 0.0)
+    self.assertEqual(fi_time, 0.0)
+
+  def test_traverse_and_sum_hlo_times_grouping_and_malformed_nodes(self):
+    # A grouping node with positive-time children counts only the children.
+    grouping_tree = {
+        "name": "dot.1 and its duplicate(s)",
+        "metrics": {"occurrences": 2, "rawTime": 1500.0},
+        "children": [
+            {"name": "dot.1", "metrics": {"occurrences": 1, "rawTime": 1000.0}},
+            {"name": "dot.2", "metrics": {"occurrences": 1, "rawTime": 500.0}},
+        ],
+    }
+    self.assertEqual(
+        check_host_boundness_tool._traverse_and_sum_hlo_times(grouping_tree),
+        (1500.0, 0.0, 0.0),
+    )
+
+    # Children with positive raw time but zero occurrences mark the parent as
+    # a grouping node, so the parent's raw time is not counted as a leaf.
+    zero_occurrence_children_tree = {
+        "name": "group",
+        "metrics": {"occurrences": 2, "rawTime": 1000.0},
+        "children": [
+            {"name": "op.1", "metrics": {"occurrences": 0, "rawTime": 600.0}},
+            {"name": "op.2", "metrics": {"occurrences": 0, "rawTime": 400.0}},
+        ],
+    }
+    self.assertEqual(
+        check_host_boundness_tool._traverse_and_sum_hlo_times(
+            zero_occurrence_children_tree
+        ),
+        (0.0, 0.0, 0.0),
+    )
+
+    # Null occurrences are treated as zero instead of raising a TypeError.
+    null_occurrences_node = {
+        "name": "fusion.3",
+        "metrics": {"occurrences": None, "rawTime": 100.0},
+    }
+    self.assertEqual(
+        check_host_boundness_tool._traverse_and_sum_hlo_times(
+            null_occurrences_node
+        ),
+        (0.0, 0.0, 0.0),
+    )
+
+    # Snake_case `raw_time` is read like camelCase `rawTime`.
+    snake_case_node = {
+        "name": "copy.1",
+        "metrics": {"occurrences": 1, "raw_time": 700.0},
+    }
+    self.assertEqual(
+        check_host_boundness_tool._traverse_and_sum_hlo_times(snake_case_node),
+        (0.0, 700.0, 0.0),
+    )
+
+  def test_gpu_malformed_hlo_profile_is_unknown_not_host_bound(self):
+    overview = [
+        {"p": {"device_duty_cycle_percent": "N/A"}},
+        {"p": {"steptime_ms_average": "100.0"}, "rows": [{}] * 10},
+        {
+            "p": {
+                "device_core_count": "8",
+                "host_count": "1",
+                "device_type": "Nvidia GPU (Hopper)",
+            }
+        },
+    ]
+    hlo_data = {
+        "byCategory": {
+            "children": [{
+                "name": "fusion",
+                "metrics": {"occurrences": "malformed", "rawTime": 1.0e12},
+            }]
+        }
+    }
+    self.mock_client.get_hosts.return_value = []
+    self.mock_client.fetch.side_effect = [
+        ("application/json", json.dumps(overview)),
+        ("application/json", json.dumps(hlo_data)),
+        ("application/json", b"{}"),
+    ]
+
+    result = json.loads(
+        check_host_boundness_tool.check_host_boundness("gpu-session")
+    )
+
+    self.assertEqual(result["status"], "UNKNOWN")
+    self.assertIn("HLO op telemetry is missing", result["reasons"][0])
+
   def test_dict_overview_format_success(self):
     dict_overview = {
         "performance_summary": {

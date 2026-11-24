@@ -866,6 +866,162 @@ class GetRooflineModelToolTest(absltest.TestCase):
     self.assertEqual(program["flops_provenance"], "mixed")
     self.assertEqual(program["operational_intensity_flop_per_byte"], 0.0)
 
+  def test_replaced_flops_use_total_time_when_different_from_self_time(self):
+    # Backend measured_flop_rate divides FLOPs by total_time (1000 us), not
+    # total_self_time (400 us). When the custom call carries all program FLOPs,
+    # multiplying by total_time recovers the exact program FLOPs so no phantom
+    # cost_model_flops remainder appears.
+    self._mock_roofline_session(
+        program_row={
+            "total_time": 1000.0,
+            "total_self_time": 1000.0,
+            "total_self_time_percent": 1.0,
+            "measured_flop_rate": 500.0,
+            "measured_memory_bw": 100.0,
+            "hbm_bw": 100.0,
+            "bound_by": "HBM",
+            "max_mem_bw_utilization": 0.1,
+        },
+        op_rows=[{
+            "rank": 1.0,
+            "category": "custom-call",
+            "operation": "custom-call.1",
+            "total_time": 1000.0,
+            "total_self_time": 400.0,
+            "total_self_time_percent": 0.4,
+            "measured_flop_rate": 500.0,
+            "measured_memory_bw": 100.0,
+            "hbm_bw": 100.0,
+            "bound_by": "Unknown",
+            "max_mem_bw_utilization": 0.1,
+        }],
+    )
+
+    program = self._get_program()
+
+    self.assertEqual(program["flops_provenance"], "derived_from_shapes")
+    self.assertEqual(program["derived_flops_fraction"], 1.0)
+
+  def test_negative_total_time_falls_back_to_self_time(self):
+    # A malformed negative total_time must not produce negative replaced
+    # FLOPs; total_self_time is used instead, so the custom call's replaced
+    # FLOPs equal the program FLOPs and leave no cost-model remainder.
+    self._mock_roofline_session(
+        program_row={
+            "total_time": 396.32,
+            "total_self_time": 396.32,
+            "total_self_time_percent": 1.0,
+            "measured_flop_rate": 1000.0,
+            "measured_memory_bw": 77.15,
+            "hbm_bw": 77.15,
+            "bound_by": "HBM",
+            "max_mem_bw_utilization": 0.0471,
+        },
+        op_rows=[{
+            "rank": 1.0,
+            "category": "custom-call",
+            "operation": "custom-call.1",
+            "total_time": -5.0,
+            "total_self_time": 396.32,
+            "total_self_time_percent": 1.0,
+            "measured_flop_rate": 1000.0,
+            "measured_memory_bw": 77.15,
+            "hbm_bw": 77.15,
+            "bound_by": "Unknown",
+            "max_mem_bw_utilization": 0.0471,
+        }],
+    )
+
+    program = self._get_program()
+
+    self.assertEqual(program["flops_provenance"], "derived_from_shapes")
+    self.assertEqual(program["derived_flops_fraction"], 1.0)
+    self.assertAlmostEqual(
+        program["measured_flop_rate_gflops"], 2**38 / 396.32e3, places=2
+    )
+
+  def test_custom_call_share_matches_name_case_and_expression(self):
+    self._mock_roofline_session(
+        program_row={
+            "total_time": 1000.0,
+            "total_self_time": 1000.0,
+            "total_self_time_percent": 1.0,
+            "bound_by": "HBM",
+        },
+        op_rows=[
+            {
+                "rank": 1.0,
+                "category": "other",
+                "operation": "my_flash_attn",
+                "total_time": 300.0,
+                "total_self_time": 300.0,
+                "total_self_time_percent": 0.3,
+                "bound_by": "Unknown",
+            },
+            {
+                "rank": 2.0,
+                "category": "other",
+                "operation": "CUSTOM_CALL.3",
+                "total_time": 200.0,
+                "total_self_time": 200.0,
+                "total_self_time_percent": 0.2,
+                "bound_by": "Unknown",
+            },
+            {
+                "rank": 3.0,
+                "category": "loop fusion",
+                "operation": "fusion.1",
+                "total_time": 500.0,
+                "total_self_time": 500.0,
+                "total_self_time_percent": 0.5,
+                "bound_by": "HBM",
+            },
+        ],
+    )
+    self.enter_context(
+        mock.patch.object(
+            get_roofline_model_tool,
+            "_fetch_op_profile_expressions",
+            autospec=True,
+            return_value={
+                "my_flash_attn": (
+                    "%my_flash_attn = f32[8] custom-call(f32[8] %p0)"
+                ),
+            },
+        )
+    )
+
+    parsed = json.loads(
+        get_roofline_model_tool.get_roofline_model(
+            "test_session", bypass_cache=True
+        )
+    )
+
+    self.assertEqual(parsed["custom_call_share_pct"], 50.0)
+    self.assertIn("custom_call_warning", parsed)
+
+  def test_is_custom_call_op(self):
+    self.assertTrue(get_roofline_model_tool.is_custom_call_op("%custom-call.5"))
+    self.assertTrue(get_roofline_model_tool.is_custom_call_op("CUSTOM_CALL.3"))
+    self.assertTrue(
+        get_roofline_model_tool.is_custom_call_op("my_custom_call_kernel")
+    )
+    self.assertTrue(
+        get_roofline_model_tool.is_custom_call_op("tpu_kernel", "Custom-Call")
+    )
+    self.assertTrue(
+        get_roofline_model_tool.is_custom_call_op(
+            "my_flash_attn",
+            "other",
+            "%my_flash_attn = f32[8] custom-call(f32[8] %p0)",
+        )
+    )
+    self.assertFalse(
+        get_roofline_model_tool.is_custom_call_op(
+            "fusion.1", "loop fusion", "%fusion.1 = f32[8] fusion(%p0)"
+        )
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

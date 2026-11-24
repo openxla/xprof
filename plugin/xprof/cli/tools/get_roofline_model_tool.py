@@ -132,6 +132,37 @@ def _fetch_op_profile_expressions(
   return expressions_by_name
 
 
+def is_custom_call_op(
+    op_name: str, op_category: str = "", expr: str = ""
+) -> bool:
+  """Returns True if an op name, category, or expression is a custom call."""
+  name_lower = op_name.lower()
+  expr_lower = expr.lower()
+  return (
+      "custom-call" in name_lower
+      or "custom_call" in name_lower
+      or op_category.lower() in ("custom-call", "custom_call")
+      or "custom-call" in expr_lower
+      or "custom_call" in expr_lower
+  )
+
+
+def _row_expression(
+    row: dict[str, Any],
+    op_name: str,
+    expressions_by_name: dict[str, str] | None,
+) -> str:
+  """Returns the HLO expression of a roofline row, or an empty string."""
+  expressions = expressions_by_name or {}
+  return str(
+      row.get("expression")
+      or row.get("hlo_expression")
+      or expressions.get(op_name)
+      or expressions.get(op_name.lstrip("%"))
+      or ""
+  )
+
+
 def format_custom_call_warning(share_pct: float) -> str:
   """Returns the standard warning string for significant CustomCall self-time."""
   return (
@@ -449,6 +480,10 @@ def get_roofline_model(
       self_time_us = _safe_float(r_dict.get("total_self_time"))
       if self_time_us <= 0:
         continue
+      raw_total_time_us = _safe_float(r_dict.get("total_time"))
+      total_time_us = (
+          raw_total_time_us if raw_total_time_us > 0 else self_time_us
+      )
 
       source_info_raw = r_dict.get("source_info", "")
       cleaned_source = _strip_html_tags(source_info_raw)
@@ -468,30 +503,14 @@ def get_roofline_model(
         expressions_by_name = _fetch_op_profile_expressions(
             session_id, client, bypass_cache
         )
-      expr = (
-          r_dict.get("expression")
-          or r_dict.get("hlo_expression")
-          or (expressions_by_name.get(op_name) if expressions_by_name else "")
-          or (
-              expressions_by_name.get(op_name.lstrip("%"))
-              if expressions_by_name
-              else ""
-          )
-          or op_name
-      )
-      is_custom = (
-          op_name.startswith("custom-call")
-          or "custom-call" in op_name.lower()
-          or "custom_call" in op_name.lower()
-          or op_category.lower() in ("custom-call", "custom_call")
-          or "custom-call" in expr.lower()
-          or "custom_call" in expr.lower()
-          or "custom_call_target" in expr.lower()
-      )
+      expr = _row_expression(r_dict, op_name, expressions_by_name) or op_name
+      is_custom = is_custom_call_op(op_name, op_category, expr)
       # Use the same rate column as the program row so that the replaced
       # FLOPs and the program FLOPs they are subtracted from are comparable.
+      # Backend measured/model FLOP rates divide by total_time, not
+      # total_self_time.
       orig_op_flops = _safe_float(r_dict.get(flop_rate_key)) * (
-          self_time_us * 1e3
+          total_time_us * 1e3
       )
       op_bottleneck_intensity = _safe_float(
           r_dict.get("bottleneck_operational_intensity")
@@ -511,7 +530,7 @@ def get_roofline_model(
             and derived_flops
             and derived_flops > 0
         ):
-          op_flop_rate_gflops = derived_flops / (self_time_us * 1e3)
+          op_flop_rate_gflops = derived_flops / (total_time_us * 1e3)
           if peak_flop_rate > 0:
             op_compute_eff = op_flop_rate_gflops / peak_flop_rate
           op_roofline_eff = max(op_compute_eff, op_max_mem_eff)
@@ -754,10 +773,8 @@ def get_roofline_model(
       op_key = (int(_safe_float(row_dict.get("rank"))), op_name)
       if op_key in seen_custom_call_keys:
         continue
-      if op_name.startswith("custom-call") or op_category.lower() in (
-          "custom-call",
-          "custom_call",
-      ):
+      row_expr = _row_expression(row_dict, op_name, expressions_by_name)
+      if is_custom_call_op(op_name, op_category, row_expr):
         seen_custom_call_keys.add(op_key)
         val = _safe_float(row_dict.get("total_self_time_percent"))
         custom_call_share_pct += val * percent_scale

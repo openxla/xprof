@@ -38,6 +38,20 @@ def _fetch_optional_json(
   return result if isinstance(result, dict) else {}
 
 
+def _sum_kernel_durations(summary: dict[str, Any]) -> dict[str, float]:
+  """Sums total_duration_us per kernel_name over a kernel_stats summary."""
+  totals: dict[str, float] = {}
+  for record in summary.get("kernel_records") or []:
+    if not isinstance(record, dict):
+      continue
+    kernel_name = record.get("kernel_name")
+    if kernel_name:
+      totals[kernel_name] = totals.get(kernel_name, 0.0) + float(
+          record.get("total_duration_us") or 0.0
+      )
+  return totals
+
+
 def diff_sessions(
     *,
     baseline_session_id: str,
@@ -59,6 +73,7 @@ def diff_sessions(
     base_summary = json.loads(
         get_kernel_stats_tool.get_kernel_stats(
             baseline_session_id,
+            limit=0,
             include_summary=True,
             bypass_cache=bypass_cache,
         )
@@ -66,6 +81,7 @@ def diff_sessions(
     opt_summary = json.loads(
         get_kernel_stats_tool.get_kernel_stats(
             optimized_session_id,
+            limit=0,
             include_summary=True,
             bypass_cache=bypass_cache,
         )
@@ -107,8 +123,10 @@ def diff_sessions(
         ),
     )
 
-    base_total_us = float(base_summary.get("total_device_duration_us", 0.0))
-    opt_total_us = float(opt_summary.get("total_device_duration_us", 0.0))
+    base_total_us = float(
+        base_summary.get("total_device_duration_us") or 0.0
+    )
+    opt_total_us = float(opt_summary.get("total_device_duration_us") or 0.0)
     delta_total_us = round(opt_total_us - base_total_us, 4)
     delta_total_pct = (
         round((delta_total_us / base_total_us) * 100.0, 2)
@@ -116,16 +134,8 @@ def diff_sessions(
         else 0.0
     )
 
-    base_kernels = {
-        r.get("kernel_name", ""): float(r.get("total_duration_us", 0.0))
-        for r in base_summary.get("kernel_records", [])
-        if r.get("kernel_name")
-    }
-    opt_kernels = {
-        r.get("kernel_name", ""): float(r.get("total_duration_us", 0.0))
-        for r in opt_summary.get("kernel_records", [])
-        if r.get("kernel_name")
-    }
+    base_kernels = _sum_kernel_durations(base_summary)
+    opt_kernels = _sum_kernel_durations(opt_summary)
 
     all_kernel_names = sorted(
         set(base_kernels.keys()).union(set(opt_kernels.keys())),

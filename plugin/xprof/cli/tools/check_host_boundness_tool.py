@@ -69,6 +69,16 @@ def _parse_json_safely(response: Any) -> dict[str, Any]:
   return {}
 
 
+def _metric_raw_time(metrics: Any) -> float:
+  """Returns `rawTime` (or snake_case `raw_time`) from metrics, else 0.0."""
+  if not isinstance(metrics, dict):
+    return 0.0
+  raw_time = metrics.get("rawTime")
+  if raw_time is None:
+    raw_time = metrics.get("raw_time")
+  return float(raw_time or 0.0)
+
+
 def _traverse_and_sum_hlo_times(
     node: Any,
 ) -> tuple[float, float, float]:
@@ -89,19 +99,31 @@ def _traverse_and_sum_hlo_times(
 
   metrics = node.get("metrics", {})
   occurrences = (
-      metrics.get("occurrences", 0) if isinstance(metrics, dict) else 0
+      int(metrics.get("occurrences") or 0) if isinstance(metrics, dict) else 0
   )
   children = node.get("children", [])
 
-  if not children and occurrences > 0:
+  # Grouping nodes have children with positive raw time; fusion nodes have
+  # sub-instruction children with zero raw time and count as leaves.
+  children_raw_time = 0.0
+  if isinstance(children, list):
+    for child in children:
+      if isinstance(child, dict):
+        children_raw_time += _metric_raw_time(child.get("metrics"))
+        c_time, m_time, i_time = _traverse_and_sum_hlo_times(child)
+        compute_time += c_time
+        hbm_time += m_time
+        ici_time += i_time
+
+  if (
+      children_raw_time <= 0
+      and (compute_time + hbm_time + ici_time) <= 0
+      and occurrences > 0
+  ):
     name = str(node.get("name", "")).lower()
     xla_info = node.get("xla", {}) if isinstance(node.get("xla"), dict) else {}
     category = str(xla_info.get("category", "")).lower()
-    raw_time = (
-        float(metrics.get("rawTime", 0.0) or 0.0)
-        if isinstance(metrics, dict)
-        else 0.0
-    )
+    raw_time = _metric_raw_time(metrics)
 
     ici_patterns = (
         "all-reduce",
@@ -122,14 +144,6 @@ def _traverse_and_sum_hlo_times(
       hbm_time += raw_time
     else:
       compute_time += raw_time
-
-  if isinstance(children, list):
-    for child in children:
-      if isinstance(child, dict):
-        c_time, m_time, i_time = _traverse_and_sum_hlo_times(child)
-        compute_time += c_time
-        hbm_time += m_time
-        ici_time += i_time
 
   return compute_time, hbm_time, ici_time
 
@@ -454,10 +468,10 @@ def check_host_boundness(
             else None
         )
         if start_node and isinstance(start_node, dict):
-          hlo_data_available = True
           compute_time_ps, hbm_time_ps, ici_time_ps = (
               _traverse_and_sum_hlo_times(start_node)
           )
+          hlo_data_available = True
           # Convert ps to ms (divide by 1e9 ps/ms) and scale across core count
           scaled_compute_time_ms = (compute_time_ps / 1e9) / core_count
           scaled_hbm_time_ms = (hbm_time_ps / 1e9) / core_count

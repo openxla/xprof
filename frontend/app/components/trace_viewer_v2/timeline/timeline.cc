@@ -3673,6 +3673,19 @@ void Timeline::Draw() {
   current_timeline_width_ =
       content_region_avail_width - label_width_ - kTimelinePaddingRight;
 
+  // Apply ongoing mouse-drag pan before computing `px_per_time_unit_val` and
+  // drawing ruler, grid, tracks, and overlays so all layers render at the
+  // dragged viewport on the same frame without shear or cursor lag.
+  pan_drag_applied_this_frame_ = is_dragging_ && ImGui::IsMouseDown(0) &&
+                                 !time_range_resizing_state_.has_value() &&
+                                 !is_selecting_ &&
+                                 mouse_mode_ != MouseMode::kZoom;
+  if (pan_drag_applied_this_frame_) {
+    is_mouse_drag_panning_ = true;
+    Pan(-ImGui::GetIO().MouseDelta.x, /*warn_at_boundary=*/true);
+    is_mouse_drag_panning_ = false;
+  }
+
   const double px_per_time_unit_val = px_per_time_unit(current_timeline_width_);
   const TickInfo tick_info = CalculateTickInfo(px_per_time_unit_val);
 
@@ -5289,14 +5302,24 @@ void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
 // for continuous wheel/trackpad scrolling to avoid false-positive warnings from
 // minor horizontal hardware drift.
 void Timeline::Pan(Pixel pixel_amount, bool warn_at_boundary) {
-  // If the pixel amount is 0, we don't need to pan.
-  if (pixel_amount == 0.0) return;
+  // Ignore zero pixel deltas.
+  if (pixel_amount == 0.0f) return;
 
-  const double px_per_time_unit_val = px_per_time_unit();
-  // This should never happen, but we check it to avoid division by zero.
-  if (px_per_time_unit_val <= 0.0) return;
+  const Microseconds target_duration = visible_range_.target().duration();
+  // Require a finite positive timeline width and positive target duration to
+  // avoid division by zero or invalid offsets.
+  // NOMUTANTS(ROR): `current_timeline_width_ <= 0.0f` vs `< 0.0f` prevents
+  // float division by zero under UBSan; IEEE-754 builds also catch the
+  // resulting +/-Inf via `std::isfinite(time_offset)` below.
+  if (!std::isfinite(current_timeline_width_) ||
+      current_timeline_width_ <= 0.0f || target_duration <= 0.0) {
+    return;
+  }
 
-  const double time_offset = pixel_amount / px_per_time_unit_val;
+  const double time_offset =
+      (static_cast<double>(pixel_amount) * target_duration) /
+      static_cast<double>(current_timeline_width_);
+  if (!std::isfinite(time_offset)) return;
   TimeRange new_range = visible_range_.target() + time_offset;
 
   const bool showing_entire_trace =
@@ -5315,9 +5338,9 @@ void Timeline::Pan(Pixel pixel_amount, bool warn_at_boundary) {
 
   ConstrainTimeRange(new_range);
 
-  // Update the target of the animated visible range. The timeline will animate
-  // towards this new time.
-  SetVisibleRange(new_range, /*animate=*/true);
+  // Snap mouse drags directly so the timeline tracks the cursor without lag;
+  // animate keyboard and wheel pans when smooth navigation is on.
+  SetVisibleRange(new_range, /*animate=*/!is_mouse_drag_panning_);
   EmitViewportChanged(new_range);
 }
 
@@ -8403,9 +8426,13 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
     } else if (mouse_mode_ == MouseMode::kZoom) {
       Zoom(std::exp(io.MouseDelta.y * kMouseDragZoomSpeed));
     } else {
-      // Pass warn_at_boundary = true so deliberate mouse dragging past the
-      // boundary triggers a boundary warning toast notification.
-      Pan(-io.MouseDelta.x, /*warn_at_boundary=*/true);
+      if (!pan_drag_applied_this_frame_) {
+        // Pass warn_at_boundary = true so deliberate mouse dragging past the
+        // boundary triggers a boundary warning toast notification.
+        is_mouse_drag_panning_ = true;
+        Pan(-io.MouseDelta.x, /*warn_at_boundary=*/true);
+        is_mouse_drag_panning_ = false;
+      }
       Scroll(-io.MouseDelta.y);
     }
   }

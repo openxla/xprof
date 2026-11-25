@@ -1,17 +1,24 @@
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
 namespace tensorflow {
 namespace profiler {
 namespace {
+
+using ::absl_testing::IsOk;
+using ::absl_testing::StatusIs;
 
 // Valid Zstd frame with Single_Segment_flag=0 and FCS_field_size=0, so
 // ZSTD_getFrameContentSize returns ZSTD_CONTENTSIZE_UNKNOWN.
@@ -586,14 +593,14 @@ TEST(ZstdDecompressorContextTest,
         return absl::OkStatus();
       });
   EXPECT_EQ(partial_out, "0123456789abcdef");
-  EXPECT_EQ(block_boundary_status.code(), absl::StatusCode::kInternal);
+  EXPECT_THAT(block_boundary_status, StatusIs(absl::StatusCode::kInternal));
 
   // Valid 32-byte checksum-free RLE frame streamed with a 16-byte output
   // buffer flushes across two passes without false truncation detection.
   // Header: magic (4B), FHD=0x00, WD=0x00; Last RLE block of 32 bytes
   // ((32 << 3) | (1 << 1) | 1 = 0x000103) of 'M'.
-  const std::string multi_pass_frame(
-      "\x28\xb5\x2f\xfd\x00\x00\x03\x01\x00M", 10);
+  const std::string multi_pass_frame("\x28\xb5\x2f\xfd\x00\x00\x03\x01\x00M",
+                                     10);
   std::string multi_pass_out;
   int pass_count = 0;
   const absl::Status multi_pass_status = exact_block_ctx.DecompressStream(
@@ -602,7 +609,7 @@ TEST(ZstdDecompressorContextTest,
         multi_pass_out.append(chunk.data(), chunk.size());
         return absl::OkStatus();
       });
-  ASSERT_TRUE(multi_pass_status.ok()) << multi_pass_status.message();
+  ASSERT_THAT(multi_pass_status, IsOk());
   EXPECT_EQ(multi_pass_out, std::string(32, 'M'));
   EXPECT_EQ(pass_count, 2);
 }
@@ -610,17 +617,128 @@ TEST(ZstdDecompressorContextTest,
 TEST(ZstdDecompressorContextTest, DecompressStreamEmptyAndCorruptInput) {
   ZstdDecompressorContext context;
 
-  // Empty compressed input -> InvalidArgument
+  // Empty compressed input -> InvalidArgument.
   absl::Status empty_status = context.DecompressStream(
       "", [](absl::string_view) { return absl::OkStatus(); });
-  EXPECT_TRUE(absl::IsInvalidArgument(empty_status));
+  EXPECT_THAT(empty_status, StatusIs(absl::StatusCode::kInvalidArgument));
 
   // Corrupt compressed input -> InternalError.
   absl::Status corrupt_status = context.DecompressStream(
       "invalid compressed data",
       [](absl::string_view) { return absl::OkStatus(); });
-  EXPECT_FALSE(corrupt_status.ok());
-  EXPECT_EQ(corrupt_status.code(), absl::StatusCode::kInternal);
+  EXPECT_THAT(corrupt_status, StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST(ZstdCompressorContextTest, CompressNullOutputBufferFails) {
+  ZstdCompressorContext context;
+  EXPECT_THAT(context.Compress("hello", nullptr),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(ZstdCompressorContextTest, ByteExactParityWithZstdCompressionAtLevel1) {
+  ZstdCompressorContext context(/*compression_level=*/1);
+  const std::string payload =
+      "Byte-exact parity verification between ZstdCompressorContext and "
+      "ZstdCompression::Compress at level 1 across multiple chunks. "
+      "Repeating payload data to ensure realistic compression match.";
+
+  std::string context_out;
+  ASSERT_THAT(context.Compress(payload, &context_out), IsOk());
+
+  absl::StatusOr<std::string> static_out = ZstdCompression::Compress(payload);
+  ASSERT_THAT(static_out, IsOk());
+  EXPECT_EQ(context_out, *static_out);
+
+  // Decompress to verify payload round-trip.
+  absl::StatusOr<std::string> decompressed =
+      ZstdCompression::Decompress(context_out);
+  ASSERT_THAT(decompressed, IsOk());
+  EXPECT_EQ(*decompressed, payload);
+}
+
+TEST(ZstdCompressorContextTest, MultiCallReuseWithVaryingPayloadSizesAndEmpty) {
+  ZstdCompressorContext context;
+
+  const std::vector<std::string> test_payloads = {
+      std::string(1024 * 64, 'A'),   // 64 KiB
+      "",                            // Empty input
+      std::string(1024 * 256, 'B'),  // 256 KiB
+      "Short string",                // Short string
+      std::string(1024 * 16, 'C'),   // 16 KiB
+      std::string(1024 * 512, 'D'),  // 512 KiB (second scratch growth)
+      "",                            // Empty again
+  };
+
+  for (const std::string& payload : test_payloads) {
+    std::string compressed;
+    ASSERT_THAT(context.Compress(payload, &compressed), IsOk());
+    EXPECT_FALSE(compressed.empty());
+
+    // Round-trip verification.
+    absl::StatusOr<std::string> decompressed =
+        ZstdCompression::Decompress(compressed);
+    ASSERT_THAT(decompressed, IsOk());
+    EXPECT_EQ(*decompressed, payload);
+
+    // Parity with static Compress at level 1.
+    absl::StatusOr<std::string> static_compressed =
+        ZstdCompression::Compress(payload);
+    ASSERT_THAT(static_compressed, IsOk());
+    EXPECT_EQ(compressed, *static_compressed);
+  }
+}
+
+TEST(ZstdCompressorContextTest, MoveConstructionAndAssignment) {
+  const std::string payload = "Testing move construction and assignment";
+
+  // Move constructor.
+  ZstdCompressorContext ctx1(/*compression_level=*/1);
+  ZstdCompressorContext ctx2(std::move(ctx1));
+
+  std::string out2;
+  ASSERT_THAT(ctx2.Compress(payload, &out2), IsOk());
+  absl::StatusOr<std::string> decomp2 = ZstdCompression::Decompress(out2);
+  ASSERT_THAT(decomp2, IsOk());
+  EXPECT_EQ(*decomp2, payload);
+
+  // Move assignment.
+  ZstdCompressorContext ctx3;
+  ctx3 = std::move(ctx2);
+
+  std::string out3;
+  ASSERT_THAT(ctx3.Compress(payload, &out3), IsOk());
+  absl::StatusOr<std::string> decomp3 = ZstdCompression::Decompress(out3);
+  ASSERT_THAT(decomp3, IsOk());
+  EXPECT_EQ(*decomp3, payload);
+
+  // Self-move assignment must be a no-op and preserve a working context.
+  ZstdCompressorContext* self_ptr = &ctx3;
+  ctx3 = std::move(*self_ptr);
+  std::string out_self;
+  ASSERT_THAT(ctx3.Compress(payload, &out_self), IsOk());
+  absl::StatusOr<std::string> decomp_self =
+      ZstdCompression::Decompress(out_self);
+  ASSERT_THAT(decomp_self, IsOk());
+  EXPECT_EQ(*decomp_self, payload);
+}
+
+TEST(ZstdCompressorContextTest, CheckedCompressBoundAndMovedFromErrors) {
+  ZstdCompressorContext context(/*compression_level=*/1);
+
+  // Oversize input exceeding ZSTD_MAX_INPUT_SIZE fails with InvalidArgument
+  // before any buffer allocation.
+  EXPECT_THAT(ZstdCompressorContext::CheckedCompressBound(
+                  std::numeric_limits<size_t>::max()),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ZstdCompressorContext::CheckedCompressBound(1024), IsOk());
+
+  // Moved-from context returns InternalError on Compress.
+  std::string out;
+  ZstdCompressorContext moved_to(std::move(context));
+  // NOLINTNEXTLINE(bugprone-use-after-move)
+  EXPECT_THAT(context.Compress("abc", &out),
+              StatusIs(absl::StatusCode::kInternal));
+  EXPECT_THAT(moved_to.Compress("abc", &out), IsOk());
 }
 
 }  // namespace

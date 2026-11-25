@@ -49,6 +49,36 @@ class ZstdCompression {
       absl::string_view compressed_input);
 };
 
+// Reusable compression context managing a persistent ZSTD_CCtx.
+// Single-threaded per instance.
+class ZstdCompressorContext {
+ public:
+  explicit ZstdCompressorContext(int compression_level = 1);
+  ~ZstdCompressorContext();
+
+  // Move-only.
+  ZstdCompressorContext(ZstdCompressorContext&& other) noexcept;
+  ZstdCompressorContext& operator=(ZstdCompressorContext&& other) noexcept;
+  ZstdCompressorContext(const ZstdCompressorContext&) = delete;
+  ZstdCompressorContext& operator=(const ZstdCompressorContext&) = delete;
+
+  // Compresses `input` into `out` without intermediate zero-fill allocations.
+  absl::Status Compress(absl::string_view input, std::string* out);
+
+  // Returns `ZSTD_compressBound(input_size)` after validating that Zstd accepts
+  // `input_size`.
+  static absl::StatusOr<size_t> CheckedCompressBound(size_t input_size);
+
+ private:
+  struct CCtxDeleter {
+    void operator()(ZSTD_CCtx* cctx) const { ZSTD_freeCCtx(cctx); }
+  };
+
+  std::unique_ptr<ZSTD_CCtx, CCtxDeleter> cctx_;
+  std::unique_ptr<char[]> scratch_buf_;
+  size_t scratch_capacity_ = 0;
+};
+
 // Reusable streaming decompression context managing a persistent ZSTD_DCtx
 // and an uninitialized reusable output buffer (default 8 MiB).
 // Single-threaded per instance.

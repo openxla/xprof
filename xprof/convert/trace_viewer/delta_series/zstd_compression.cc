@@ -19,17 +19,12 @@ namespace tensorflow {
 namespace profiler {
 
 absl::StatusOr<std::string> ZstdCompression::Compress(absl::string_view input) {
-  size_t bound = ZSTD_compressBound(input.size());
-  std::string compressed(bound, '\0');
-
-  // compression level 1 is standard/fast
-  size_t compressed_size =
-      ZSTD_compress(&compressed[0], bound, input.data(), input.size(), 1);
-  if (ZSTD_isError(compressed_size)) {
-    return absl::InternalError("Zstd compression failed.");
+  ZstdCompressorContext context(/*compression_level=*/1);
+  std::string compressed;
+  absl::Status status = context.Compress(input, &compressed);
+  if (!status.ok()) {
+    return status;
   }
-
-  compressed.resize(compressed_size);
   return compressed;
 }
 
@@ -101,6 +96,73 @@ absl::StatusOr<UninitializedByteBuffer> ZstdCompression::DecompressToBuffer(
   return UninitializedByteBuffer{std::move(buf), actual_size};
 }
 
+ZstdCompressorContext::ZstdCompressorContext(int compression_level)
+    : cctx_(ZSTD_createCCtx()) {
+  if (cctx_ != nullptr) {
+    ZSTD_CCtx_setParameter(cctx_.get(), ZSTD_c_compressionLevel,
+                           compression_level);
+    ZSTD_CCtx_setParameter(cctx_.get(), ZSTD_c_checksumFlag, 1);
+  }
+}
+
+ZstdCompressorContext::~ZstdCompressorContext() = default;
+
+ZstdCompressorContext::ZstdCompressorContext(
+    ZstdCompressorContext&& other) noexcept
+    : cctx_(std::move(other.cctx_)),
+      scratch_buf_(std::move(other.scratch_buf_)),
+      scratch_capacity_(std::exchange(other.scratch_capacity_, 0)) {}
+
+ZstdCompressorContext& ZstdCompressorContext::operator=(
+    ZstdCompressorContext&& other) noexcept {
+  if (this != &other) {
+    cctx_ = std::move(other.cctx_);
+    scratch_buf_ = std::move(other.scratch_buf_);
+    scratch_capacity_ = std::exchange(other.scratch_capacity_, 0);
+  }
+  return *this;
+}
+
+absl::StatusOr<size_t> ZstdCompressorContext::CheckedCompressBound(
+    size_t input_size) {
+  const size_t bound = ZSTD_compressBound(input_size);
+  if (ZSTD_isError(bound)) {
+    return absl::InvalidArgumentError(
+        "Input exceeds Zstd maximum compressible size.");
+  }
+  return bound;
+}
+
+absl::Status ZstdCompressorContext::Compress(absl::string_view input,
+                                             std::string* out) {
+  if (out == nullptr) {
+    return absl::InvalidArgumentError("Output buffer is null.");
+  }
+  if (cctx_ == nullptr) {
+    return absl::InternalError("Zstd CCtx not initialized.");
+  }
+  const absl::StatusOr<size_t> bound = CheckedCompressBound(input.size());
+  if (!bound.ok()) {
+    return bound.status();
+  }
+  if (scratch_capacity_ < *bound) {
+    // Free the old scratch buffer before allocating so old and new buffers
+    // are never live on the heap simultaneously.
+    scratch_buf_.reset();
+    scratch_capacity_ = 0;
+    scratch_buf_ = absl::make_unique_for_overwrite<char[]>(*bound);
+    scratch_capacity_ = *bound;
+  }
+  const size_t compressed_size =
+      ZSTD_compress2(cctx_.get(), scratch_buf_.get(), *bound,
+                     input.empty() ? "" : input.data(), input.size());
+  if (ZSTD_isError(compressed_size)) {
+    return absl::InternalError("Zstd compression failed.");
+  }
+  out->assign(scratch_buf_.get(), compressed_size);
+  return absl::OkStatus();
+}
+
 ZstdDecompressorContext::ZstdDecompressorContext(size_t initial_capacity)
     : dctx_(ZSTD_createDCtx()),
       buffer_(initial_capacity > 0
@@ -147,9 +209,9 @@ absl::StatusOr<absl::string_view> ZstdDecompressorContext::Decompress(
     capacity_ = *decompressed_size;
   }
 
-  const size_t actual_size = ZSTD_decompressDCtx(
-      dctx_.get(), buffer_.get(), *decompressed_size, compressed_input.data(),
-      compressed_input.size());
+  const size_t actual_size =
+      ZSTD_decompressDCtx(dctx_.get(), buffer_.get(), *decompressed_size,
+                          compressed_input.data(), compressed_input.size());
   if (ZSTD_isError(actual_size)) {
     return absl::InternalError("Zstd decompression failed.");
   }

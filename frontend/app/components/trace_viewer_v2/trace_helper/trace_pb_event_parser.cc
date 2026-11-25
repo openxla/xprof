@@ -60,17 +60,34 @@ void DispatchResponseDetails(const xprof::TraceDataResponse& response,
   if (response.details_size() <= 0) {
     return;
   }
-  for (const auto& detail : response.details()) {
-    if (detail.name() == "mpmd_pipeline_view") {
+#ifdef __EMSCRIPTEN__
+  constexpr absl::string_view kFullDmaDetailName = "full_dma";
+  std::optional<bool> full_dma_value;
+#endif
+  constexpr absl::string_view kMpmdPipelineViewDetailName =
+      "mpmd_pipeline_view";
+  for (const xprof::DetailItem& detail : response.details()) {
+    if (detail.name() == kMpmdPipelineViewDetailName) {
       mpmd_pipeline_view = detail.value();
     }
+#ifdef __EMSCRIPTEN__
+    if (detail.name() == kFullDmaDetailName) {
+      full_dma_value = detail.value();
+    }
+#endif
   }
 #ifdef __EMSCRIPTEN__
-  emscripten::val details_map = emscripten::val::global("Map").new_();
-  for (const auto& detail : response.details()) {
-    details_map.call<void>("set", emscripten::val(detail.name()),
-                           emscripten::val(detail.value()));
+  // Only forward user-facing trace detail toggles to the host UI, matching
+  // the JSON path (`maybeDispatchDetailsReceivedEvent`). Internal keys such
+  // as `mpmd_pipeline_view` are consumed directly in WASM and would otherwise
+  // trigger a redundant full reload.
+  if (!full_dma_value.has_value()) {
+    return;
   }
+  emscripten::val details_map = emscripten::val::global("Map").new_();
+  details_map.call<void>("set",
+                         emscripten::val(std::string(kFullDmaDetailName)),
+                         emscripten::val(*full_dma_value));
   emscripten::val detail_obj = emscripten::val::object();
   detail_obj.set("details", details_map);
 

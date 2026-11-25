@@ -72,11 +72,28 @@ class Animation {
   inline static absl::NoDestructor<std::vector<Animation*>> finished_;
 };
 
+// Default tolerances used by AnimationConvergenceTolerance().
+inline constexpr double kAnimationRelativeTolerance = 1e-4;
+inline constexpr double kAnimationAbsoluteTolerance = 1e-4;
+
+// Returns the distance to `target` below which an animation snaps to it.
+// Types in `traceviewer` may overload this via ADL (for example, TimeRange
+// scales tolerance by target duration rather than distance from the origin).
+template <typename T>
+double AnimationConvergenceTolerance(const T& target) {
+  using std::abs;
+  return std::max(
+      static_cast<double>(abs(target)) * kAnimationRelativeTolerance,
+      kAnimationAbsoluteTolerance);
+}
+
 // Animated<T> represents a value of type T that can be animated over time
 // towards a target value.
 // Type T must support copy/move construction, assignment, operators `==`, `!=`,
-// `+`, `-`, `*` with float, and `abs(T)` must be defined and return a type
-// comparable with float.
+// `+`, `-`, `*` with float, and `abs(T - T)` must be defined and return a type
+// comparable with double. Types whose convergence tolerance does not scale with
+// `abs(T)` should also provide an ADL overload of
+// `AnimationConvergenceTolerance(const T&)`.
 template <typename T>
 class Animated : public Animation {
   static_assert(std::is_trivially_destructible_v<T>,
@@ -156,14 +173,24 @@ class Animated : public Animation {
 
   bool Converged() const {
     using std::abs;
-    return abs(current_ - target_) <
-           std::max(abs(target_) * kRelativeTolerance, kAbsoluteTolerance);
+    return abs(current_ - target_) < AnimationConvergenceTolerance(target_);
   }
 
   bool Update(float delta_time) override {
-    float factor = std::min(kSpeed * delta_time, 1.0f);
-    current_ = current_ + (target_ - current_) * factor;
-    if (Converged()) {
+    if (!(delta_time > 0.0f)) {
+      return false;
+    }
+    const float factor = kSpeed * delta_time;
+    if (factor >= 1.0f) {
+      current_ = target_;
+      return true;
+    }
+    const T next = current_ + (target_ - current_) * factor;
+    // Snap if floating-point precision prevents further progress toward
+    // `target_` (for example, deep zooms at large timestamps).
+    const bool stalled = (next == current_);
+    current_ = next;
+    if (stalled || Converged()) {
       current_ = target_;
       return true;
     }
@@ -182,12 +209,6 @@ class Animated : public Animation {
   // as it's multiplied by delta_time (in seconds) to determine the
   // interpolation factor.
   static constexpr float kSpeed = 12.5f;
-  // The relative tolerance is a fraction of the magnitude of the target value.
-  // The absolute tolerance is a fixed value, independent of the target value.
-  // The animation stops when the relative tolerance is exceeded, or both the
-  // relative and absolute tolerances are exceeded.
-  static constexpr double kRelativeTolerance = 1e-4;
-  static constexpr double kAbsoluteTolerance = 1e-4;
 };
 
 }  // namespace traceviewer

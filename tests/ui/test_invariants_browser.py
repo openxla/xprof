@@ -14,6 +14,8 @@
 # ==============================================================================
 """Real-Chromium DOM/layout invariant and SxS report interaction tests."""
 
+import base64
+import importlib.util
 import io
 import json
 import os
@@ -195,3 +197,131 @@ def test_sxs_report_interactive_tabs_modes_slider_and_approval(
       == wp_diff.diff_hash
   )
   browser_errors.assert_clean("sxs_report_interactive")
+
+
+def _find_static_font_path(filename: str) -> pathlib.Path | None:
+  """Locates a bundled static font file in the wheel or source tree."""
+  candidates: list[pathlib.Path] = []
+  if static_dir := os.environ.get("XPROF_STATIC_DIR"):
+    candidates.append(pathlib.Path(static_dir) / filename)
+  spec = importlib.util.find_spec("xprof")
+  if spec and spec.origin:
+    candidates.append(pathlib.Path(spec.origin).parent / "static" / filename)
+  roots: list[pathlib.Path] = []
+  if repo_root := os.environ.get("XPROF_REPO_ROOT"):
+    roots.append(pathlib.Path(repo_root))
+  roots.extend(pathlib.Path(__file__).resolve().parents)
+  for root in roots:
+    candidates.append(
+        root / "plugin" / "tensorboard_plugin_profile" / "static" / filename
+    )
+    candidates.append(root / "plugin" / "xprof" / "static" / filename)
+  for candidate in candidates:
+    if candidate.is_file():
+      return candidate
+  return None
+
+
+def test_bundled_icon_fonts_render_ligatures_in_chromium(
+    page: Page, browser_errors: BrowserErrors
+) -> None:
+  """Verifies bundled WOFF2 icon fonts shape ligatures and local fonts load."""
+  mi_path = _find_static_font_path("materialicons.woff2")
+  ms_path = _find_static_font_path("material_symbols_outlined.woff2")
+  assert mi_path is not None, "materialicons.woff2 not found"
+  assert ms_path is not None, "material_symbols_outlined.woff2 not found"
+
+  mi_b64 = base64.b64encode(mi_path.read_bytes()).decode("ascii")
+  ms_b64 = base64.b64encode(ms_path.read_bytes()).decode("ascii")
+  page.set_content(f"""
+    <html><head><style>
+      @font-face {{
+        font-family: 'Material Icons';
+        font-style: normal;
+        font-weight: 400;
+        src: url(data:font/woff2;base64,{mi_b64}) format('woff2');
+      }}
+      @font-face {{
+        font-family: 'Material Symbols Outlined';
+        font-style: normal;
+        font-weight: 100 700;
+        src: url(data:font/woff2;base64,{ms_b64}) format('woff2');
+      }}
+      .mi {{
+        font-family: 'Material Icons';
+        font-size: 24px;
+        line-height: 1;
+        display: inline-block;
+        white-space: nowrap;
+        font-feature-settings: 'liga';
+      }}
+      .ms {{
+        font-family: 'Material Symbols Outlined';
+        font-size: 24px;
+        line-height: 1;
+        display: inline-block;
+        white-space: nowrap;
+        font-feature-settings: 'liga';
+      }}
+      .plain {{
+        font-family: sans-serif;
+        font-size: 24px;
+        line-height: 1;
+        display: inline-block;
+        white-space: nowrap;
+      }}
+    </style></head><body>
+      <span id="mi" class="mi">settings</span>
+      <span id="ms" class="ms">settings</span>
+      <span id="plain" class="plain">settings</span>
+    </body></html>
+  """)
+  metrics = page.evaluate("""async () => {
+    await document.fonts.ready;
+    return {
+      miLoaded: document.fonts.check('24px "Material Icons"'),
+      msLoaded: document.fonts.check('24px "Material Symbols Outlined"'),
+      miWidth: document.getElementById('mi').getBoundingClientRect().width,
+      msWidth: document.getElementById('ms').getBoundingClientRect().width,
+      plainWidth: document.getElementById('plain').getBoundingClientRect().width,
+    };
+  }""")
+  assert metrics["miLoaded"], "Material Icons WOFF2 failed to load"
+  assert metrics["msLoaded"], "Material Symbols Outlined WOFF2 failed to load"
+  # Ligature glyphs render near 24px square, far narrower than raw "settings".
+  assert 16 <= metrics["miWidth"] <= 32, f"Raw ligature? {metrics}"
+  assert 16 <= metrics["msWidth"] <= 32, f"Raw ligature? {metrics}"
+  assert metrics["miWidth"] < metrics["plainWidth"] * 0.5
+  assert metrics["msWidth"] < metrics["plainWidth"] * 0.5
+
+  if os.environ.get("XPROF_UI_REQUIRE_LOCAL_FONTS") == "1":
+    required_families = [
+        "Roboto",
+        "Roboto Mono",
+        "Google Sans",
+        "Google Sans Flex",
+        "Google Sans Code",
+    ]
+    missing = page.evaluate(
+        """(families) => {
+          const sample = 'AgQ0123456789@#%&';
+          const render = (fontSpec) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 80;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000';
+            ctx.font = fontSpec;
+            ctx.fillText(sample, 10, 60);
+            return canvas.toDataURL();
+          };
+          const serifBaseline = render('48px serif');
+          return families.filter(
+              (f) => render(`48px "${f}", serif`) === serifBaseline
+          );
+        }""",
+        required_families,
+    )
+    assert not missing, f"Local UI test fonts did not load in Blink: {missing}"
+
+  browser_errors.assert_clean("bundled_icon_fonts")

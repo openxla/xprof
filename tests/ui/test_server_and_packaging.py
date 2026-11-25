@@ -219,6 +219,56 @@ class ServerAndPackagingContractTest(unittest.TestCase):
     self.assertEqual(status, 200)
     self.assertIn("javascript", content_type.lower())
 
+  def test_bundled_icon_fonts_served_as_woff2(self) -> None:
+    """Verifies bundled icon fonts are served locally with WOFF2 headers."""
+    self.assertIsNotNone(
+        self.server_url,
+        f"XProf server URL must be available for testing: {self._setup_error}",
+    )
+    for font_file in (
+        "materialicons.woff2",
+        "material_symbols_outlined.woff2",
+    ):
+      with self.subTest(font_file=font_file):
+        url = f"{self.server_url.rstrip('/')}/data/plugin/profile/{font_file}"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+          status = resp.status
+          content_type = resp.headers.get("Content-Type", "")
+          raw = resp.read()
+          if (
+              raw.startswith(b"\x1f\x8b")
+              or resp.headers.get("Content-Encoding") == "gzip"
+          ):
+            raw = gzip.decompress(raw)
+        self.assertEqual(status, 200)
+        self.assertTrue(
+            content_type.lower().startswith("font/woff2"),
+            f"Expected font/woff2 for {font_file}, got {content_type!r}",
+        )
+        self.assertGreater(len(raw), 4)
+        self.assertEqual(raw[:4], b"wOF2")
+
+  def test_styles_css_references_bundled_icon_fonts(self) -> None:
+    """Verifies compiled styles.css declares both bundled icon fonts."""
+    self.assertIsNotNone(
+        self.server_url,
+        f"XProf server URL must be available for testing: {self._setup_error}",
+    )
+    url = f"{self.server_url.rstrip('/')}/data/plugin/profile/styles.css"
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
+      self.assertEqual(resp.status, 200)
+      raw = resp.read()
+      if (
+          raw.startswith(b"\x1f\x8b")
+          or resp.headers.get("Content-Encoding") == "gzip"
+      ):
+        raw = gzip.decompress(raw)
+      css = raw.decode("utf-8")
+    self.assertIn("materialicons.woff2", css)
+    self.assertIn("material_symbols_outlined.woff2", css)
+
   def test_index_html_declares_default_base_href(self) -> None:
     """Verifies packaged index.html declares the default <base href>."""
     self.assertIsNotNone(

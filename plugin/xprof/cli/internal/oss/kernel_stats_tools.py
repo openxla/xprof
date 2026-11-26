@@ -191,6 +191,36 @@ def _format_kernel_records_output(
   return json.dumps(records, indent=2)
 
 
+def _select_device_planes(
+    device_planes: list[Any], device_to_use: str | None
+) -> tuple[list[Any], str | None]:
+  """Returns the device planes to analyze and the device filter applied.
+
+  A device is matched, ignoring case, against the plane name
+  `/device:<device>`, which is the `device` value stored in the Events DB
+  (e.g. `TPU:0` or `TPU:0 SparseCore 0`). When no device plane has the
+  requested device type, as for the default `TPU:0` on a GPU capture, the
+  filter is not applied and all device planes are returned.
+
+  Args:
+    device_planes: Planes whose names start with `/device:`.
+    device_to_use: Requested device, or None for all devices.
+
+  Returns:
+    A (planes, device) tuple, where device is None when no filter was applied.
+  """
+  if not device_to_use:
+    return device_planes, None
+  wanted = f"/device:{device_to_use}".casefold()
+  matched = [p for p in device_planes if p.name.casefold() == wanted]
+  if matched:
+    return matched, device_to_use
+  device_type = f"/device:{device_to_use.split(':', 1)[0]}:".casefold()
+  if any(p.name.casefold().startswith(device_type) for p in device_planes):
+    return [], device_to_use
+  return device_planes, None
+
+
 def _matches(pattern: str, text: str) -> bool:
   """Matches text against a regex pattern or literal substring."""
   try:
@@ -208,7 +238,7 @@ def get_kernel_stats(
     limit: int = 10,
     output_format: Literal["json", "markdown"] = "json",
     include_summary: bool = False,
-    device_to_use: str | None = "TPU:0",  # pylint: disable=unused-argument
+    device_to_use: str | None = "TPU:0",
     trace_matchers: tuple[str, ...] | None = None,
     include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
@@ -229,7 +259,10 @@ def get_kernel_stats(
       table string).
     include_summary: If True, computes and returns ground-truth timing via
       Disjoint Interval Union alongside per-kernel records.
-    device_to_use: Device plane to target (e.g., "TPU:0").
+    device_to_use: Device plane to target (e.g., "TPU:0"); None counts all
+      devices. On a capture without planes of the requested device type (e.g.
+      the default "TPU:0" on a GPU capture), all devices are counted. Ignored
+      for pre-computed records.
     trace_matchers: Optional tuple of event name matchers for filtering.
     include_intra_kernel_regions: If True, also emits events from TPU lines that
       carry regions *inside* a kernel ("LLO Ops", "Pallas Primitives", "<unit>
@@ -242,6 +275,7 @@ def get_kernel_stats(
   Returns:
       A JSON string (a list of kernel records, or a summary object when
       include_summary=True) or a markdown table string. The summary object
+      has `device` (the device filter applied, or None for all devices) and
       also has `truncated`, `total_records`, `top_level_records` (count of
       kernel records excluding intra-kernel regions), `returned_records`, and
       `total_duration_us_all_records` (sum of outermost kernel event durations
@@ -303,10 +337,15 @@ def get_kernel_stats(
     step_durations_us: list[float] = []
     excluded_region_lines: set[str] = set()
 
-    for plane in xplane_tools.iter_planes(source):
-      if not _DEVICE_PLANE_RE.search(plane.name):
-        continue
-
+    all_device_planes = [
+        plane
+        for plane in xplane_tools.iter_planes(source)
+        if _DEVICE_PLANE_RE.search(plane.name)
+    ]
+    device_planes, applied_device = _select_device_planes(
+        all_device_planes, device_to_use
+    )
+    for plane in device_planes:
       is_tpu = "TPU" in plane.name.upper()
 
       for line in plane.lines:
@@ -394,8 +433,15 @@ def get_kernel_stats(
 
     if not kernel_durations_us:
       msg = f"No kernel stats found for session {source}"
+      if applied_device:
+        msg += f" on device {applied_device}"
       if kernel_name:
         msg += f" and kernel {kernel_name}"
+      if applied_device:
+        devices = sorted(
+            p.name.removeprefix("/device:") for p in all_device_planes
+        )
+        msg += f". Devices in the capture: {', '.join(devices)}"
       if output_format == "markdown":
         return f"# Info\n{msg}\n"
       return json.dumps({"info": msg}, indent=2)
@@ -450,6 +496,7 @@ def get_kernel_stats(
       if len(step_durations_us) > 1:
         std_us = stats_mod.stdev(step_durations_us)
       summary: dict[str, Any] = {
+          "device": applied_device,
           "total_device_duration_ns": total_ns,
           "total_device_duration_us": total_us,
           "total_device_duration_ms": total_ms,

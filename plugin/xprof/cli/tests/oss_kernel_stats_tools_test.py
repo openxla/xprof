@@ -620,6 +620,133 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertIn("xprof-note: truncated: returned 2 of 3", err1.getvalue())
     self.assertIn("xprof-note: truncated: returned 2 of 3", err2.getvalue())
 
+  def _single_kernel_plane(self, plane_name, kernel_name, duration_ns):
+    """Returns a device plane with one kernel on `XLA Ops` starting at 0."""
+    ev = mock.MagicMock(duration_ns=duration_ns, start_ns=0, stats=[])
+    ev.name = kernel_name
+    line = mock.MagicMock(events=[ev])
+    line.name = "XLA Ops"
+    plane = mock.MagicMock(lines=[line])
+    plane.name = plane_name
+    return plane
+
+  def _multi_device_planes(self):
+    """Returns planes for two TPU chips and a SparseCore of the first one."""
+    return [
+        self._single_kernel_plane("/device:TPU:0", "k0", 1_000_000),
+        self._single_kernel_plane("/device:TPU:1", "k1", 3_000_000),
+        self._single_kernel_plane(
+            "/device:TPU:0 SparseCore 0", "sc0", 5_000_000
+        ),
+    ]
+
+  def test_summary_honors_device_to_use(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=self._multi_device_planes()
+    ):
+      default = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", include_summary=True
+          )
+      )
+      tpu1 = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", include_summary=True, device_to_use="TPU:1"
+          )
+      )
+      sparse_core = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir",
+              include_summary=True,
+              device_to_use="TPU:0 SparseCore 0",
+          )
+      )
+
+    self.assertEqual(default["device"], "TPU:0")
+    self.assertEqual(
+        [r["kernel_name"] for r in default["kernel_records"]], ["k0"]
+    )
+    self.assertEqual(default["total_device_duration_ns"], 1_000_000)
+    self.assertEqual(default["by_line_duration_ns"], {"XLA Ops": 1_000_000})
+    self.assertEqual(tpu1["device"], "TPU:1")
+    self.assertEqual([r["kernel_name"] for r in tpu1["kernel_records"]], ["k1"])
+    self.assertEqual(tpu1["total_device_duration_ns"], 3_000_000)
+    self.assertEqual(tpu1["by_line_duration_ns"], {"XLA Ops": 3_000_000})
+    self.assertEqual(
+        [r["kernel_name"] for r in sparse_core["kernel_records"]], ["sc0"]
+    )
+    self.assertEqual(sparse_core["total_device_duration_ns"], 5_000_000)
+
+  def test_device_to_use_none_counts_all_devices(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=self._multi_device_planes()
+    ):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", include_summary=True, device_to_use=None
+          )
+      )
+
+    self.assertIsNone(summary["device"])
+    self.assertCountEqual(
+        [r["kernel_name"] for r in summary["kernel_records"]],
+        ["k0", "k1", "sc0"],
+    )
+    # All three kernels start at 0, so their union is the longest one.
+    self.assertEqual(summary["total_device_duration_ns"], 5_000_000)
+
+  def test_list_output_honors_device_to_use_ignoring_case(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=self._multi_device_planes()
+    ):
+      records = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", device_to_use="tpu:1"
+          )
+      )
+
+    self.assertEqual([r["kernel_name"] for r in records], ["k1"])
+    self.assertEqual(records[0]["total_duration_us"], 3000.0)
+
+  def test_missing_device_reports_devices_in_capture(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=self._multi_device_planes()
+    ):
+      result = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", include_summary=True, device_to_use="TPU:7"
+          )
+      )
+
+    self.assertEqual(
+        result["info"],
+        "No kernel stats found for session local_logdir on device TPU:7."
+        " Devices in the capture: TPU:0, TPU:0 SparseCore 0, TPU:1",
+    )
+
+  def test_default_device_ignored_without_planes_of_its_type(self):
+    planes = [
+        self._single_kernel_plane("/device:GPU:0", "g0", 2_000_000),
+        self._single_kernel_plane("/device:GPU:1", "g1", 4_000_000),
+    ]
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=planes):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", include_summary=True
+          )
+      )
+      gpu1 = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", device_to_use="GPU:1"
+          )
+      )
+
+    self.assertIsNone(summary["device"])
+    self.assertCountEqual(
+        [r["kernel_name"] for r in summary["kernel_records"]], ["g0", "g1"]
+    )
+    self.assertEqual([r["kernel_name"] for r in gpu1], ["g1"])
+
 
 if __name__ == "__main__":
   unittest.main()

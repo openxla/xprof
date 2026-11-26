@@ -22,6 +22,7 @@ sass_binary(
 sass_binary(
     name = "kernel_selection_panel_css",
     src = "kernel_selection_panel.scss",
+    deps = [":kernel_unit_palette_scss"],
 )
 
 sass_binary(

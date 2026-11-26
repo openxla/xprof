@@ -488,6 +488,7 @@
           ></kernel-event-tooltip>
           <kernel-selection-panel
             drawerOverlay
+            [kernelName]="selectedEntry?.kernel"
             (openChange)="onSelectionPanelOpenChange($event)"
             (selectEvent)="onSelectTimelineEvent($event)"
             (searchQuery)="onSearchTimelineQuery($event)"

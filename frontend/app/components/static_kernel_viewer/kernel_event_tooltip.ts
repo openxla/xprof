@@ -73,7 +73,7 @@ export interface CounterGauge {
 export interface InstructionOutput {
   readonly rowLabel: string;
   readonly register?: string;
-  readonly registerKind?: 'vreg' | 'sreg' | 'preg' | 'vmreg' | 'other';
+  readonly registerKind?: 'vreg' | 'sreg' | 'preg' | 'vmreg' | 'dreg' | 'other';
   readonly memorySpace?: string;
   readonly metadata?: string;
   readonly throughput?: string;
@@ -356,7 +356,7 @@ export const SPARSE_CORE_FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
 ];
 
 /** Lanes of SparseCore functional units that TensorCore does not have. */
-const SPARSE_CORE_ONLY_LANES: ReadonlySet<string> = new Set(
+export const SPARSE_CORE_ONLY_LANES: ReadonlySet<string> = new Set(
   SPARSE_CORE_FUNCTIONAL_UNITS.map((unit) => unit.label).filter(
     (label) => !FUNCTIONAL_UNITS.some((unit) => unit.label === label),
   ),
@@ -506,6 +506,9 @@ export function classifyRegister(
   if (/^[%$]p\d+/i.test(register)) {
     return 'preg';
   }
+  if (/^[%$]d\d+/i.test(register)) {
+    return 'dreg';
+  }
   return 'other';
 }
 
@@ -645,10 +648,7 @@ export function formatCounterTrackValue(
 }
 
 /** Returns the accent color for a counter track, matching Trace Viewer v2's counter bar color. */
-export function accentColorForCounterTrack(
-  _trackName?: string,
-  _unit?: FunctionalUnit,
-): string {
+export function accentColorForCounterTrack(): string {
   return COUNTER_TRACK_COLOR;
 }
 
@@ -908,22 +908,22 @@ function formatSpillsLabel(
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
-const UNIT_FAMILY_BY_LABEL: Readonly<Record<string, UnitTokenFamily>> = {
-  'MXU': 'matrix',
-  'XLU': 'xlu',
-  'XPU': 'xlu',
-  'VPU': 'vector',
-  'TVPU': 'vector',
-  'EUP': 'vector',
-  'VLD': 'memory',
-  'VST': 'memory',
-  'DMA': 'memory',
-  'SALU': 'scalar',
-  'SAL': 'scalar',
-  'SGE': 'sparse',
-  'SC': 'sparse',
-  'Other': 'other',
-};
+const UNIT_FAMILY_BY_LABEL: ReadonlyMap<string, UnitTokenFamily> = new Map([
+  ['MXU', 'matrix'],
+  ['XLU', 'xlu'],
+  ['XPU', 'xlu'],
+  ['VPU', 'vector'],
+  ['TVPU', 'vector'],
+  ['EUP', 'vector'],
+  ['VLD', 'memory'],
+  ['VST', 'memory'],
+  ['DMA', 'memory'],
+  ['SALU', 'scalar'],
+  ['SAL', 'scalar'],
+  ['SGE', 'sparse'],
+  ['SC', 'sparse'],
+  ['OTHER', 'other'],
+]);
 
 /** Canonical hardware order for unit pills across hover cards. */
 export const CARD_UNIT_ORDER: readonly string[] = [
@@ -951,8 +951,11 @@ function unitOrderRank(label: string): number {
 }
 
 /** Maps a hardware unit label to its Component Rack HCT tonal palette family. */
-export function unitFamilyForLabel(label: string): UnitTokenFamily {
-  return UNIT_FAMILY_BY_LABEL[label] ?? 'other';
+export function unitFamilyForLabel(label: string | undefined): UnitTokenFamily {
+  if (!label) {
+    return 'other';
+  }
+  return UNIT_FAMILY_BY_LABEL.get(label.trim().toUpperCase()) ?? 'other';
 }
 
 function fitSingleLinePills<T extends {readonly charLen: number}>(

@@ -519,7 +519,7 @@ function instructionMetrics(
         : '',
       color,
       meaning: 'The VLIW bundle it issues in, also in hex',
-      selector: `${PANEL_SELECTOR} .panel-header .bundle-pill`,
+      selector: `${panelCard('single', 1)} .bundle-pill`,
       caption: 'The bundle it issues in',
     },
   ];
@@ -577,7 +577,7 @@ function instructionMetrics(
           : '',
       color: busiest?.unit.color ?? '#12a4af',
       meaning: 'How much of each unit is in use, as scheduled',
-      selector: `${panelCard('single', 3)} .util-bars-list`,
+      selector: `${panelCard('single', 2)} .util-bars-list`,
       caption: 'How busy each unit is here',
     });
   }
@@ -587,7 +587,7 @@ function instructionMetrics(
       value: content?.schedulePosition?.formattedPercent ?? '',
       color: DEFAULT_ACCENT_COLOR,
       meaning: 'How far into the HLO op this bundle is',
-      selector: `${panelCard('single', 3)} .card-section-footer`,
+      selector: `${panelCard('single', 1)} .card-section-footer`,
       caption: 'Where it sits in the HLO op',
     });
   }
@@ -908,8 +908,7 @@ export function readTimelineBlock(detail: unknown): TimelineBlock | undefined {
   const index = fields['eventIndex'];
   const trackName = fields['trackName'];
   const trackType = fields['trackType'];
-  const isCounterOrProcess =
-    trackType === 'counter' || trackType === 'process';
+  const isCounterOrProcess = trackType === 'counter' || trackType === 'process';
   const name =
     typeof fields['name'] === 'string' && fields['name']
       ? fields['name']
@@ -1675,6 +1674,31 @@ export function placeCard(
         sum + overlapArea(clear, {...point, w: card.w, h: card.h}),
       0,
     );
+  const pickAlignedX = (y: number): number => {
+    if (avoid.length === 0 || coverAt({x: alignedX, y}) === 0) {
+      return alignedX;
+    }
+    const candidates = [alignedX];
+    for (const clear of avoid) {
+      candidates.push(
+        clamp(clear.x - CARD_GAP - card.w, VIEWPORT_MARGIN, maxX),
+        clamp(clear.x + clear.w + CARD_GAP, VIEWPORT_MARGIN, maxX),
+      );
+    }
+    let bestX = alignedX;
+    let bestCover = Number.POSITIVE_INFINITY;
+    for (const x of candidates) {
+      const cover = coverAt({x, y});
+      if (cover < bestCover) {
+        bestX = x;
+        bestCover = cover;
+      }
+      if (cover === 0) {
+        break;
+      }
+    }
+    return bestX;
+  };
   for (const side of placements) {
     if (side === 'right') {
       const x = spotlight.x + spotlight.w + CARD_GAP;
@@ -1689,12 +1713,12 @@ export function placeCard(
     } else if (side === 'bottom') {
       const y = spotlight.y + spotlight.h + CARD_GAP;
       if (y <= maxY) {
-        return {x: alignedX, y, side};
+        return {x: pickAlignedX(y), y, side};
       }
     } else if (side === 'top') {
       const y = spotlight.y - CARD_GAP - card.h;
       if (y >= VIEWPORT_MARGIN) {
-        return {x: alignedX, y, side};
+        return {x: pickAlignedX(y), y, side};
       }
     } else if (
       card.w + 2 * INSIDE_INSET <= spotlight.w &&
@@ -1707,8 +1731,7 @@ export function placeCard(
       // Moves a card at a corner up, over the dimmed page, off what it covers.
       const raise = (corner: Point): Point => {
         const covered = avoid.filter(
-          (clear) =>
-            overlapArea(clear, {...corner, w: card.w, h: card.h}) > 0,
+          (clear) => overlapArea(clear, {...corner, w: card.w, h: card.h}) > 0,
         );
         if (covered.length === 0) {
           return corner;
@@ -1743,13 +1766,44 @@ export function placeCard(
     }
   }
   if (placements[0] === 'top' && spotlight.y > VIEWPORT_MARGIN) {
-    return {x: alignedX, y: VIEWPORT_MARGIN, side: 'top'};
+    return {
+      x: pickAlignedX(VIEWPORT_MARGIN),
+      y: VIEWPORT_MARGIN,
+      side: 'top',
+    };
   }
   return center;
 }
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** Splits `box` into pairwise-disjoint rectangles outside `cut`. */
+function subtractBox(box: Box, cut: Box): Box[] {
+  if (!overlaps(box, cut)) {
+    return [box];
+  }
+  const bx2 = box.x + box.w;
+  const by2 = box.y + box.h;
+  const cx1 = Math.max(box.x, cut.x);
+  const cy1 = Math.max(box.y, cut.y);
+  const cx2 = Math.min(bx2, cut.x + cut.w);
+  const cy2 = Math.min(by2, cut.y + cut.h);
+  const pieces: Box[] = [];
+  if (cy1 > box.y) {
+    pieces.push({x: box.x, y: box.y, w: box.w, h: cy1 - box.y});
+  }
+  if (by2 > cy2) {
+    pieces.push({x: box.x, y: cy2, w: box.w, h: by2 - cy2});
+  }
+  if (cx1 > box.x) {
+    pieces.push({x: box.x, y: cy1, w: cx1 - box.x, h: cy2 - cy1});
+  }
+  if (bx2 > cx2) {
+    pieces.push({x: cx2, y: cy1, w: bx2 - cx2, h: cy2 - cy1});
+  }
+  return pieces;
 }
 
 /**
@@ -1781,33 +1835,57 @@ export function fitCorners(
 
 /**
  * Returns the outline of the backdrop, for `clip-path: path(evenodd, ...)`:
- * the viewport, with a hole of `hole` with rounded `corners`.
+ * the viewport, with a hole of `hole` with rounded `corners` plus any disjoint
+ * regions of `extraHoles` (such as open menu overlays extending beyond `hole`).
  */
 export function backdropPath(
   viewport: Size,
   hole: Box,
   corners: Corners,
+  extraHoles: readonly Box[] = [],
 ): string {
   const outline = `M0 0H${round(viewport.w)}V${round(viewport.h)}H0Z`;
-  if (hole.w < 1 || hole.h < 1) {
-    return outline;
+  let path = outline;
+  const cuts: Box[] = [];
+  if (hole.w >= 1 && hole.h >= 1) {
+    const max = Math.min(hole.w, hole.h) / 2;
+    const [tl, tr, br, bl] = corners.map((radius) =>
+      round(clamp(radius, 0, max)),
+    );
+    const left = round(hole.x);
+    const top = round(hole.y);
+    const right = round(hole.x + hole.w);
+    const bottom = round(hole.y + hole.h);
+    const arc = (radius: number) => `A${radius} ${radius} 0 0 1`;
+    path +=
+      `M${round(left + tl)} ${top}H${round(right - tr)}` +
+      `${arc(tr)} ${right} ${round(top + tr)}V${round(bottom - br)}` +
+      `${arc(br)} ${round(right - br)} ${bottom}H${round(left + bl)}` +
+      `${arc(bl)} ${left} ${round(bottom - bl)}V${round(top + tl)}` +
+      `${arc(tl)} ${round(left + tl)} ${top}Z`;
+    cuts.push(hole);
   }
-  const max = Math.min(hole.w, hole.h) / 2;
-  const [tl, tr, br, bl] = corners.map((radius) =>
-    round(clamp(radius, 0, max)),
-  );
-  const left = round(hole.x);
-  const top = round(hole.y);
-  const right = round(hole.x + hole.w);
-  const bottom = round(hole.y + hole.h);
-  const arc = (radius: number) => `A${radius} ${radius} 0 0 1`;
-  return (
-    `${outline}M${round(left + tl)} ${top}H${round(right - tr)}` +
-    `${arc(tr)} ${right} ${round(top + tr)}V${round(bottom - br)}` +
-    `${arc(br)} ${round(right - br)} ${bottom}H${round(left + bl)}` +
-    `${arc(bl)} ${left} ${round(bottom - bl)}V${round(top + tl)}` +
-    `${arc(tl)} ${round(left + tl)} ${top}Z`
-  );
+  for (const extra of extraHoles) {
+    if (extra.w < 1 || extra.h < 1) {
+      continue;
+    }
+    let pieces: Box[] = [extra];
+    for (const cut of cuts) {
+      pieces = pieces.flatMap((piece) => subtractBox(piece, cut));
+    }
+    for (const piece of pieces) {
+      if (piece.w < 1 || piece.h < 1) {
+        continue;
+      }
+      const left = round(piece.x);
+      const top = round(piece.y);
+      const right = round(piece.x + piece.w);
+      const bottom = round(piece.y + piece.h);
+      path += `M${left} ${top}H${right}V${bottom}H${left}Z`;
+      cuts.push(piece);
+    }
+  }
+  return path;
 }
 
 /**
@@ -2300,9 +2378,12 @@ export class KernelViewerTour implements OnInit, OnDestroy {
   private keepClearElements: Element[] = [];
   /** The spotlight, without padding or animation, if any. */
   private holeBox: Box | undefined = undefined;
+  /** Padded boxes of any open CDK `[role="menu"]` overlays. */
+  private openMenuBoxes: Box[] = [];
   /** Where the card shrinks into while the tour closes, if anywhere. */
   private closeTarget: Box | undefined = undefined;
   private resizeObserver: ResizeObserver | undefined = undefined;
+  private overlayObserver: MutationObserver | undefined = undefined;
   private frameId = 0;
   private lastFrameTime = 0;
   private keepAliveUntil = 0;
@@ -2333,8 +2414,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
    * e.g. once the trace loads.
    */
   private shouldOpenPanel = false;
-  private openPanelTimer: ReturnType<typeof setTimeout> | undefined =
-    undefined;
+  private openPanelTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   /** Where the user last pointed at an instruction, and at any block. */
   private unitSighting: BlockSighting | undefined = undefined;
   private lastSighting: BlockSighting | undefined = undefined;
@@ -2451,6 +2531,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
       return;
     }
     markKernelViewerTourSeen();
+    this.dismissOpenMenus();
     this.isClosing.set(true);
     this.announcement.set('');
     this.stopDemo();
@@ -2479,6 +2560,13 @@ export class KernelViewerTour implements OnInit, OnDestroy {
    * the card instead, so that a stray click does not end the tour.
    */
   onBackdropClick() {
+    const overlayBackdrop = document.querySelector<HTMLElement>(
+      '.cdk-overlay-container .cdk-overlay-backdrop-showing',
+    );
+    if (overlayBackdrop) {
+      overlayBackdrop.click();
+      return;
+    }
     if (this.isWelcome()) {
       this.close('dismissed');
       return;
@@ -2502,6 +2590,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
     if (!step) {
       return;
     }
+    this.dismissOpenMenus();
     this.isTaskDone.set(false);
     clearTimeout(this.openPanelTimer);
     this.openPanelTimer = undefined;
@@ -2564,7 +2653,12 @@ export class KernelViewerTour implements OnInit, OnDestroy {
     const selected = this.selectedBlock();
     const attempts: Array<[SelectionOrigin, () => void]> = [];
     const select = (origin: SelectionOrigin, index: number) => {
-      attempts.push([origin, () => this.selectEvent.emit(index)]);
+      attempts.push([
+        origin,
+        () => {
+          this.selectEvent.emit(index);
+        },
+      ]);
     };
     if (kind === 'instruction') {
       if (selected && sectionOf(selected.lane) === 'units') {
@@ -2629,8 +2723,9 @@ export class KernelViewerTour implements OnInit, OnDestroy {
     if (!content) {
       // The panel opened before the tour, which then saw no selection.
       const grid = kind === 'region' ? 'range' : 'single';
-      return this.findElements([`${PANEL_SELECTOR} .${grid}-mode-grid`])
-        .length > 0;
+      return (
+        this.findElements([`${PANEL_SELECTOR} .${grid}-mode-grid`]).length > 0
+      );
     }
     return kind === 'region'
       ? isRegionDetails(content)
@@ -2767,10 +2862,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
       document.addEventListener('click', this.onPanelClick, true);
       window.addEventListener(EVENT_HOVERED_EVENT_NAME, this.onBlockHovered);
       window.addEventListener(EVENT_SELECTED_EVENT_NAME, this.onBlockSelected);
-      window.addEventListener(
-        EVENTS_SELECTED_EVENT_NAME,
-        this.onRangeSelected,
-      );
+      window.addEventListener(EVENTS_SELECTED_EVENT_NAME, this.onRangeSelected);
       window.addEventListener(
         MINIMAP_UPDATED_EVENT_NAME,
         this.onMinimapUpdated,
@@ -2781,6 +2873,32 @@ export class KernelViewerTour implements OnInit, OnDestroy {
       );
       if (typeof ResizeObserver !== 'undefined') {
         this.resizeObserver = new ResizeObserver(this.onLayoutChange);
+      }
+      if (typeof MutationObserver !== 'undefined') {
+        this.overlayObserver = new MutationObserver((records) => {
+          if (records.some((record) => !this.host.contains(record.target))) {
+            if (this.isOpen() && !this.isClosing()) {
+              this.layout();
+              if (this.reducedMotion) {
+                for (const spring of [
+                  this.spotlight,
+                  this.spotlightCorners,
+                  this.ring,
+                  this.ringCorners,
+                  this.card,
+                ]) {
+                  spring.snap();
+                }
+              }
+              this.render();
+            }
+            this.onLayoutChange();
+          }
+        });
+        this.overlayObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+        });
       }
       document.fonts.ready.then(this.onLayoutChange, () => {});
     });
@@ -2823,10 +2941,13 @@ export class KernelViewerTour implements OnInit, OnDestroy {
     );
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
+    this.overlayObserver?.disconnect();
+    this.overlayObserver = undefined;
     this.spotlightElements = [];
     this.highlightElements = [];
     this.keepClearElements = [];
     this.holeBox = undefined;
+    this.openMenuBoxes = [];
     this.renderDemo(undefined);
     this.renderHotspots(undefined);
     const root = this.rootRef?.nativeElement;
@@ -3054,7 +3175,8 @@ export class KernelViewerTour implements OnInit, OnDestroy {
       return;
     }
     const button = event.target.closest(
-      'kernel-selection-panel button:not([disabled]):not(.close-btn):not(.is-selected)',
+      'kernel-selection-panel button:not([disabled]):not(.close-btn):not(.is-selected):not([aria-haspopup="menu"]), ' +
+        '.cdk-overlay-container [role="menuitem"]:not([disabled]):not(.is-selected)',
     );
     if (button) {
       this.ngZone.run(() => {
@@ -3131,11 +3253,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
    * aside, and gestures on the minimap, for its task.
    */
   private readonly onPointerActivity = (event: Event) => {
-    if (
-      !this.isOpen() ||
-      this.isClosing() ||
-      !(event instanceof MouseEvent)
-    ) {
+    if (!this.isOpen() || this.isClosing() || !(event instanceof MouseEvent)) {
       return;
     }
     const target = event.target;
@@ -3181,11 +3299,13 @@ export class KernelViewerTour implements OnInit, OnDestroy {
     }
     const hole = this.holeBox;
     if (
-      hole &&
-      event.clientX >= hole.x &&
-      event.clientX <= hole.x + hole.w &&
-      event.clientY >= hole.y &&
-      event.clientY <= hole.y + hole.h
+      (hole &&
+        event.clientX >= hole.x &&
+        event.clientX <= hole.x + hole.w &&
+        event.clientY >= hole.y &&
+        event.clientY <= hole.y + hole.h) ||
+      (target instanceof Element &&
+        Boolean(target.closest('.cdk-overlay-container [role="menu"]')))
     ) {
       this.noteActivity();
     }
@@ -3207,9 +3327,27 @@ export class KernelViewerTour implements OnInit, OnDestroy {
     }
   }
 
+  /** Returns any open CDK menu panels rendered in `.cdk-overlay-container`. */
+  private findOpenMenus(): HTMLElement[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.cdk-overlay-container [role="menu"]',
+      ),
+    );
+  }
+
+  private dismissOpenMenus() {
+    document
+      .querySelector<HTMLElement>(
+        '.cdk-overlay-container .cdk-overlay-backdrop-showing',
+      )
+      ?.click();
+  }
+
   /**
-   * Whether `event` comes from another dialog, e.g. the shortcut help that ?
-   * opens over the tour. Such dialogs handle their own keys and focus.
+   * Whether `event` comes from another dialog or menu overlay, e.g. the
+   * shortcut help that ? opens over the tour or an open `<mat-menu>`. Such
+   * overlays handle their own keys and focus.
    */
   private isFromOtherDialog(event: Event): boolean {
     const scope = this.host.parentElement ?? document.body;
@@ -3227,7 +3365,8 @@ export class KernelViewerTour implements OnInit, OnDestroy {
           node !== card &&
           ((node instanceof HTMLDialogElement && node.open) ||
             (node instanceof HTMLElement &&
-              node.getAttribute('role') === 'dialog')),
+              (node.getAttribute('role') === 'dialog' ||
+                node.classList.contains('cdk-overlay-container')))),
       );
   }
 
@@ -3264,7 +3403,12 @@ export class KernelViewerTour implements OnInit, OnDestroy {
   };
 
   private readonly onKeydown = (event: KeyboardEvent) => {
-    if (!this.isOpen() || this.isClosing() || this.isFromOtherDialog(event)) {
+    if (
+      !this.isOpen() ||
+      this.isClosing() ||
+      this.isFromOtherDialog(event) ||
+      (event.key === 'Escape' && this.findOpenMenus().length > 0)
+    ) {
       return;
     }
     const target = event.target;
@@ -3387,6 +3531,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
       h: content?.offsetHeight ?? 0,
     };
     if (this.isClosing()) {
+      this.openMenuBoxes = [];
       // The spotlight opens up again, and the card shrinks away.
       this.spotlight.setTarget([0, 0, viewport.w, viewport.h]);
       this.spotlightCorners.setTarget(SQUARE);
@@ -3427,7 +3572,13 @@ export class KernelViewerTour implements OnInit, OnDestroy {
             viewport,
           )
         : holeCorners;
-    const avoid = visibleBoxes(this.keepClearElements);
+    this.openMenuBoxes = visibleBoxes(this.findOpenMenus()).map((box) =>
+      padBox(box, RING_PADDING, viewport),
+    );
+    const avoid = [
+      ...visibleBoxes(this.keepClearElements),
+      ...this.openMenuBoxes,
+    ];
     const focus = this.demoScript?.focus;
     if (focus) {
       avoid.push(focus);
@@ -3479,6 +3630,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
       viewportSize(),
       hole,
       this.spotlightCorners.value,
+      this.isClosing() ? [] : this.openMenuBoxes,
     );
     backdrop.style.clipPath = `path(evenodd, '${path}')`;
 
@@ -3573,6 +3725,7 @@ export class KernelViewerTour implements OnInit, OnDestroy {
       !script ||
       this.isClosing() ||
       this.isTaskDone() ||
+      this.findOpenMenus().length > 0 ||
       loopDuration(script) <= 0
     ) {
       this.stopDemo();

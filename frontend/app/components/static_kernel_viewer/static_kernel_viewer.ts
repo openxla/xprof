@@ -1559,6 +1559,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly store = inject<Store<{}>>(Store);
   private readonly destroyed = new ReplaySubject<void>(1);
+  private wasOverlayMenuOpenOnKeydown = false;
+  private readonly keydownCaptureListener = () => {
+    this.wasOverlayMenuOpenOnKeydown = this.isOverlayMenuOpen();
+  };
   private readonly keydownListener = (event: KeyboardEvent) => {
     this.onWindowKeydown(event);
   };
@@ -1721,6 +1725,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     // The trace viewer container registers its own keydown listener in its
     // ngAfterViewInit, which runs before this one. Registering afterwards lets
     // the shortcuts below skip keys the container already handled.
+    window.addEventListener('keydown', this.keydownCaptureListener, {
+      capture: true,
+    });
     window.addEventListener('keydown', this.keydownListener);
     window.addEventListener('mousedown', this.pointerDownListener);
     window.addEventListener('click', this.windowClickListener);
@@ -1729,6 +1736,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.isDestroyed = true;
+    window.removeEventListener('keydown', this.keydownCaptureListener, {
+      capture: true,
+    });
     window.removeEventListener('keydown', this.keydownListener);
     window.removeEventListener('mousedown', this.pointerDownListener);
     window.removeEventListener('click', this.windowClickListener);
@@ -4024,6 +4034,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private onWindowKeydown(event: KeyboardEvent): void {
+    const wasOverlayMenuOpen = this.wasOverlayMenuOpenOnKeydown;
+    this.wasOverlayMenuOpenOnKeydown = false;
+    if (wasOverlayMenuOpen || this.isOverlayMenuEvent(event)) {
+      return;
+    }
     const wasContextMenuOpen = this.contextMenu !== undefined;
     if (
       this.contextMenu &&
@@ -4178,6 +4193,27 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       'trace-viewer-help-dialog',
     ) as (Element & {open?: boolean}) | null;
     return Boolean(dialog?.open);
+  }
+
+  /** Whether an Angular CDK menu overlay (e.g. `<mat-menu>`) is open. */
+  private isOverlayMenuOpen(): boolean {
+    return Boolean(
+      document.querySelector('.cdk-overlay-container [role="menu"]'),
+    );
+  }
+
+  /** Whether `event` occurred while or inside an open CDK menu overlay. */
+  private isOverlayMenuEvent(event: Event): boolean {
+    return (
+      this.isOverlayMenuOpen() ||
+      event
+        .composedPath()
+        .some(
+          (node) =>
+            node instanceof HTMLElement &&
+            node.classList.contains('cdk-overlay-container'),
+        )
+    );
   }
 
   /** Whether the hovered source tooltip is cycling stack frames with [ / ]. */

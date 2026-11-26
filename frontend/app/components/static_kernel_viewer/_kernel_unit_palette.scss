@@ -3,47 +3,61 @@
 @mixin kernel-unit-tokens-light {
   --skv-unit-matrix: #734c9e;
   --skv-unit-matrix-container: #ecddf6;
+  --skv-unit-matrix-chart: #d7bbf3;
   --skv-on-unit-matrix-container: #5a3384;
   --skv-unit-xlu: #4858a9;
   --skv-unit-xlu-container: #dfe1f9;
+  --skv-unit-xlu-chart: #bbc3fa;
   --skv-on-unit-xlu-container: #2f4090;
   --skv-unit-vector: #006972;
   --skv-unit-vector-container: #cde7eb;
+  --skv-unit-vector-chart: #8dd2db;
   --skv-on-unit-vector-container: #004f56;
   --skv-unit-memory: #944170;
   --skv-unit-memory-container: #fdd9e8;
+  --skv-unit-memory-chart: #f7b3d3;
   --skv-on-unit-memory-container: #772957;
   --skv-unit-scalar: #745b00;
   --skv-unit-scalar-container: #f1e1bb;
+  --skv-unit-scalar-chart: #e0c477;
   --skv-on-unit-scalar-container: #574400;
   --skv-unit-sparse: #506601;
   --skv-unit-sparse-container: #dfe6c4;
+  --skv-unit-sparse-chart: #bdce8a;
   --skv-on-unit-sparse-container: #3c4d00;
   --skv-unit-other: #5b5f63;
   --skv-unit-other-container: #dfe3e7;
+  --skv-unit-other-chart: #c3c7cb;
   --skv-on-unit-other-container: #43474b;
 }
 
 @mixin kernel-unit-tokens-dark {
   --skv-unit-matrix: #c399f1;
   --skv-unit-matrix-container: #41374b;
+  --skv-unit-matrix-chart: #5f4878;
   --skv-on-unit-matrix-container: #e5caff;
   --skv-unit-xlu: #96a6fd;
   --skv-unit-xlu-container: #373a4d;
+  --skv-unit-xlu-chart: #474f7e;
   --skv-on-unit-xlu-container: #ccd2ff;
   --skv-unit-vector: #20bccb;
   --skv-unit-vector-container: #273f42;
+  --skv-unit-vector-chart: #015c64;
   --skv-on-unit-vector-container: #5fe7f6;
   --skv-unit-memory: #ee8cbf;
   --skv-unit-memory-container: #4c3540;
+  --skv-unit-memory-chart: #76425d;
   --skv-on-unit-memory-container: #ffc4df;
   --skv-unit-scalar: #cca72f;
   --skv-unit-scalar-container: #443b1f;
+  --skv-unit-scalar-chart: #64500e;
   --skv-on-unit-scalar-container: #f9d055;
   --skv-unit-sparse: #9bb54f;
   --skv-unit-sparse-container: #383e26;
+  --skv-unit-sparse-chart: #4a5821;
   --skv-on-unit-sparse-container: #c4df74;
   --skv-unit-other: #a8acb0;
   --skv-unit-other-container: #383c40;
+  --skv-unit-other-chart: #4f5357;
   --skv-on-unit-other-container: #d1d5d9;
 }

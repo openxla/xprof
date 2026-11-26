@@ -1,626 +1,898 @@
 <div
   *ngIf="content as c"
   class="selection-panel"
-  [style.--accent-color]="c.accentColor"
   role="region"
   aria-label="Selected HLO op event details"
 >
-  <div class="panel-header">
-    <div class="header-main">
-      <div class="header-title-row">
-        <span
-          class="unit-chip"
-          [class.neutral-chip]="!c.unit"
-          [style.--chip-color]="c.unit?.color ?? c.accentColor"
-        >
-          <span *ngIf="c.unit" class="unit-dot" aria-hidden="true"></span>
-          <mat-icon *ngIf="!c.unit" class="chip-icon" aria-hidden="true">{{ c.badgeIcon }}</mat-icon>
-          {{ c.badgeLabel }}
+  <div class="panel-header tab-strip-header">
+    <div class="rack-tab-labels" role="tablist">
+      <div
+        class="rack-tab active"
+        role="tab"
+        aria-selected="true"
+        [title]="c.name"
+      >
+        <span class="rack-tab-label-wrapper">
+          <span
+            class="event-color-swatch"
+            [attr.data-swatch-family]="c.headerSwatchFamily"
+            aria-hidden="true"
+          ></span>
+          <span class="event-name">{{ c.name }}</span>
         </span>
-
-        <span class="event-name" [class.code-name]="c.isCode">{{ c.name }}</span>
-
-        <span *ngIf="c.description" class="unit-description">{{ c.description }}</span>
-
-        <div *ngIf="c.subtitleChips as chips" class="subtitle-chips">
-          <span *ngFor="let chip of chips" class="subtitle-chip">{{ chip }}</span>
-        </div>
-      </div>
-
-      <div *ngIf="c.regionBreadcrumbs as crumbs" class="header-breadcrumb-row">
-        <span class="breadcrumb-label">{{ c.regionRowLabel ?? 'Region' }}</span>
-        <div class="region-breadcrumb">
-          <ng-container *ngFor="let crumb of crumbs; let last = last">
-            <button
-              *ngIf="crumb.eventIndex !== undefined; else staticCrumb"
-              type="button"
-              class="region-crumb interactive-crumb"
-              [class.innermost]="last"
-              (click)="onSelectEventIndex(crumb.eventIndex)"
-              [matTooltip]="
-                'Select region ' +
-                crumb.name +
-                (crumb.bundles ? ' (Bundles ' + crumb.bundles + ' · ' + crumb.durationLabel + ')' : '')
-              "
-              matTooltipPosition="above"
-            >
-              <mat-icon class="crumb-icon" aria-hidden="true">account_tree</mat-icon>
-              <span>{{ crumb.name }}</span>
-            </button>
-            <ng-template #staticCrumb>
-              <span class="region-crumb" [class.innermost]="last">{{ crumb.name }}</span>
-            </ng-template>
-            <span *ngIf="!last" class="region-sep" aria-hidden="true">›</span>
-          </ng-container>
-        </div>
-
-        <button
-          *ngIf="c.kind === 'region' && c.parentRegion as parent"
-          type="button"
-          class="parent-jump-pill"
-          (click)="onSelectEventIndex(parent.eventIndex)"
-          [matTooltip]="
-            'Go up to parent region ' +
-            parent.name +
-            ' (Bundles ' +
-            parent.bundles +
-            ' · ' +
-            parent.durationLabel +
-            ')'
-          "
-          matTooltipPosition="above"
-        >
-          <mat-icon class="parent-jump-icon" aria-hidden="true">north_west</mat-icon>
-          <span>Parent: {{ parent.name }}</span>
-        </button>
+        <span class="rack-tab-indicator" aria-hidden="true">
+          <span class="rack-tab-indicator-underline"></span>
+        </span>
       </div>
     </div>
 
-    <div class="header-meta-actions">
-      <div class="meta-pills">
-        <span
-          *ngIf="c.spillsLabel as spills"
-          class="spill-pill"
-          [class.warn]="c.hasSpills"
-          matTooltip="Vector register spills / fills in this selection"
-          matTooltipPosition="above"
-        >
-          <mat-icon *ngIf="c.hasSpills" class="spill-pill-icon" aria-hidden="true">warning</mat-icon>
-          <span>{{ spills }}</span>
-        </span>
+    <div class="header-actions action-buttons" role="group" aria-label="Selection actions">
+      <button
+        *ngIf="canGoBack"
+        type="button"
+        class="panel-action-btn back-history-btn"
+        (click)="goBack()"
+        [matTooltip]="previousSelectionLabel"
+        [attr.aria-label]="previousSelectionLabel"
+        matTooltipPosition="above"
+      >
+        <mat-icon aria-hidden="true">undo</mat-icon>
+      </button>
 
-        <span *ngIf="c.ordinalLabel" class="ordinal-pill">{{ c.ordinalLabel }}</span>
-
-        <span class="bundle-pill">
-          <span class="bundle-pill-label">{{ c.bundlesLabel }}</span>
-          <span class="bundle-pill-value">{{ c.bundles }}</span>
-          <span *ngIf="c.hexBundle" class="hex-bundle">{{ c.hexBundle }}</span>
-          <span *ngIf="c.length && c.mode === 'single'" class="bundle-length">· {{ c.length }}</span>
-        </span>
-      </div>
-
-      <div class="action-buttons" role="group" aria-label="Selection actions">
-        <button
-          *ngIf="canGoBack"
-          type="button"
-          class="panel-action-btn back-history-btn"
-          (click)="goBack()"
-          [matTooltip]="previousSelectionLabel"
-          [attr.aria-label]="previousSelectionLabel"
-          matTooltipPosition="above"
-        >
-          <mat-icon aria-hidden="true">undo</mat-icon>
-        </button>
-
-        <div
-          *ngIf="c.eventIndex !== undefined || c.prevEventIndex !== undefined || c.nextEventIndex !== undefined"
-          class="lane-stepper"
-          role="group"
-          aria-label="Lane navigation"
-        >
-          <button
-            type="button"
-            class="stepper-btn prev-lane-btn"
-            [disabled]="c.prevEventIndex === undefined"
-            (click)="onSelectEventIndex(c.prevEventIndex)"
-            [matTooltip]="
-              c.prevEventIndex !== undefined
-                ? 'Previous on lane (←)'
-                : 'No previous event on lane'
-            "
-            matTooltipPosition="above"
-            aria-label="Previous on lane"
-          >
-            <mat-icon aria-hidden="true">chevron_left</mat-icon>
-          </button>
-          <span class="stepper-divider" aria-hidden="true"></span>
-          <button
-            type="button"
-            class="stepper-btn next-lane-btn"
-            [disabled]="c.nextEventIndex === undefined"
-            (click)="onSelectEventIndex(c.nextEventIndex)"
-            [matTooltip]="
-              c.nextEventIndex !== undefined
-                ? 'Next on lane (→)'
-                : 'No next event on lane'
-            "
-            matTooltipPosition="above"
-            aria-label="Next on lane"
-          >
-            <mat-icon aria-hidden="true">chevron_right</mat-icon>
-          </button>
-        </div>
-
-        <div class="utility-actions">
-          <button
-            *ngIf="c.mode === 'single' && c.kind === 'instruction'"
-            type="button"
-            class="panel-action-btn"
-            (click)="onSearchText(c.name)"
-            [matTooltip]="'Highlight all ' + c.name + ' on timeline'"
-            [attr.aria-label]="'Highlight all ' + c.name + ' on timeline'"
-            matTooltipPosition="above"
-          >
-            <mat-icon aria-hidden="true">search</mat-icon>
-          </button>
-          <button
-            type="button"
-            class="panel-action-btn"
-            [class.copied]="copied"
-            (click)="copySummary()"
-            [matTooltip]="copied ? 'Copied summary' : 'Copy selection summary'"
-            [attr.aria-label]="copied ? 'Copied summary' : 'Copy selection summary'"
-            matTooltipPosition="above"
-          >
-            <mat-icon aria-hidden="true">{{ copied ? 'check' : 'content_copy' }}</mat-icon>
-          </button>
-          <button
-            type="button"
-            class="panel-action-btn close-btn"
-            (click)="close()"
-            matTooltip="Close details panel"
-            aria-label="Close details panel"
-            matTooltipPosition="above"
-          >
-            <mat-icon aria-hidden="true">close</mat-icon>
-          </button>
-        </div>
-      </div>
+      <button
+        *ngIf="c.mode === 'single' && c.kind === 'instruction'"
+        type="button"
+        class="panel-action-btn"
+        (click)="onSearchText(c.name)"
+        [matTooltip]="'Highlight all ' + c.name + ' on timeline'"
+        [attr.aria-label]="'Highlight all ' + c.name + ' on timeline'"
+        matTooltipPosition="above"
+      >
+        <mat-icon aria-hidden="true">search</mat-icon>
+      </button>
+      <button
+        type="button"
+        class="panel-action-btn"
+        [class.copied]="copied"
+        (click)="copySummary()"
+        [matTooltip]="copied ? 'Copied summary' : 'Copy selection summary'"
+        [attr.aria-label]="copied ? 'Copied summary' : 'Copy selection summary'"
+        matTooltipPosition="above"
+      >
+        <mat-icon aria-hidden="true">{{ copied ? 'check' : 'content_copy' }}</mat-icon>
+      </button>
+      <button
+        type="button"
+        class="panel-action-btn close-btn"
+        (click)="close()"
+        matTooltip="Close details panel"
+        aria-label="Close details panel"
+        matTooltipPosition="above"
+      >
+        <mat-icon aria-hidden="true">close</mat-icon>
+      </button>
     </div>
   </div>
 
-  <!-- MODE 1: SINGLE INSTRUCTION / COUNTER / PROCESS BUNDLE INSPECTION -->
-  <div *ngIf="c.mode === 'single'" class="panel-grid single-mode-grid">
-    <!-- Column 1: Counter Insights (when kind === 'counter') OR Dataflow & Hardware Properties -->
-    <section class="panel-card">
-      <div class="card-section-header">
-        <span class="section-title">
-          {{ c.kind === 'counter' ? 'Counter & Track Insights' : 'Dataflow & Properties' }}
-        </span>
-        <span *ngIf="c.registerTypeLabel" class="section-badge">{{ c.registerTypeLabel }}</span>
-        <span
-          *ngIf="c.kind === 'counter' && c.counterDetails?.deltaFromMeanLabel as delta"
-          class="section-badge highlight-badge"
-        >
-          {{ delta }}
-        </span>
+  <ng-template #scopeCrumbItem let-item>
+    <button
+      *ngIf="item.crumb.eventIndex !== undefined; else staticCrumb"
+      type="button"
+      class="rack-value-chip interactive-chip scope-chip interactive-crumb"
+      [class.current]="item.isLast"
+      (click)="onSelectEventIndex(item.crumb.eventIndex)"
+      [matTooltip]="
+        'Select region ' +
+        item.crumb.name +
+        (item.crumb.bundles
+          ? ' (Bundles ' + item.crumb.bundles + ' · ' + item.crumb.durationLabel + ')'
+          : '')
+      "
+      matTooltipPosition="above"
+    >
+      <span>{{ item.crumb.name }}</span>
+    </button>
+    <ng-template #staticCrumb>
+      <span class="rack-value-chip scope-chip" [class.current]="item.isLast">
+        <span>{{ item.crumb.name }}</span>
+      </span>
+    </ng-template>
+  </ng-template>
+
+  <ng-template #scopeRow let-crumbs let-rawRegions="rawRegions">
+    <div *ngIf="scopeView.head.length > 0" class="prop-row header-breadcrumb-row">
+      <span class="prop-label">Scope</span>
+      <div class="prop-value-cell">
+        <div class="scope-crumbs-cell" [title]="rawRegions ? rawRegions.join(' › ') : ''">
+          <ng-container
+            *ngFor="let item of scopeView.head; let last = last; trackBy: trackByScopeCrumb"
+          >
+            <ng-container
+              *ngTemplateOutlet="scopeCrumbItem; context: {$implicit: item}"
+            ></ng-container>
+            <span *ngIf="!last || scopeView.hiddenCount > 0" class="scope-sep" aria-hidden="true"
+              >›</span
+            >
+          </ng-container>
+          <ng-container *ngIf="scopeView.hiddenCount > 0">
+            <button
+              type="button"
+              class="rack-value-chip interactive-chip scope-chip scope-ellipsis-chip"
+              (click)="expandScope()"
+              [matTooltip]="'Show all ' + crumbs.length + ' scope levels'"
+              [attr.aria-label]="'Show all ' + crumbs.length + ' scope levels'"
+              matTooltipPosition="above"
+            >
+              <span>… +{{ scopeView.hiddenCount }}</span>
+            </button>
+            <ng-container *ngFor="let item of scopeView.tail; trackBy: trackByScopeCrumb">
+              <span class="scope-sep" aria-hidden="true">›</span>
+              <ng-container
+                *ngTemplateOutlet="scopeCrumbItem; context: {$implicit: item}"
+              ></ng-container>
+            </ng-container>
+          </ng-container>
+        </div>
       </div>
+    </div>
+  </ng-template>
 
-      <div class="card-section-body">
-        <!-- Revamped Single-Click Counter / Utilization Details View -->
-        <ng-container *ngIf="c.kind === 'counter' && c.counterDetails as cd; else standardSingleCol1">
-          <div class="counter-kpi-grid">
-            <div class="counter-kpi-box primary-kpi">
-              <span class="kpi-label">At Bundle {{ c.bundles }}</span>
-              <span class="kpi-value">{{ cd.formattedCurrent }}</span>
-            </div>
-            <div *ngIf="cd.formattedMean" class="counter-kpi-box">
-              <span class="kpi-label">Op Mean</span>
-              <span class="kpi-value">{{ cd.formattedMean }}</span>
-            </div>
-            <div *ngIf="cd.formattedPeak" class="counter-kpi-box">
-              <span class="kpi-label">Op Peak</span>
-              <span class="kpi-value">
-                {{ cd.formattedPeak }}
-                <span *ngIf="cd.peakBundleLabel" class="kpi-sub">{{ cd.peakBundleLabel }}</span>
-              </span>
-            </div>
+  <ng-template #inlineLaneStepper let-c>
+    <ng-container
+      *ngIf="
+        c.eventIndex !== undefined ||
+          c.prevEventIndex !== undefined ||
+          c.nextEventIndex !== undefined;
+        else plainBundlesValue
+      "
+    >
+      <span class="lane-stepper" role="group" aria-label="Lane navigation">
+        <button
+          type="button"
+          class="prop-step-btn stepper-btn prev-lane-btn"
+          [disabled]="c.prevEventIndex === undefined"
+          (click)="onSelectEventIndex(c.prevEventIndex)"
+          [matTooltip]="
+            c.prevEventIndex !== undefined
+              ? 'Previous on ' + (c.unit?.label ?? c.spanTrackName ?? 'lane') + ' (←)'
+              : 'No previous event on lane'
+          "
+          matTooltipPosition="above"
+          aria-label="Previous on lane"
+        >
+          <mat-icon class="prop-step-icon" aria-hidden="true">chevron_left</mat-icon>
+        </button>
+        <span class="prop-value">{{ c.bundles }}</span>
+        <button
+          type="button"
+          class="prop-step-btn stepper-btn next-lane-btn"
+          [disabled]="c.nextEventIndex === undefined"
+          (click)="onSelectEventIndex(c.nextEventIndex)"
+          [matTooltip]="
+            c.nextEventIndex !== undefined
+              ? 'Next on ' + (c.unit?.label ?? c.spanTrackName ?? 'lane') + ' (→)'
+              : 'No next event on lane'
+          "
+          matTooltipPosition="above"
+          aria-label="Next on lane"
+        >
+          <mat-icon class="prop-step-icon" aria-hidden="true">chevron_right</mat-icon>
+        </button>
+      </span>
+    </ng-container>
+    <ng-template #plainBundlesValue>
+      <span class="prop-value">{{ c.bundles }}</span>
+    </ng-template>
+  </ng-template>
+
+  <ng-template #sourceProvenanceBlock let-c let-inRangeFooter="inRangeFooter">
+    <div class="source-provenance-block" [class.range-source-footer]="inRangeFooter">
+      <ng-container *ngIf="activeSourceFrame(c) as activeFrame; else sourceUnavailableRow">
+        <div class="prop-row source-block-header">
+          <span class="prop-label">Source</span>
+          <div class="prop-value-cell source-header-cell">
+            <button
+              class="source-pill interactive-pill"
+              type="button"
+              (click)="openSource.emit(activeFrame.raw)"
+              [matTooltip]="activeFrame.raw + ' · Show in source'"
+              matTooltipPosition="above"
+              [attr.aria-label]="'Show ' + activeFrame.shortLocation + ' in source'"
+            >
+              <mat-icon class="source-pill-icon" aria-hidden="true">code</mat-icon>
+              <span class="source-pill-file">{{ activeFrame.shortLocation }}</span>
+              <span *ngIf="activeFrame.directory" class="source-pill-dir">{{
+                activeFrame.directory
+              }}</span>
+            </button>
+
+            <button
+              *ngIf="c.sourceStack && c.sourceStack.length > 1"
+              type="button"
+              class="stack-toggle"
+              [attr.aria-expanded]="stackOpen"
+              (click)="toggleStackOpen()"
+            >
+              <span>Stack ({{ c.sourceStack.length }})</span>
+              <mat-icon class="stack-toggle-icon" aria-hidden="true">{{
+                stackOpen ? 'expand_less' : 'expand_more'
+              }}</mat-icon>
+            </button>
+
+            <button
+              type="button"
+              class="stack-frame-open header-open"
+              [attr.aria-label]="'Open ' + activeFrame.shortLocation"
+              [matTooltip]="'Open ' + activeFrame.raw + ' in source'"
+              matTooltipPosition="above"
+              (click)="openSource.emit(activeFrame.raw)"
+            >
+              <mat-icon class="external-icon" aria-hidden="true">open_in_new</mat-icon>
+            </button>
           </div>
+        </div>
 
-          <div class="counter-comparison-gauge">
-            <div class="comparison-gauge-header">
-              <span class="comparison-gauge-caption">Bundle vs. Op Range</span>
-              <span *ngIf="cd.formattedMin && cd.formattedPeak" class="comparison-gauge-bounds">
-                {{ cd.formattedMin }} – {{ cd.formattedPeak }}
-              </span>
-            </div>
-            <span class="comparison-gauge-track" aria-hidden="true">
-              <span
-                class="comparison-gauge-fill"
-                [style.width.%]="cd.currentPercentOfPeak"
-                [style.background-color]="c.accentColor"
-              ></span>
-              <span
-                *ngIf="cd.meanPercentOfPeak !== undefined"
-                class="comparison-mean-marker"
-                [style.left.%]="cd.meanPercentOfPeak"
-                [matTooltip]="'Op Mean: ' + (cd.formattedMean ?? '')"
-                matTooltipPosition="above"
-              ></span>
+        <div
+          *ngIf="stackOpen && c.sourceStack && c.sourceStack.length > 1"
+          class="stack-frames source-stack-list"
+          role="list"
+          aria-label="Call stack, outermost caller first"
+        >
+          <div
+            *ngFor="let frame of c.sourceStack; let i = index"
+            role="listitem"
+            class="stack-frame source-stack-frame"
+            [class.selected]="i === effectiveStackIndex(c)"
+            [class.innermost-frame]="frame.isInnermost"
+          >
+            <button
+              type="button"
+              class="stack-frame-select"
+              [attr.aria-pressed]="i === effectiveStackIndex(c)"
+              [matTooltip]="frame.raw"
+              matTooltipPosition="above"
+              (click)="selectStackFrame(i)"
+            >
+              <span class="stack-frame-name frame-file">{{ frame.shortLocation }}</span>
+              <span *ngIf="frame.directory" class="stack-frame-dir frame-dir">{{
+                frame.directory
+              }}</span>
+            </button>
+            <button
+              type="button"
+              class="stack-frame-open"
+              [attr.aria-label]="'Open ' + frame.shortLocation"
+              [matTooltip]="'Open ' + frame.raw + ' in source'"
+              matTooltipPosition="above"
+              (click)="openSource.emit(frame.raw)"
+            >
+              <mat-icon class="external-icon" aria-hidden="true">open_in_new</mat-icon>
+            </button>
+          </div>
+        </div>
+      </ng-container>
+
+      <ng-template #sourceUnavailableRow>
+        <div class="prop-row">
+          <span class="prop-label">Source</span>
+          <div class="prop-value-cell">
+            <span class="code-block-empty" role="status">
+              <mat-icon class="code-block-empty-icon" aria-hidden="true">code_off</mat-icon>
+              <span>Source code isn't available</span>
             </span>
           </div>
+        </div>
+      </ng-template>
+    </div>
+  </ng-template>
 
-          <div class="kv-grid counter-meta-grid">
-            <div class="kv-row">
-              <span class="kv-key">Step hold interval</span>
-              <span class="kv-value">{{ cd.stepRangeLabel }} · {{ cd.stepDurationLabel }}</span>
+  <ng-template #schedulePositionRow let-pos>
+    <div class="prop-row card-section-footer">
+      <span class="prop-label">Position</span>
+      <div class="prop-value-cell">
+        <span class="prop-value">{{ pos.formattedPercent }}</span>
+        <span class="prop-secondary">of {{ pos.totalBundles }} bundles</span>
+        <span class="inline-pos-track" aria-hidden="true">
+          <span class="inline-pos-fill" [style.width.%]="pos.percent"></span>
+        </span>
+      </div>
+    </div>
+  </ng-template>
+
+  <ng-template #spillsRow let-spills let-hasSpills="hasSpills">
+    <div class="prop-row">
+      <span class="prop-label">Spills</span>
+      <div class="prop-value-cell">
+        <mat-icon *ngIf="hasSpills" class="prop-warning-icon" aria-hidden="true">warning</mat-icon>
+        <span class="prop-value" [class.warning]="hasSpills">{{ spills }}</span>
+      </div>
+    </div>
+  </ng-template>
+
+  <ng-template #attributesRow let-attrs>
+    <div class="prop-row">
+      <span class="prop-label">Attributes</span>
+      <div class="prop-value-cell">
+        <div class="pills-wrap attr-chip-list">
+          <span
+            *ngFor="let attr of attrs"
+            class="rack-value-chip attr-chip"
+            [matTooltip]="attr.key + ': ' + attr.value"
+            matTooltipPosition="above"
+          >
+            <span class="attr-chip-key">{{ attr.key }}:</span>
+            <span class="attr-chip-val">{{ attr.value }}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </ng-template>
+
+  <ng-template #topInstructionsList let-items>
+    <div class="top-instructions-list">
+      <button
+        *ngFor="let item of items"
+        type="button"
+        class="top-instruction-row"
+        (click)="
+          item.firstEventIndex >= 0
+            ? onSelectEventIndex(item.firstEventIndex)
+            : onSearchText(item.name)
+        "
+        [matTooltip]="
+          (item.firstEventIndex >= 0 ? 'Jump to first ' : 'Highlight ') +
+          item.name +
+          ' (' +
+          (item.count | number) +
+          ' occurrences · ' +
+          item.totalBundlesLabel +
+          ')'
+        "
+        matTooltipPosition="above"
+      >
+        <span
+          *ngIf="item.trackName"
+          class="unit-util-pill compact-row-badge"
+          [attr.data-unit-family]="unitFamily(item.trackName)"
+        >
+          {{ item.trackName }}
+        </span>
+        <span class="row-mnemonic">{{ item.name }}</span>
+        <span class="row-count">×{{ item.count | number }}</span>
+        <span class="row-share">{{ item.formattedShare }}</span>
+      </button>
+    </div>
+  </ng-template>
+
+  <div class="panel-body">
+    <!-- MODE 1: SINGLE INSTRUCTION / SPAN / COUNTER / PROCESS BUNDLE INSPECTION -->
+    <div *ngIf="c.mode === 'single'" class="split-columns single-mode-grid">
+      <!-- Pillar 1: Identity, Timing, Dataflow & Scope (or Counter Telemetry) -->
+      <section class="prop-column panel-card">
+        <div class="column-provenance-crumbs" aria-label="Timeline track provenance">
+          <ng-container *ngIf="c.kind === 'counter'; else nonCounterProvenance">
+            <span class="provenance-crumb unit-chip">{{ counterGroupCrumb(c) }}</span>
+            <span class="provenance-sep" aria-hidden="true">›</span>
+            <span class="provenance-crumb last">{{ c.name }}</span>
+          </ng-container>
+          <ng-template #nonCounterProvenance>
+            <span class="provenance-crumb">{{
+              c.isSparseCore ? 'SparseCore' : 'TensorCore'
+            }}</span>
+            <span class="provenance-sep" aria-hidden="true">›</span>
+            <span class="provenance-crumb last unit-chip">{{
+              c.description ?? c.badgeLabel
+            }}</span>
+          </ng-template>
+        </div>
+
+        <ng-container *ngIf="c.kind === 'counter' && c.counterDetails as cd; else standardSingleCol1">
+          <div class="prop-grid">
+            <div
+              class="prop-row counter-kpi-box primary-kpi"
+              [matTooltip]="counterAtBundleTooltip(c, cd)"
+              matTooltipPosition="above"
+            >
+              <span class="prop-label">At bundle</span>
+              <div class="prop-value-cell">
+                <span class="prop-value">{{ cd.formattedCurrent }}</span>
+                <span class="prop-secondary">· Bundle {{ c.bundles }}</span>
+                <span *ngIf="cd.deltaFromMeanLabel" class="prop-secondary"
+                  >· {{ cd.deltaFromMeanLabel }}</span
+                >
+              </div>
             </div>
-            <div *ngIf="cd.activeCoverageLabel" class="kv-row">
-              <span class="kv-key">Active coverage</span>
-              <span class="kv-value">{{ cd.activeCoverageLabel }}</span>
+
+            <div
+              *ngIf="cd.formattedMean"
+              class="prop-row counter-kpi-box"
+              [matTooltip]="counterOpMeanTooltip(c)"
+              matTooltipPosition="above"
+            >
+              <span class="prop-label">Op mean</span>
+              <div class="prop-value-cell">
+                <span class="prop-value">{{ cd.formattedMean }}</span>
+              </div>
             </div>
-            <div *ngIf="cd.sampleCount !== undefined" class="kv-row">
-              <span class="kv-key">Track samples</span>
-              <span class="kv-value">{{ cd.sampleCount | number }} changes</span>
+
+            <div
+              *ngIf="cd.formattedPeak"
+              class="prop-row counter-kpi-box"
+              [matTooltip]="counterOpPeakTooltip(c, cd)"
+              matTooltipPosition="above"
+            >
+              <span class="prop-label">Op peak</span>
+              <div class="prop-value-cell">
+                <span class="prop-value">{{ cd.formattedPeak }}</span>
+                <span *ngIf="cd.peakBundleLabel" class="prop-secondary"
+                  >· {{ cd.peakBundleLabel }}</span
+                >
+              </div>
             </div>
+
+            <div
+              class="prop-row"
+              [matTooltip]="counterOpRangeTooltip(c, cd)"
+              matTooltipPosition="above"
+            >
+              <span class="prop-label">Op range</span>
+              <div class="prop-value-cell counter-range-cell">
+                <span
+                  class="comparison-gauge-track"
+                  [attr.data-swatch-family]="c.headerSwatchFamily"
+                  aria-hidden="true"
+                >
+                  <span
+                    class="comparison-gauge-fill"
+                    [style.width.%]="cd.currentPercentOfPeak"
+                  ></span>
+                  <span
+                    *ngIf="cd.meanPercentOfPeak !== undefined"
+                    class="comparison-mean-marker"
+                    [style.left.%]="cd.meanPercentOfPeak"
+                    [matTooltip]="counterOpMeanMarkerTooltip(cd)"
+                    matTooltipPosition="above"
+                  ></span>
+                </span>
+                <span *ngIf="cd.formattedMin && cd.formattedPeak" class="prop-secondary">
+                  {{ cd.formattedMin }} – {{ cd.formattedPeak }}
+                </span>
+              </div>
+            </div>
+
+            <div class="counter-meta-grid">
+              <div
+                class="prop-row"
+                [matTooltip]="counterStepHoldTooltip(cd)"
+                matTooltipPosition="above"
+              >
+                <span class="prop-label">Step hold</span>
+                <div class="prop-value-cell">
+                  <span class="prop-value">{{ cd.stepRangeLabel }}</span>
+                  <span class="prop-secondary">· {{ cd.stepDurationLabel }}</span>
+                </div>
+              </div>
+              <div
+                *ngIf="cd.activeCoverageLabel"
+                class="prop-row"
+                [matTooltip]="counterCoverageTooltip(c)"
+                matTooltipPosition="above"
+              >
+                <span class="prop-label">Coverage</span>
+                <div class="prop-value-cell">
+                  <span class="prop-value">{{ cd.activeCoverageLabel }}</span>
+                </div>
+              </div>
+            </div>
+
+            <ng-container *ngIf="c.regionBreadcrumbs as crumbs">
+              <ng-container
+                *ngTemplateOutlet="scopeRow; context: {$implicit: crumbs, rawRegions: c.regions}"
+              ></ng-container>
+            </ng-container>
           </div>
         </ng-container>
 
         <ng-template #standardSingleCol1>
-          <div *ngIf="c.counterGauge as gauge" class="dataflow-row">
-            <span class="dataflow-label">{{ gauge.label }}</span>
-            <div class="gauge-row">
-              <span class="gauge-track" aria-hidden="true">
-                <span
-                  class="gauge-fill"
-                  [style.width.%]="gauge.percent"
-                  [style.background-color]="gauge.color"
-                ></span>
-              </span>
-              <span class="gauge-value">{{ gauge.formattedValue }}</span>
+          <div class="prop-grid">
+            <div class="prop-row bundle-pill">
+              <span class="prop-label">{{ c.bundlesLabel }}</span>
+              <div class="prop-value-cell">
+                <ng-container
+                  *ngTemplateOutlet="inlineLaneStepper; context: {$implicit: c}"
+                ></ng-container>
+                <span *ngIf="c.hexBundle" class="prop-secondary">· {{ c.hexBundle }}</span>
+                <span *ngIf="c.length" class="prop-secondary">· {{ c.length }}</span>
+                <span *ngIf="c.ordinalLabel" class="prop-secondary">· {{ c.ordinalLabel }}</span>
+              </div>
             </div>
-          </div>
 
-          <div
-            *ngIf="c.output || c.operands || c.consumers || c.spillsLabel || c.sourceInfo || c.sourceStack || c.extraAttributes"
-            class="dataflow-grid"
-          >
-            <div *ngIf="c.output as out" class="dataflow-row">
-              <span class="dataflow-label">{{ out.rowLabel }}</span>
-              <div class="llo-badges">
+            <ng-container *ngIf="c.schedulePosition as pos">
+              <ng-container
+                *ngTemplateOutlet="schedulePositionRow; context: {$implicit: pos}"
+              ></ng-container>
+            </ng-container>
+
+            <div *ngIf="c.counterGauge as gauge" class="prop-row">
+              <span class="prop-label">{{ gauge.label }}</span>
+              <div class="prop-value-cell">
+                <span class="prop-value">{{ gauge.formattedValue }}</span>
+              </div>
+            </div>
+
+            <div *ngIf="c.output as out" class="prop-row">
+              <span class="prop-label">{{ out.rowLabel }}</span>
+              <div class="prop-value-cell">
                 <button
                   *ngIf="out.register"
                   type="button"
-                  class="register-pill interactive-pill"
-                  [attr.data-kind]="out.registerKind"
+                  class="rack-value-chip interactive-chip register-pill interactive-pill"
                   (click)="onSearchText(out.register)"
                   [matTooltip]="'Search ' + out.register + ' in timeline'"
                   matTooltipPosition="above"
                 >
                   {{ out.register }}
                 </button>
-                <span *ngIf="out.memorySpace" class="memory-pill">{{ out.memorySpace }}</span>
-                <span *ngIf="out.metadata" class="metadata-pill">{{ out.metadata }}</span>
-                <span *ngIf="out.throughput" class="throughput-pill">{{ out.throughput }}</span>
+                <span *ngIf="c.registerTypeLabel" class="prop-secondary">{{
+                  c.registerTypeLabel
+                }}</span>
+                <span *ngIf="out.memorySpace" class="prop-secondary">{{
+                  (out.register || c.registerTypeLabel ? '· ' : '') + out.memorySpace
+                }}</span>
+                <span *ngIf="out.metadata" class="prop-secondary">{{
+                  (out.register || c.registerTypeLabel || out.memorySpace ? '· ' : '') +
+                    out.metadata
+                }}</span>
+                <span *ngIf="out.throughput" class="prop-secondary">{{
+                  (out.register || c.registerTypeLabel || out.memorySpace || out.metadata
+                    ? '· '
+                    : '') + out.throughput
+                }}</span>
+                <span *ngFor="let badge of out.extraBadges" class="rack-value-chip">{{
+                  badge
+                }}</span>
               </div>
             </div>
 
-            <div *ngIf="c.operands as operands" class="dataflow-row">
-              <span class="dataflow-label">Operands ({{ operands.length }})</span>
-              <div class="operand-list">
-                <div
-                  *ngFor="let op of operands"
-                  class="operand-item"
-                  [matTooltip]="'Operand ' + op.index + ': ' + op.text"
-                  matTooltipPosition="above"
-                >
-                  <span class="operand-index">{{ op.index }}</span>
-                  <span class="operand-text">{{ op.text }}</span>
+            <div *ngIf="c.operands as operands" class="prop-row">
+              <span class="prop-label">Operands</span>
+              <div class="prop-value-cell">
+                <div class="pills-wrap">
+                  <span
+                    *ngFor="let op of operands"
+                    class="rack-value-chip operand-chip"
+                    [matTooltip]="'Operand ' + op.index + ': ' + op.text"
+                    matTooltipPosition="above"
+                  >
+                    {{ op.text }}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div *ngIf="c.consumers as consumers" class="dataflow-row">
-              <span class="dataflow-label">Consumers ({{ consumers.length }})</span>
-              <div class="consumer-list">
-                <button
-                  *ngFor="let consumer of consumers"
-                  type="button"
-                  class="consumer-chip interactive-chip"
-                  (click)="onSearchText(consumer)"
-                  [matTooltip]="'Search ' + consumer + ' in timeline'"
-                  matTooltipPosition="above"
-                >
-                  <span class="consumer-arrow" aria-hidden="true">→</span>
-                  <span class="consumer-text">{{ consumer }}</span>
-                </button>
-              </div>
-            </div>
-
-            <div *ngIf="c.spillsLabel as spills" class="dataflow-row">
-              <span class="dataflow-label">Vector spills</span>
-              <div class="llo-badges">
-                <span class="spill-pill" [class.warn]="c.hasSpills">
-                  <mat-icon *ngIf="c.hasSpills" class="spill-pill-icon" aria-hidden="true">warning</mat-icon>
-                  <span>{{ spills }}</span>
-                </span>
-              </div>
-            </div>
-
-            <div *ngIf="c.sourceInfo as src" class="dataflow-row">
-              <span class="dataflow-label">Source</span>
-              <button
-                class="source-pill interactive-pill"
-                type="button"
-                (click)="openSource.emit(src.raw)"
-                [matTooltip]="src.raw + ' · Show in source'"
-                matTooltipPosition="above"
-                [attr.aria-label]="'Show ' + src.shortLocation + ' in source'"
-              >
-                <mat-icon class="source-pill-icon" aria-hidden="true">code</mat-icon>
-                <span class="source-pill-file">{{ src.shortLocation }}</span>
-                <span *ngIf="src.directory" class="source-pill-dir">{{ src.directory }}</span>
-              </button>
-            </div>
-
-            <div *ngIf="c.sourceStack as stack" class="dataflow-row">
-              <span class="dataflow-label">Stack ({{ stack.length }})</span>
-              <div class="source-stack-list" role="list" aria-label="Source call stack">
-                <div
-                  *ngFor="let frame of stack"
-                  role="listitem"
-                  class="source-stack-frame"
-                  [class.innermost-frame]="frame.isInnermost"
-                  [matTooltip]="frame.raw"
-                  matTooltipPosition="above"
-                >
-                  <span class="frame-index">{{ frame.index }}</span>
-                  <span class="frame-file">{{ frame.shortLocation }}</span>
-                  <span *ngIf="frame.directory" class="frame-dir">{{ frame.directory }}</span>
+            <div *ngIf="c.consumerGroups as consumerGroups" class="prop-row">
+              <span class="prop-label">Consumers</span>
+              <div class="prop-value-cell">
+                <div class="pills-wrap consumer-list">
+                  <button
+                    *ngFor="let cg of consumerGroups"
+                    type="button"
+                    class="rack-value-chip interactive-chip consumer-chip"
+                    (click)="onSearchText(cg.name)"
+                    [matTooltip]="'Search ' + cg.name + ' in timeline'"
+                    matTooltipPosition="above"
+                  >
+                    <span class="consumer-text">{{ cg.name }}</span>
+                    <span *ngIf="cg.count > 1" class="chip-count">×{{ cg.count }}</span>
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div *ngIf="c.extraAttributes as attrs" class="dataflow-row">
-              <span class="dataflow-label">Attributes</span>
-              <div class="attr-chip-list">
-                <span
-                  *ngFor="let attr of attrs"
-                  class="attr-chip"
-                  [matTooltip]="attr.key + ': ' + attr.value"
-                  matTooltipPosition="above"
-                >
-                  <span class="attr-chip-key">{{ attr.key }}:</span>
-                  <span class="attr-chip-val">{{ attr.value }}</span>
-                </span>
-              </div>
-            </div>
-          </div>
+            <ng-container *ngIf="c.regionBreadcrumbs as crumbs">
+              <ng-container
+                *ngTemplateOutlet="scopeRow; context: {$implicit: crumbs, rawRegions: c.regions}"
+              ></ng-container>
+            </ng-container>
 
-          <div
-            *ngIf="!c.output && !c.operands && !c.consumers && !c.spillsLabel && !c.sourceInfo && !c.sourceStack && !c.extraAttributes && !c.counterGauge"
-            class="kv-grid"
-          >
-            <div *ngIf="c.unit" class="kv-row">
-              <span class="kv-key">Functional unit</span>
-              <span class="kv-value">{{ c.unit.label }}{{ c.unit.description ? ' — ' + c.unit.description : '' }}</span>
-            </div>
-            <div class="kv-row">
-              <span class="kv-key">{{ c.bundlesLabel }}</span>
-              <span class="kv-value">{{ c.bundles }} {{ c.hexBundle ?? '' }}</span>
-            </div>
-            <div *ngIf="c.length" class="kv-row">
-              <span class="kv-key">Duration</span>
-              <span class="kv-value">{{ c.length }}</span>
-            </div>
-            <div *ngIf="c.schedulePosition as pos" class="kv-row">
-              <span class="kv-key">Schedule offset</span>
-              <span class="kv-value">{{ pos.formattedPercent }} of {{ pos.totalBundles }} bundles</span>
+            <div
+              *ngIf="
+                !c.output &&
+                !c.operands &&
+                !c.consumers &&
+                !c.spillsLabel &&
+                !c.regionBreadcrumbs &&
+                !c.schedulePosition &&
+                c.unit
+              "
+              class="prop-row"
+            >
+              <span class="prop-label">Functional unit</span>
+              <div class="prop-value-cell">
+                <span class="prop-value">{{ c.unit.label }}</span>
+                <span *ngIf="c.unit.description" class="prop-secondary"
+                  >· {{ c.unit.description }}</span
+                >
+              </div>
             </div>
           </div>
         </ng-template>
-      </div>
-    </section>
+      </section>
 
-    <!-- Column 2: Co-Scheduled in This Bundle -->
-    <section class="panel-card">
-      <div class="card-section-header">
-        <span class="section-title">In This Bundle</span>
-        <span *ngIf="c.activeLanesSummary" class="section-badge">{{ c.activeLanesSummary }}</span>
-      </div>
-
-      <div class="card-section-body">
-        <div
-          *ngIf="c.bundleStrip as strip"
-          class="bundle-strip"
-          [class.expanded-strip]="c.hasLargeBundleCounts"
-          role="list"
-          aria-label="VLIW lane occupancy"
-        >
-          <span
-            *ngFor="let cell of strip"
-            role="listitem"
-            class="bundle-cell"
-            [class.active]="cell.active"
-            [class.has-count]="cell.count > 1"
-            [style.--unit-color]="cell.unit.color"
-            [matTooltip]="
-              cell.unit.label +
-              (cell.unit.description ? ' (' + cell.unit.description + ')' : '') +
-              ': ' +
-              cell.formattedCount +
-              (cell.count === 1 ? ' instruction' : ' instructions') +
-              ' in ' +
-              (c.bundlesLabel | lowercase) +
-              ' ' +
-              c.bundles
-            "
-            matTooltipPosition="above"
-          >
-            <span class="bundle-cell-unit">{{ cell.unit.label }}</span>
-            <span *ngIf="cell.count > 1" class="bundle-cell-count">×{{ cell.formattedCount }}</span>
-          </span>
-        </div>
-
-        <div *ngIf="c.bundleEvents as events; else noBundleEvents" class="bundle-events-list">
-          <button
-            *ngFor="let item of events"
-            type="button"
-            class="bundle-event-row"
-            [class.is-selected]="item.selected"
-            [style.--row-unit-color]="item.unit?.color ?? c.accentColor"
-            (click)="onSelectEventIndex(item.eventIndex)"
-            [matTooltip]="
-              item.selected
-                ? 'Currently selected instruction (' + item.trackName + ' ' + item.name + ')'
-                : 'Select co-scheduled ' + item.trackName + ' ' + item.name
-            "
-            matTooltipPosition="above"
-          >
-            <span
-              class="row-unit-tag"
-              [style.--unit-color]="item.unit?.color ?? c.accentColor"
-            >
-              <span class="unit-dot" aria-hidden="true"></span>
-              {{ item.trackName }}
-            </span>
-            <span class="row-mnemonic">{{ item.name }}</span>
-            <span
-              *ngIf="item.produces"
-              class="register-pill compact-pill"
-              [attr.data-kind]="item.registerKind"
-            >
-              → {{ item.produces }}
-            </span>
-            <span *ngIf="item.ordinalLabel" class="row-ordinal">{{ item.ordinalLabel }}</span>
-          </button>
-        </div>
-        <ng-template #noBundleEvents>
+      <!-- Pillar 2: VLIW 8-Lane Occupancy, Static Utilization & Attributes / Position -->
+      <section class="prop-column panel-card">
+        <div *ngIf="c.bundleStrip as strip" class="vliw-block">
+          <div class="pillar-meta-row">
+            <span class="pillar-meta-label">In bundle</span>
+            <span *ngIf="c.activeLanesSummary" class="pillar-meta-count">{{
+              c.activeLanesSummary
+            }}</span>
+          </div>
           <div
-            *ngIf="c.topInstructions && c.topInstructions.length > 0; else singleBundleHint"
-            class="top-instructions-list"
+            class="bundle-strip"
+            [class.expanded-strip]="c.hasLargeBundleCounts"
+            role="list"
+            aria-label="VLIW lane occupancy"
           >
-            <button
-              *ngFor="let item of c.topInstructions"
-              type="button"
-              class="top-instruction-row"
-              [style.--row-unit-color]="item.unit?.color ?? c.accentColor"
-              [style.--share-pct]="item.sharePercent + '%'"
-              (click)="item.firstEventIndex >= 0 ? onSelectEventIndex(item.firstEventIndex) : onSearchText(item.name)"
+            <span
+              *ngFor="let cell of strip"
+              role="listitem"
+              class="bundle-cell"
+              [class.active]="cell.active"
+              [class.is-current-lane]="c.unit?.label === cell.unit.label"
+              [class.has-count]="cell.count > 1"
+              [attr.data-unit-family]="unitFamily(cell.unit.label)"
               [matTooltip]="
-                (item.firstEventIndex >= 0 ? 'Jump to first ' : 'Highlight ') +
-                item.name +
-                ' (' +
-                (item.count | number) +
-                ' occurrences · ' +
-                item.totalBundlesLabel +
-                ')'
+                cell.unit.label +
+                (cell.unit.description ? ' (' + cell.unit.description + ')' : '') +
+                ': ' +
+                cell.formattedCount +
+                (cell.count === 1 ? ' instruction' : ' instructions') +
+                ' in ' +
+                (c.bundlesLabel | lowercase) +
+                ' ' +
+                c.bundles
+              "
+              matTooltipPosition="above"
+            >
+              <span class="bundle-cell-unit">{{ cell.unit.label }}</span>
+              <span *ngIf="cell.count > 1" class="bundle-cell-count"
+                >×{{ cell.formattedCount }}</span
+              >
+            </span>
+          </div>
+        </div>
+
+        <div *ngIf="c.utilizationBars as bars" class="vliw-block static-util-block">
+          <div class="pillar-meta-row">
+            <span class="pillar-meta-label">Static util</span>
+            <span *ngIf="c.peakUtilizationLabel" class="pillar-meta-count peak-util-label">{{
+              c.peakUtilizationLabel
+            }}</span>
+          </div>
+          <div class="pills-wrap util-bars-list">
+            <span
+              *ngFor="let bar of bars"
+              class="unit-util-pill"
+              [class.inactive]="bar.percent === 0"
+              [attr.data-unit-family]="unitFamily(bar.unit.label)"
+              [matTooltip]="
+                bar.unit.label +
+                (bar.unit.description ? ' (' + bar.unit.description + ')' : '') +
+                ': ' +
+                bar.formattedPercent +
+                ' static utilization'
+              "
+              matTooltipPosition="above"
+            >
+              <span>{{ bar.unit.label }}</span>
+              <span *ngIf="bar.percent > 0" class="unit-util-pct">{{
+                bar.formattedPercent
+              }}</span>
+            </span>
+          </div>
+        </div>
+
+        <div
+          *ngIf="c.kind === 'counter' && c.schedulePosition as pos"
+          class="prop-grid pillar-meta-props"
+        >
+          <ng-container
+            *ngTemplateOutlet="schedulePositionRow; context: {$implicit: pos}"
+          ></ng-container>
+        </div>
+
+        <div
+          *ngIf="c.kind !== 'counter' && (c.spillsLabel || c.extraAttributes)"
+          class="prop-grid pillar-meta-props"
+        >
+          <ng-container *ngIf="c.spillsLabel as spills">
+            <ng-container
+              *ngTemplateOutlet="spillsRow; context: {$implicit: spills, hasSpills: c.hasSpills}"
+            ></ng-container>
+          </ng-container>
+
+          <ng-container *ngIf="c.extraAttributes as attrs">
+            <ng-container
+              *ngTemplateOutlet="attributesRow; context: {$implicit: attrs}"
+            ></ng-container>
+          </ng-container>
+        </div>
+
+        <div
+          *ngIf="
+            !c.bundleStrip &&
+            !c.utilizationBars &&
+            !(c.kind === 'counter' && c.schedulePosition) &&
+            !(c.kind !== 'counter' && (c.spillsLabel || c.extraAttributes))
+          "
+          class="empty-hint"
+        >
+          No bundle occupancy or static utilization recorded at
+          {{ c.bundlesLabel | lowercase }} {{ c.bundles }}.
+        </div>
+      </section>
+
+      <!-- Pillar 3: Co-Issued / Top Ops & Source Provenance -->
+      <section class="prop-column panel-card">
+        <div *ngIf="c.bundleEvents as events; else noBundleEvents" class="list-block">
+          <div class="pillar-meta-row">
+            <span class="pillar-meta-label">Co-issued</span>
+            <span class="pillar-meta-count">{{ events.length }}</span>
+          </div>
+          <div class="bundle-events-list">
+            <button
+              *ngFor="let item of events"
+              type="button"
+              class="bundle-event-row"
+              [class.is-selected]="item.selected"
+              (click)="onSelectEventIndex(item.eventIndex)"
+              [matTooltip]="
+                item.selected
+                  ? 'Currently selected instruction (' + item.trackName + ' ' + item.name + ')'
+                  : 'Select co-scheduled ' + item.trackName + ' ' + item.name
               "
               matTooltipPosition="above"
             >
               <span
-                *ngIf="item.trackName"
-                class="row-unit-tag"
-                [style.--unit-color]="item.unit?.color ?? c.accentColor"
+                class="unit-util-pill compact-row-badge"
+                [attr.data-unit-family]="unitFamily(item.trackName)"
               >
-                <span class="unit-dot" aria-hidden="true"></span>
                 {{ item.trackName }}
               </span>
               <span class="row-mnemonic">{{ item.name }}</span>
-              <span class="row-count">×{{ item.count | number }}</span>
-              <span class="row-share">{{ item.formattedShare }}</span>
+              <span *ngIf="item.produces" class="rack-value-chip compact-value-chip">
+                {{ item.produces }}
+              </span>
+              <span *ngIf="item.ordinalLabel" class="row-ordinal">{{ item.ordinalLabel }}</span>
             </button>
+          </div>
+        </div>
+
+        <ng-template #noBundleEvents>
+          <div
+            *ngIf="c.topInstructions && c.topInstructions.length > 0; else singleBundleHint"
+            class="list-block"
+          >
+            <div class="pillar-meta-row">
+              <span class="pillar-meta-label">Top instructions</span>
+              <span class="pillar-meta-count">{{ c.topInstructions.length }}</span>
+            </div>
+            <ng-container
+              *ngTemplateOutlet="topInstructionsList; context: {$implicit: c.topInstructions}"
+            ></ng-container>
           </div>
           <ng-template #singleBundleHint>
             <div class="empty-hint">
-              <ng-container *ngIf="c.totalInstructions > 1; else oneInstructionHint">
-                {{ c.totalInstructions | number }} instructions scheduled across {{ c.bundlesLabel | lowercase }} {{ c.bundles }}.
+              <ng-container *ngIf="c.kind === 'counter'; else nonCounterBundleHint">
+                No co-issued instructions recorded at bundle {{ c.bundles }}.
               </ng-container>
-              <ng-template #oneInstructionHint>
-                Single instruction scheduled in bundle {{ c.bundles }}.
+              <ng-template #nonCounterBundleHint>
+                <ng-container *ngIf="c.totalInstructions > 1; else oneInstructionHint">
+                  {{ c.totalInstructions | number }} instructions scheduled across
+                  {{ c.bundlesLabel | lowercase }} {{ c.bundles }}.
+                </ng-container>
+                <ng-template #oneInstructionHint>
+                  Single instruction scheduled in bundle {{ c.bundles }}.
+                </ng-template>
               </ng-template>
             </div>
           </ng-template>
         </ng-template>
-      </div>
-    </section>
 
-    <!-- Column 3: Static Utilization & Schedule Context -->
-    <section class="panel-card">
-      <div class="card-section-header">
-        <span class="section-title">Static Utilization</span>
-        <span *ngIf="c.peakUtilizationLabel" class="section-badge highlight-badge">
-          {{ c.peakUtilizationLabel }}
-        </span>
-      </div>
-
-      <div class="card-section-body">
-        <div *ngIf="c.utilizationBars as bars" class="util-bars-list">
-          <div
-            *ngFor="let bar of bars"
-            class="util-bar-row"
-            [class.highlighted]="bar.highlighted"
-            [matTooltip]="
-              bar.unit.label +
-              (bar.unit.description ? ' (' + bar.unit.description + ')' : '') +
-              ': ' +
-              bar.formattedPercent +
-              ' static utilization'
+        <ng-container *ngIf="c.kind === 'instruction'">
+          <ng-container
+            *ngTemplateOutlet="
+              sourceProvenanceBlock;
+              context: {$implicit: c, inRangeFooter: true}
             "
-            matTooltipPosition="above"
-          >
-            <span class="util-unit-label">
-              <span
-                class="unit-dot"
-                [style.background-color]="bar.unit.color"
-                aria-hidden="true"
-              ></span>
-              {{ bar.unit.label }}
-            </span>
-            <span class="util-track" aria-hidden="true">
-              <span
-                class="util-fill"
-                [style.width.%]="bar.percent"
-                [style.background-color]="bar.unit.color"
-              ></span>
-            </span>
-            <span class="util-pct">{{ bar.formattedPercent }}</span>
+          ></ng-container>
+        </ng-container>
+      </section>
+    </div>
+
+    <!-- MODE 2: REGION OR MULTI-EVENT RANGE SELECTION -->
+    <div *ngIf="c.mode === 'range'" class="split-columns range-mode-grid">
+      <!-- Pillar 1: Span, Scope & Interactive Instruction Mix -->
+      <section class="prop-column panel-card">
+        <div class="column-provenance-crumbs" aria-label="Timeline track provenance">
+          <ng-container *ngIf="c.kind === 'region'; else rangeProvenance">
+            <span class="provenance-crumb">{{
+              c.isSparseCore ? 'SparseCore' : 'TensorCore'
+            }}</span>
+            <span class="provenance-sep" aria-hidden="true">›</span>
+            <span class="provenance-crumb last unit-chip">{{
+              c.spanTrackName ?? 'Regions'
+            }}</span>
+          </ng-container>
+          <ng-template #rangeProvenance>
+            <span class="provenance-crumb">Timeline Drag</span>
+            <span class="provenance-sep" aria-hidden="true">›</span>
+            <span class="provenance-crumb last unit-chip">{{ c.badgeLabel }}</span>
+          </ng-template>
+        </div>
+
+        <div class="prop-grid">
+          <div *ngIf="c.spanKindLabel as kindLabel" class="prop-row">
+            <span class="prop-label">Kind</span>
+            <div class="prop-value-cell">
+              <span class="prop-value">{{ kindLabel }}</span>
+            </div>
           </div>
+
+          <div class="prop-row">
+            <span class="prop-label">Span</span>
+            <div class="prop-value-cell">
+              <ng-container
+                *ngTemplateOutlet="inlineLaneStepper; context: {$implicit: c}"
+              ></ng-container>
+              <span *ngIf="c.length" class="prop-secondary">· {{ c.length }}</span>
+            </div>
+          </div>
+
+          <div *ngIf="c.rangeScheduleMeta as schedMeta" class="prop-row">
+            <span class="prop-label">Schedule</span>
+            <div class="prop-value-cell">
+              <span class="prop-value">{{ schedMeta }}</span>
+            </div>
+          </div>
+
+          <div *ngIf="c.totalInstructions > 0 || c.density" class="prop-row">
+            <span class="prop-label">Instructions</span>
+            <div class="prop-value-cell">
+              <span *ngIf="c.totalInstructions > 0" class="prop-value">{{
+                c.totalInstructions | number
+              }}</span>
+              <span *ngIf="c.density" class="prop-secondary section-badge">{{
+                c.totalInstructions > 0 ? '· ' + c.density : c.density
+              }}</span>
+            </div>
+          </div>
+
+          <ng-container *ngIf="c.spillsLabel as spills">
+            <ng-container
+              *ngTemplateOutlet="spillsRow; context: {$implicit: spills, hasSpills: c.hasSpills}"
+            ></ng-container>
+          </ng-container>
+
+          <ng-container *ngIf="c.regionBreadcrumbs as crumbs">
+            <ng-container
+              *ngTemplateOutlet="scopeRow; context: {$implicit: crumbs, rawRegions: c.regions}"
+            ></ng-container>
+          </ng-container>
+
+          <ng-container *ngIf="c.extraAttributes as attrs">
+            <ng-container
+              *ngTemplateOutlet="attributesRow; context: {$implicit: attrs}"
+            ></ng-container>
+          </ng-container>
         </div>
-      </div>
 
-      <div *ngIf="c.schedulePosition as pos" class="card-section-footer">
-        <div class="position-header-row">
-          <span class="footer-label">Schedule Position</span>
-          <span class="position-caption">
-            <strong>{{ pos.formattedPercent }}</strong> of {{ pos.totalBundles }} bundles
-          </span>
-        </div>
-        <span class="position-track" aria-hidden="true">
-          <span
-            class="position-fill"
-            [style.width.%]="pos.percent"
-          ></span>
-          <span
-            class="position-marker"
-            [style.left.%]="pos.percent"
-          ></span>
-        </span>
-      </div>
-    </section>
-  </div>
-
-  <!-- MODE 2: REGION OR MULTI-EVENT RANGE SELECTION -->
-  <div *ngIf="c.mode === 'range'" class="panel-grid range-mode-grid">
-    <!-- Column 1: Instruction Mix & Density -->
-    <section class="panel-card">
-      <div class="card-section-header">
-        <span class="section-title">Instruction Mix</span>
-        <span *ngIf="c.density" class="section-badge">{{ c.density }}</span>
-      </div>
-
-      <div class="card-section-body">
         <div *ngIf="c.instructionMix as mix; else noInstructionMix" class="mix-container">
+          <div class="pillar-meta-row">
+            <span class="pillar-meta-label">Instruction mix</span>
+            <span class="pillar-meta-count">Click unit to filter</span>
+          </div>
           <div class="stacked-mix-bar" role="group" aria-label="Instruction mix breakdown">
             <button
               *ngFor="let item of mix"
@@ -632,8 +904,9 @@
                 (selectedUnitFilter && selectedUnitFilter !== item.unit.label) ||
                 (hoveredMixUnit && hoveredMixUnit !== item.unit.label)
               "
+              [attr.data-unit-family]="unitFamily(item.unit.label)"
+              [attr.aria-pressed]="selectedUnitFilter === item.unit.label"
               [style.width.%]="item.percent"
-              [style.background-color]="item.unit.color"
               [matTooltip]="
                 item.unit.label +
                 (item.unit.description ? ' (' + item.unit.description + ')' : '') +
@@ -645,7 +918,12 @@
               "
               matTooltipPosition="above"
               [attr.aria-label]="
-                item.unit.label + ': ' + (item.count | number) + ' instructions (' + item.formattedPercent + ')'
+                item.unit.label +
+                ': ' +
+                (item.count | number) +
+                ' instructions (' +
+                item.formattedPercent +
+                ')'
               "
               (mouseenter)="setHoveredMixUnit(item.unit.label)"
               (mouseleave)="setHoveredMixUnit(undefined)"
@@ -660,6 +938,12 @@
               class="mix-unit-row"
               [class.active-filter]="selectedUnitFilter === item.unit.label"
               [class.is-hovered]="hoveredMixUnit === item.unit.label"
+              [class.is-dimmed]="
+                (selectedUnitFilter && selectedUnitFilter !== item.unit.label) ||
+                (hoveredMixUnit && hoveredMixUnit !== item.unit.label)
+              "
+              [attr.data-unit-family]="unitFamily(item.unit.label)"
+              [attr.aria-pressed]="selectedUnitFilter === item.unit.label"
               (mouseenter)="setHoveredMixUnit(item.unit.label)"
               (mouseleave)="setHoveredMixUnit(undefined)"
               (click)="toggleUnitFilter(item.unit.label)"
@@ -674,140 +958,116 @@
               "
               matTooltipPosition="above"
             >
-              <span class="mix-unit-info">
-                <span
-                  class="unit-dot"
-                  [style.background-color]="item.unit.color"
-                  aria-hidden="true"
-                ></span>
-                <span class="mix-unit-name">{{ item.unit.label }}</span>
-                <span class="mix-unit-count">{{ item.count | number }}</span>
-              </span>
-              <span class="mix-bar-track" aria-hidden="true">
-                <span
-                  class="mix-bar-fill"
-                  [style.width.%]="item.percent"
-                  [style.background-color]="item.unit.color"
-                ></span>
-              </span>
+              <span class="mix-unit-name">{{ item.unit.label }}</span>
               <span class="mix-unit-pct">{{ item.formattedPercent }}</span>
+              <span class="mix-unit-count">{{ item.count | number }}</span>
             </button>
           </div>
         </div>
         <ng-template #noInstructionMix>
-          <div class="empty-hint">No instructions scheduled in this range.</div>
+          <div *ngIf="!c.spanKindLabel" class="empty-hint">
+            No instructions scheduled in this range.
+          </div>
         </ng-template>
-      </div>
-    </section>
+      </section>
 
-    <!-- Column 2: Mean Static Utilization, Counter Metrics & Region Hierarchy -->
-    <section class="panel-card">
-      <div class="card-section-header">
-        <span class="section-title">
-          {{
-            c.utilizationMetrics || c.resourceCounterMetrics
-              ? 'Utilization & Counter Metrics'
-              : 'Mean Utilization'
-          }}
-        </span>
-      </div>
-
-      <div class="card-section-body">
-        <!-- Enhanced Range Utilization Metrics (Mean + Peak + Active Coverage) -->
-        <div *ngIf="c.utilizationMetrics as uMetrics; else standardUtilBars" class="range-util-metrics-list">
-          <div
-            *ngFor="let item of uMetrics"
-            class="range-util-metric-row"
-            [class.highlighted]="item.highlighted"
-            [matTooltip]="
-              item.unit.label +
-              ': Mean ' +
-              item.formattedMean +
-              ' · Peak ' +
-              item.formattedPeak +
-              (item.peakBundleLabel ? ' (' + item.peakBundleLabel + ')' : '') +
-              ' · ' +
-              item.formattedActiveShare
+      <!-- Pillar 2: Mean / Range Utilization, Memory & Registers, and Region Hierarchy -->
+      <section class="prop-column panel-card">
+        <div
+          *ngIf="hasRangeUtil(c) || hasRangeInstrCounts(c)"
+          class="prop-row unit-focus-row"
+        >
+          <button
+            *ngIf="canSwitchUnitPillMode(c); else staticUnitPillLabel"
+            type="button"
+            class="prop-label-dropdown-btn"
+            [matMenuTriggerFor]="pillModeMenu"
+            [attr.aria-label]="
+              'Switch metric: ' +
+              (effectiveUnitPillMode(c) === 'instrs' ? 'Unit instrs' : 'Mean util')
             "
-            matTooltipPosition="above"
           >
-            <span class="util-unit-label">
-              <span
-                class="unit-dot"
-                [style.background-color]="item.unit.color"
-                aria-hidden="true"
-              ></span>
-              {{ item.unit.label }}
-            </span>
-            <span class="util-track dual-util-track" aria-hidden="true">
-              <span
-                class="util-peak-ghost"
-                [style.width.%]="item.peakPercent"
-                [style.background-color]="item.unit.color"
-              ></span>
-              <span
-                class="util-fill"
-                [style.width.%]="item.meanPercent"
-                [style.background-color]="item.unit.color"
-              ></span>
-            </span>
-            <span class="range-util-stats">
-              <span class="util-pct">{{ item.formattedMean }}</span>
-              <span class="util-peak-tag">pk {{ item.formattedPeak }}</span>
+            <span class="prop-label-dropdown-text">{{
+              effectiveUnitPillMode(c) === 'instrs' ? 'Unit instrs' : 'Mean util'
+            }}</span>
+            <mat-icon class="prop-label-chevron" aria-hidden="true">arrow_drop_down</mat-icon>
+          </button>
+          <mat-menu #pillModeMenu="matMenu">
+            <button
+              mat-menu-item
+              class="unit-menu-item"
+              (click)="setUnitPillMode('util')"
+              [class.is-selected]="effectiveUnitPillMode(c) === 'util'"
+            >
+              <span class="unit-opt-label">Mean util</span>
+            </button>
+            <button
+              mat-menu-item
+              class="unit-menu-item"
+              (click)="setUnitPillMode('instrs')"
+              [class.is-selected]="effectiveUnitPillMode(c) === 'instrs'"
+            >
+              <span class="unit-opt-label">Unit instrs</span>
+            </button>
+          </mat-menu>
+          <ng-template #staticUnitPillLabel>
+            <span class="prop-label">{{
+              hasRangeUtil(c) ? 'Mean util' : 'Unit instrs'
+            }}</span>
+          </ng-template>
+
+          <div class="prop-value-cell">
+            <div
+              class="pills-wrap util-bars-list"
+              [class.range-util-metrics-list]="!!c.utilizationMetrics"
+            >
+              <ng-container
+                *ngFor="let pill of unitPills; trackBy: trackByUnitFocusPill"
+              >
+                <button
+                  *ngIf="pill.active; else inactiveRangeUnitPill"
+                  type="button"
+                  class="unit-util-pill unit-filter-btn"
+                  [attr.data-unit-family]="unitFamily(pill.unit)"
+                  [class.focused]="selectedUnitFilter === pill.unit"
+                  [class.dimmed]="!!selectedUnitFilter && selectedUnitFilter !== pill.unit"
+                  [attr.aria-pressed]="selectedUnitFilter === pill.unit"
+                  [attr.aria-label]="pill.ariaLabel"
+                  [matTooltip]="pill.hoverText ?? ''"
+                  [matTooltipDisabled]="!pill.hoverText"
+                  matTooltipPosition="above"
+                  (click)="toggleUnitFilter(pill.unit)"
+                >
+                  <span>{{ pill.unit }}</span>
+                  <span *ngIf="pill.metric" class="unit-util-pct">{{ pill.metric }}</span>
+                </button>
+                <ng-template #inactiveRangeUnitPill>
+                  <span class="unit-util-pill inactive">{{ pill.unit }}</span>
+                </ng-template>
+              </ng-container>
+            </div>
+            <span
+              *ngIf="
+                !c.utilizationMetrics &&
+                c.peakUtilizationLabel &&
+                effectiveUnitPillMode(c) === 'util'
+              "
+              class="prop-secondary peak-util-label"
+            >
+              {{ c.peakUtilizationLabel }}
             </span>
           </div>
         </div>
 
-        <ng-template #standardUtilBars>
-          <div
-            *ngIf="c.utilizationBars as bars"
-            class="util-bars-list"
-            [class.compact-util-grid]="!!c.parentRegion || !!c.childRegions"
-          >
-            <div
-              *ngFor="let bar of bars"
-              class="util-bar-row"
-              [class.highlighted]="bar.highlighted"
-              [matTooltip]="
-                bar.unit.label +
-                (bar.unit.description ? ' (' + bar.unit.description + ')' : '') +
-                ': ' +
-                bar.formattedPercent +
-                ' mean utilization'
-              "
-              matTooltipPosition="above"
-            >
-              <span class="util-unit-label">
-                <span
-                  class="unit-dot"
-                  [style.background-color]="bar.unit.color"
-                  aria-hidden="true"
-                ></span>
-                {{ bar.unit.label }}
-              </span>
-              <span class="util-track" aria-hidden="true">
-                <span
-                  class="util-fill"
-                  [style.width.%]="bar.percent"
-                  [style.background-color]="bar.unit.color"
-                ></span>
-              </span>
-              <span class="util-pct">{{ bar.formattedPercent }}</span>
-            </div>
-          </div>
-        </ng-template>
-
-        <!-- Range Memory & Register Pressure Counter Metrics -->
         <div *ngIf="c.resourceCounterMetrics as rMetrics" class="hierarchy-block">
-          <div class="hierarchy-header-row">
-            <span class="footer-label">Memory &amp; Register Pressure</span>
-            <span class="hierarchy-count">{{ rMetrics.length }} tracks</span>
+          <div class="pillar-meta-row">
+            <span class="pillar-meta-label">Memory &amp; registers</span>
+            <span class="pillar-meta-count">{{ rMetrics.length }} tracks</span>
           </div>
-          <div class="resource-metrics-grid">
+          <div class="prop-grid resource-metrics-grid">
             <div
               *ngFor="let rm of rMetrics"
-              class="resource-metric-card"
-              [style.--rm-color]="rm.accentColor"
+              class="prop-row resource-metric-row"
               [matTooltip]="
                 rm.trackName +
                 ' — Mean: ' +
@@ -820,161 +1080,165 @@
               "
               matTooltipPosition="above"
             >
-              <div class="rm-header">
-                <span class="rm-title">
-                  <span class="unit-dot" [style.background-color]="rm.accentColor" aria-hidden="true"></span>
-                  {{ rm.shortLabel }}
-                </span>
-                <span class="rm-mean">{{ rm.formattedMean }}</span>
-              </div>
-              <div class="rm-sub">
-                <span>Peak {{ rm.formattedPeak }}</span>
-                <span *ngIf="rm.peakBundleLabel">{{ rm.peakBundleLabel }}</span>
+              <span class="prop-label" [title]="rm.trackName">{{ rm.shortLabel }}</span>
+              <div class="prop-value-cell">
+                <span class="prop-value">{{ rm.formattedMean }}</span>
+                <span class="prop-secondary"
+                  >· Peak {{ rm.formattedPeak
+                  }}{{ rm.peakBundleLabel ? ' ' + rm.peakBundleLabel : '' }}</span
+                >
               </div>
             </div>
           </div>
         </div>
 
         <div *ngIf="c.parentRegion || c.childRegions" class="hierarchy-block">
-          <div class="hierarchy-header-row">
-            <span class="footer-label">Region Hierarchy</span>
-            <span *ngIf="c.childRegions as children" class="hierarchy-count">
-              {{ children.length }} {{ children.length === 1 ? 'child' : 'children' }}
-            </span>
-          </div>
+          <div class="prop-grid">
+            <div *ngIf="c.parentRegion as parent" class="prop-row hierarchy-prop-row">
+              <span class="prop-label">Parent</span>
+              <div class="prop-value-cell">
+                <button
+                  type="button"
+                  class="rack-value-chip interactive-chip child-region-row parent-region-row"
+                  (click)="onSelectEventIndex(parent.eventIndex)"
+                  [matTooltip]="
+                    'Navigate up to parent region ' +
+                    parent.name +
+                    ' (Bundles ' +
+                    parent.bundles +
+                    ' · ' +
+                    parent.durationLabel +
+                    ')'
+                  "
+                  matTooltipPosition="above"
+                >
+                  <mat-icon class="hierarchy-badge-icon" aria-hidden="true">north_west</mat-icon>
+                  <span class="child-region-name">{{ parent.name }}</span>
+                </button>
+                <span class="prop-secondary">· {{ parent.durationLabel }}</span>
+              </div>
+            </div>
 
-          <div class="child-regions-list">
-            <button
-              *ngIf="c.parentRegion as parent"
-              type="button"
-              class="child-region-row parent-region-row"
-              (click)="onSelectEventIndex(parent.eventIndex)"
-              [matTooltip]="
-                'Navigate up to parent region ' +
-                parent.name +
-                ' (Bundles ' +
-                parent.bundles +
-                ' · ' +
-                parent.durationLabel +
-                ')'
-              "
-              matTooltipPosition="above"
-            >
-              <span class="hierarchy-badge parent-badge">
-                <mat-icon class="hierarchy-badge-icon" aria-hidden="true">north_west</mat-icon>
-                Parent
-              </span>
-              <span class="child-region-name">{{ parent.name }}</span>
-              <span class="child-region-meta">{{ parent.durationLabel }}</span>
-            </button>
-
-            <button
-              *ngFor="let child of c.childRegions"
-              type="button"
-              class="child-region-row"
-              (click)="onSelectEventIndex(child.eventIndex)"
-              [matTooltip]="
-                'Drill down into child region ' +
-                child.name +
-                ' (Bundles ' +
-                child.bundles +
-                ' · ' +
-                child.durationLabel +
-                ')'
-              "
-              matTooltipPosition="above"
-            >
-              <span class="hierarchy-badge child-badge">
-                <mat-icon class="hierarchy-badge-icon" aria-hidden="true">subdirectory_arrow_right</mat-icon>
-                Child
-              </span>
-              <span class="child-region-name">{{ child.name }}</span>
-              <span class="child-region-meta">{{ child.durationLabel }}</span>
-            </button>
+            <div *ngIf="c.childRegions as children" class="prop-row hierarchy-prop-row">
+              <span class="prop-label">Children</span>
+              <div class="prop-value-cell">
+                <div class="pills-wrap child-regions-list">
+                  <button
+                    *ngFor="let child of children"
+                    type="button"
+                    class="rack-value-chip interactive-chip child-region-row"
+                    (click)="onSelectEventIndex(child.eventIndex)"
+                    [matTooltip]="
+                      'Drill down into child region ' +
+                      child.name +
+                      ' (Bundles ' +
+                      child.bundles +
+                      ' · ' +
+                      child.durationLabel +
+                      ')'
+                    "
+                    matTooltipPosition="above"
+                  >
+                    <mat-icon class="hierarchy-badge-icon" aria-hidden="true"
+                      >subdirectory_arrow_right</mat-icon
+                    >
+                    <span class="child-region-name">{{ child.name }}</span>
+                    <span class="chip-meta child-region-meta">{{ child.durationLabel }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- Column 3: Top Instructions / Selected Events -->
-    <section class="panel-card">
-      <div class="card-section-header">
-        <div class="section-tabs">
-          <button
-            *ngIf="c.topInstructions && c.topInstructions.length > 0"
-            type="button"
-            class="tab-pill"
-            [class.active]="rangeTableTab === 'top'"
-            (click)="setRangeTableTab('top')"
-          >
-            Top Instructions ({{ filteredTopInstructions.length }})
-          </button>
-          <button
-            *ngIf="c.selectedEvents && c.selectedEvents.length > 0"
-            type="button"
-            class="tab-pill"
-            [class.active]="rangeTableTab === 'events'"
-            (click)="setRangeTableTab('events')"
-          >
-            Selected Events ({{ filteredSelectedEvents.length }})
-          </button>
-          <span
-            *ngIf="(!c.topInstructions || c.topInstructions.length === 0) && (!c.selectedEvents || c.selectedEvents.length === 0)"
-            class="section-title"
-          >
-            Instructions
-          </span>
-        </div>
-
-        <button
-          *ngIf="selectedUnitFilter"
-          type="button"
-          class="filter-clear-pill"
-          (click)="clearUnitFilter()"
-          [matTooltip]="'Clear ' + selectedUnitFilter + ' filter'"
-          matTooltipPosition="above"
-        >
-          <span>{{ selectedUnitFilter }}</span>
-          <mat-icon aria-hidden="true">close</mat-icon>
-        </button>
-      </div>
-
-      <div class="card-section-body">
+      <!-- Pillar 3: Top Instructions / Selected Events Inline Sub-Tabs -->
+      <section class="prop-column panel-card">
         <div
-          *ngIf="rangeTableTab === 'top' && filteredTopInstructions.length > 0"
-          class="top-instructions-list"
+          *ngIf="hasRangeTableItems(c) || !shouldShowRangeSource(c)"
+          class="inline-subtabs-header"
         >
-          <button
-            *ngFor="let item of filteredTopInstructions"
-            type="button"
-            class="top-instruction-row"
-            [style.--row-unit-color]="item.unit?.color ?? c.accentColor"
-            [style.--share-pct]="item.sharePercent + '%'"
-            (click)="item.firstEventIndex >= 0 ? onSelectEventIndex(item.firstEventIndex) : onSearchText(item.name)"
-            [matTooltip]="
-              (item.firstEventIndex >= 0 ? 'Jump to first ' : 'Highlight ') +
-              item.name +
-              ' (' +
-              (item.count | number) +
-              ' occurrences · ' +
-              item.totalBundlesLabel +
-              ')'
-            "
-            matTooltipPosition="above"
-          >
-            <span
-              *ngIf="item.trackName"
-              class="row-unit-tag"
-              [style.--unit-color]="item.unit?.color ?? c.accentColor"
+          <div class="section-tabs" role="tablist">
+            <button
+              *ngIf="c.topInstructions && c.topInstructions.length > 0"
+              type="button"
+              role="tab"
+              class="tab-pill inline-subtab-btn"
+              [class.active]="rangeTableTab === 'top'"
+              [attr.aria-selected]="rangeTableTab === 'top'"
+              (click)="setRangeTableTab('top')"
             >
-              <span class="unit-dot" aria-hidden="true"></span>
-              {{ item.trackName }}
+              Top instructions ({{ filteredTopInstructions.length }})
+            </button>
+            <button
+              *ngIf="c.selectedEvents && c.selectedEvents.length > 0"
+              type="button"
+              role="tab"
+              class="tab-pill inline-subtab-btn"
+              [class.active]="rangeTableTab === 'events'"
+              [attr.aria-selected]="rangeTableTab === 'events'"
+              (click)="setRangeTableTab('events')"
+            >
+              Selected events ({{ filteredSelectedEvents.length }})
+            </button>
+            <span
+              *ngIf="
+                (!c.topInstructions || c.topInstructions.length === 0) &&
+                (!c.selectedEvents || c.selectedEvents.length === 0)
+              "
+              class="pillar-meta-label"
+            >
+              Instructions
             </span>
-            <span class="row-mnemonic">{{ item.name }}</span>
-            <span class="row-count">×{{ item.count | number }}</span>
-            <span class="row-share">{{ item.formattedShare }}</span>
-          </button>
+          </div>
+
+          <ng-container *ngIf="unitMenuOpts as unitOpts">
+            <button
+              type="button"
+              class="prop-label-dropdown-btn unit-menu-btn"
+              [class.active]="!!selectedUnitFilter"
+              [matMenuTriggerFor]="unitFilterMenu"
+              [attr.aria-label]="'Filter by unit: ' + (selectedUnitFilter ?? 'all units')"
+            >
+              <span class="prop-label-dropdown-text">{{ selectedUnitFilter ?? 'All units' }}</span>
+              <mat-icon class="prop-label-chevron" aria-hidden="true">arrow_drop_down</mat-icon>
+            </button>
+            <mat-menu #unitFilterMenu="matMenu">
+              <button
+                mat-menu-item
+                class="unit-menu-item"
+                (click)="clearUnitFilter()"
+                [class.is-selected]="!selectedUnitFilter"
+              >
+                <span class="unit-opt-label">All units</span>
+              </button>
+              <mat-divider></mat-divider>
+              <ng-container *ngFor="let opt of unitOpts; trackBy: trackByUnitMenuOption">
+                <mat-divider *ngIf="opt.dividerBefore"></mat-divider>
+                <button
+                  mat-menu-item
+                  class="unit-menu-item"
+                  (click)="selectUnitFilter(opt.unit)"
+                  [class.is-selected]="selectedUnitFilter === opt.unit"
+                >
+                  <span class="unit-opt-row">
+                    <span class="unit-opt-code">{{ opt.unit }}</span>
+                    <span *ngIf="opt.description" class="unit-opt-desc">{{
+                      opt.description
+                    }}</span>
+                    <span class="unit-opt-count">{{ opt.count | number }}</span>
+                  </span>
+                </button>
+              </ng-container>
+            </mat-menu>
+          </ng-container>
         </div>
+
+        <ng-container *ngIf="rangeTableTab === 'top' && filteredTopInstructions.length > 0">
+          <ng-container
+            *ngTemplateOutlet="topInstructionsList; context: {$implicit: filteredTopInstructions}"
+          ></ng-container>
+        </ng-container>
 
         <div
           *ngIf="rangeTableTab === 'events' && filteredSelectedEvents.length > 0"
@@ -983,18 +1247,16 @@
           <button
             *ngFor="let ev of filteredSelectedEvents"
             type="button"
-            class="top-instruction-row"
-            [style.--row-unit-color]="ev.unit?.color ?? c.accentColor"
+            class="top-instruction-row range-event-row"
             (click)="onSelectEventIndex(ev.eventIndex)"
             [matTooltip]="'Select ' + ev.name + ' at bundle ' + ev.bundleLabel"
             matTooltipPosition="above"
           >
             <span
               *ngIf="ev.trackName"
-              class="row-unit-tag"
-              [style.--unit-color]="ev.unit?.color ?? c.accentColor"
+              class="unit-util-pill compact-row-badge"
+              [attr.data-unit-family]="unitFamily(ev.trackName)"
             >
-              <span class="unit-dot" aria-hidden="true"></span>
               {{ ev.trackName }}
             </span>
             <span class="row-mnemonic">{{ ev.name }}</span>
@@ -1003,12 +1265,29 @@
         </div>
 
         <div
-          *ngIf="(rangeTableTab === 'top' && filteredTopInstructions.length === 0) || (rangeTableTab === 'events' && filteredSelectedEvents.length === 0)"
+          *ngIf="
+            (hasRangeTableItems(c) || !shouldShowRangeSource(c)) &&
+            ((rangeTableTab === 'top' && filteredTopInstructions.length === 0) ||
+              (rangeTableTab === 'events' && filteredSelectedEvents.length === 0))
+          "
           class="empty-hint"
         >
-          No matching instructions in this selection.
+          {{
+            selectedUnitFilter
+              ? 'No ' + selectedUnitFilter + ' instructions in this selection.'
+              : 'No matching instructions in this selection.'
+          }}
         </div>
-      </div>
-    </section>
+
+        <ng-container *ngIf="shouldShowRangeSource(c)">
+          <ng-container
+            *ngTemplateOutlet="
+              sourceProvenanceBlock;
+              context: {$implicit: c, inRangeFooter: hasRangeTableItems(c)}
+            "
+          ></ng-container>
+        </ng-container>
+      </section>
+    </div>
   </div>
 </div>

@@ -6,12 +6,15 @@ import {
   Component,
   EventEmitter,
   inject,
+  Input,
   NgZone,
   OnDestroy,
   Output,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
+import {MatDividerModule} from '@angular/material/divider';
 import {MatIconModule} from '@angular/material/icon';
+import {MatMenuModule} from '@angular/material/menu';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {
   accentColorForCounterTrack,
@@ -25,11 +28,16 @@ import {
   DEFAULT_ACCENT_COLOR,
   DENSITY_FORMAT,
   formatCounterTrackValue,
+  FUNCTIONAL_UNITS,
   FUNCTIONAL_UNITS_BY_LANE,
+  isSparseCoreBundleContext,
   readHoveredEvent,
   readNumberRecord,
+  SPARSE_CORE_ONLY_LANES,
+  unitFamilyForLabel,
   unitForCounterTrack,
   type BundleLaneCell,
+  type ConsumerGroup,
   type CounterGauge,
   type CounterMetricKind,
   type FunctionalUnit,
@@ -38,6 +46,7 @@ import {
   type OperandItem,
   type RegionUtilizationSummary,
   type SchedulePosition,
+  type UnitTokenFamily,
   type UtilizationBar,
 } from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
 import {
@@ -174,6 +183,8 @@ export interface KernelSelectionContent {
   readonly accentColor: string;
   readonly badgeLabel: string;
   readonly badgeIcon: string;
+  readonly spanTrackName?: string;
+  readonly spanKindLabel?: string;
   readonly bundlesLabel: string;
   readonly bundles: string;
   readonly length?: string;
@@ -188,6 +199,7 @@ export interface KernelSelectionContent {
   readonly registerTypeLabel?: string;
   readonly operands?: readonly OperandItem[];
   readonly consumers?: readonly string[];
+  readonly consumerGroups?: readonly ConsumerGroup[];
   readonly spillsLabel?: string;
   readonly hasSpills?: boolean;
   readonly sourceInfo?: SourceFrameItem;
@@ -215,6 +227,9 @@ export interface KernelSelectionContent {
   readonly childRegions?: readonly ChildRegionItem[];
   readonly topInstructions?: readonly TopInstructionItem[];
   readonly selectedEvents?: readonly SelectedRangeEventItem[];
+  readonly isSparseCore?: boolean;
+  readonly headerSwatchFamily?: UnitTokenFamily | 'primary' | 'warning';
+  readonly rangeScheduleMeta?: string;
 }
 
 /** Keys in `args` that are already rendered as dedicated LLO badges or rows. */
@@ -238,6 +253,15 @@ const DEDICATED_ARG_KEYS = new Set([
   'data_format',
   'pseudo_kind',
   'treat_copy_as_opaque',
+  'unit_id',
+  'unitId',
+  'scalar_const',
+  'scalarConst',
+  'xmr',
+  'msr',
+  'result_buffer_addr',
+  'mrb_addr',
+  'source_bus',
   'operands',
   'consumers',
   'vector_spills',
@@ -258,11 +282,190 @@ const REGISTER_TYPE_LABELS: Readonly<
   sreg: 'Scalar Reg',
   preg: 'Predicate Reg',
   vmreg: 'Vector Mask',
+  dreg: 'Descriptor Reg',
   other: 'Register',
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+/** Visible breadcrumb item in the collapsible scope trail. */
+export interface VisibleScopeCrumb {
+  readonly crumb: RegionBreadcrumbItem;
+  readonly isLast: boolean;
+}
+
+/** Unit pill rendered in the `Mean util` / `Unit instrs` focus row. */
+export interface UnitFocusPillItem {
+  readonly unit: string;
+  readonly active: boolean;
+  readonly metric?: string;
+  readonly hoverText?: string;
+  readonly ariaLabel: string;
+}
+
+/** Option item in the `All units` filter menu of Pillar 3. */
+export interface UnitMenuOption {
+  readonly unit: string;
+  readonly description: string;
+  readonly count: number;
+  readonly dividerBefore: boolean;
+}
+
+const SPAN_TRACK_KINDS: ReadonlyMap<string, string | undefined> = new Map([
+  ['Regions', undefined],
+  ['Pallas Primitives', 'Pallas primitive'],
+  ['Named Scope', 'Named scope'],
+]);
+
+const TENSOR_CORE_UNIT_LANES: readonly string[] = FUNCTIONAL_UNITS.filter(
+  (u) => u.label !== 'Other',
+).map((u) => u.label);
+
+const SPARSE_CORE_UNIT_LANES = [
+  'TVPU',
+  'XPU',
+  'EUP',
+  'SALU',
+  'SGE',
+  'VLD',
+  'VST',
+  'DMA',
+] as const;
+
+const SPARSE_CORE_UNIT_LABELS: ReadonlySet<string> = new Set([
+  ...SPARSE_CORE_ONLY_LANES,
+  'SC',
+]);
+
+const UNIT_DESCRIPTIONS: ReadonlyMap<string, string> = new Map([
+  ['MXU', 'Matrix'],
+  ['VPU', 'Vector'],
+  ['XLU', 'Cross-Lane'],
+  ['EUP', 'Elem Unary'],
+  ['SALU', 'Scalar'],
+  ['VLD', 'Vector Load'],
+  ['VST', 'Vector Store'],
+  ['DMA', 'DMA'],
+  ['TVPU', 'Tile Vector'],
+  ['XPU', 'Cross-Lane'],
+  ['SGE', 'Scatter-Gather'],
+  ['SC', 'SparseCore'],
+]);
+
+function computeIsSparseCore(c: KernelSelectionContent): boolean {
+  if (c.unit && SPARSE_CORE_UNIT_LABELS.has(c.unit.label)) {
+    return true;
+  }
+  if (
+    c.bundleStrip?.some((cell) => SPARSE_CORE_UNIT_LABELS.has(cell.unit.label))
+  ) {
+    return true;
+  }
+  if (
+    c.instructionMix?.some((item) =>
+      SPARSE_CORE_UNIT_LABELS.has(item.unit.label),
+    )
+  ) {
+    return true;
+  }
+  if (
+    c.utilizationBars?.some((bar) =>
+      SPARSE_CORE_UNIT_LABELS.has(bar.unit.label),
+    )
+  ) {
+    return true;
+  }
+  if (
+    c.utilizationMetrics?.some((m) => SPARSE_CORE_UNIT_LABELS.has(m.unit.label))
+  ) {
+    return true;
+  }
+  if (
+    c.topInstructions?.some((item) =>
+      SPARSE_CORE_UNIT_LABELS.has(item.trackName),
+    )
+  ) {
+    return true;
+  }
+  if (
+    c.resourceCounterMetrics?.some((rm) =>
+      /\b(tilespmem|tile\s+spmem|spmem|descriptor\s+reg)\b/i.test(rm.trackName),
+    )
+  ) {
+    return true;
+  }
+  if (c.kind === 'counter') {
+    const counterUnit = unitForCounterTrack(c.name);
+    if (
+      (counterUnit && SPARSE_CORE_UNIT_LABELS.has(counterUnit.label)) ||
+      /\b(tilespmem|tile\s+spmem|spmem|descriptor\s+reg)\b/i.test(c.name)
+    ) {
+      return true;
+    }
+  }
+  if (c.regions?.[0] === 'TEC' || c.regions?.[0] === 'SCS') {
+    return true;
+  }
+  return (
+    c.extraAttributes?.some(
+      (attr) => attr.key === 'core_type' && /tec|sc/i.test(attr.value),
+    ) ?? false
+  );
+}
+
+function computeHeaderSwatchFamily(
+  c: KernelSelectionContent,
+): UnitTokenFamily | 'primary' | 'warning' {
+  if (c.unit) {
+    return unitFamilyForLabel(c.unit.label);
+  }
+  if (c.kind === 'region') {
+    return 'scalar';
+  }
+  if (c.kind === 'counter') {
+    const counterUnit = unitForCounterTrack(c.name);
+    if (counterUnit) {
+      return unitFamilyForLabel(counterUnit.label);
+    }
+    if (c.counterDetails?.kind === 'registers') {
+      return 'scalar';
+    }
+    return /spill/i.test(c.name) ? 'warning' : 'primary';
+  }
+  if (c.kind === 'range') {
+    return 'memory';
+  }
+  return 'primary';
+}
+
+function computeRangeScheduleMeta(
+  c: Pick<KernelSelectionContent, 'subtitleChips' | 'length' | 'spanTrackName'>,
+): string | undefined {
+  const chips = (c.subtitleChips ?? []).filter(
+    (chip) =>
+      chip !== c.length &&
+      chip !== c.spanTrackName &&
+      !/\binstructions?$/i.test(chip),
+  );
+  return chips.length > 0 ? chips.join(' · ') : undefined;
+}
+
+function finalizeSelectionContent(
+  base: KernelSelectionContent,
+): KernelSelectionContent {
+  const isSparseCore = computeIsSparseCore(base);
+  const headerSwatchFamily = computeHeaderSwatchFamily(base);
+  const rangeScheduleMeta = computeRangeScheduleMeta(base);
+  return {
+    ...base,
+    isSparseCore,
+    headerSwatchFamily,
+    ...(rangeScheduleMeta ? {rangeScheduleMeta} : {}),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function clampPercent(percent: number): number {
@@ -284,8 +487,9 @@ function readBundleEvents(
     return undefined;
   }
   const items: BundleEventItem[] = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
+  for (const rawEntry of raw) {
+    const entry = asRecord(rawEntry);
+    if (!entry) continue;
     const name = entry['name'];
     const trackName =
       typeof entry['trackName'] === 'string' ? entry['trackName'] : '';
@@ -332,8 +536,9 @@ function readChildRegions(
     return undefined;
   }
   const items: ChildRegionItem[] = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
+  for (const rawEntry of raw) {
+    const entry = asRecord(rawEntry);
+    if (!entry) continue;
     const name = entry['name'];
     const start = typeof entry['startUs'] === 'number' ? entry['startUs'] : 0;
     const duration =
@@ -383,8 +588,9 @@ function readTopInstructions(
     return undefined;
   }
   const items: TopInstructionItem[] = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
+  for (const rawEntry of raw) {
+    const entry = asRecord(rawEntry);
+    if (!entry) continue;
     const name = entry['name'];
     const trackName =
       typeof entry['trackName'] === 'string' ? entry['trackName'] : '';
@@ -430,8 +636,9 @@ function readSelectedRangeEvents(
     return undefined;
   }
   const items: SelectedRangeEventItem[] = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
+  for (const rawEntry of raw) {
+    const entry = asRecord(rawEntry);
+    if (!entry) continue;
     const name = entry['name'];
     const trackName =
       typeof entry['trackName'] === 'string' ? entry['trackName'] : '';
@@ -516,9 +723,7 @@ function buildCounterSelectionDetails(
       : `Bundles ${formatBundleRange(stepStart, stepDuration)}`;
   const stepDurationLabel = `${BUNDLE_FORMAT.format(stepDuration)} ${stepDuration === 1 ? 'bundle' : 'bundles'}`;
 
-  const rawStats = isRecord(detail['counterStats'])
-    ? detail['counterStats']
-    : undefined;
+  const rawStats = asRecord(detail['counterStats']);
   const meanVal =
     typeof rawStats?.['mean'] === 'number' && Number.isFinite(rawStats['mean'])
       ? rawStats['mean']
@@ -641,8 +846,9 @@ function readRangeCounterMetrics(
     [];
   const resourceItems: RangeResourceMetricItem[] = [];
 
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
+  for (const rawEntry of raw) {
+    const entry = asRecord(rawEntry);
+    if (!entry) continue;
     const trackName =
       typeof entry['trackName'] === 'string' ? entry['trackName'].trim() : '';
     if (!trackName) continue;
@@ -700,7 +906,7 @@ function readRangeCounterMetrics(
           trackName,
           shortLabel: trackName,
           kind,
-          accentColor: accentColorForCounterTrack(trackName, unit),
+          accentColor: accentColorForCounterTrack(),
           formattedMean: formatCounterTrackValue(mean, kind),
           formattedPeak: formatCounterTrackValue(max, kind),
           formattedMin: formatCounterTrackValue(min, kind),
@@ -740,9 +946,10 @@ function readRangeCounterMetrics(
  * counter track selection).
  */
 export function buildKernelSelectionFromEvent(
-  detail: unknown,
+  rawDetail: unknown,
 ): KernelSelectionContent | undefined {
-  if (!isRecord(detail)) {
+  const detail = asRecord(rawDetail);
+  if (!detail) {
     return undefined;
   }
   const hovered = readHoveredEvent(detail);
@@ -765,14 +972,18 @@ export function buildKernelSelectionFromEvent(
       ? detail['nextEventIndex']
       : undefined;
 
-  const isRegion = tooltip.kind === 'region';
+  const isSpan = SPAN_TRACK_KINDS.has(hovered.trackName);
+  const isRegion = tooltip.kind === 'region' || isSpan;
   const mode: KernelSelectionContent['mode'] = isRegion ? 'range' : 'single';
+  const kind: KernelSelectionContent['kind'] = isSpan ? 'region' : tooltip.kind;
+  const spanTrackName = isSpan ? hovered.trackName : undefined;
+  const spanKindLabel = SPAN_TRACK_KINDS.get(hovered.trackName);
   const counterKind =
     tooltip.kind === 'counter'
       ? classifyCounterTrack(hovered.trackName)
       : undefined;
   const badgeLabel = isRegion
-    ? 'Region'
+    ? (spanKindLabel ?? 'Region')
     : tooltip.kind === 'counter'
       ? counterKind === 'bytes'
         ? 'Memory Counter'
@@ -810,7 +1021,11 @@ export function buildKernelSelectionFromEvent(
 
   const bundleEvents = readBundleEvents(detail['bundleEvents']);
   const bundleStrip =
-    tooltip.bundleStrip ?? buildBundleStrip(hovered.bundleCounts);
+    tooltip.bundleStrip ??
+    buildBundleStrip(
+      hovered.bundleCounts,
+      isSparseCoreBundleContext(hovered.bundleCounts, hovered),
+    );
   const activeLanes = bundleStrip
     ? bundleStrip.filter((cell) => cell.active).length
     : 0;
@@ -846,10 +1061,7 @@ export function buildKernelSelectionFromEvent(
   const regionRowLabel =
     tooltip.regionRowLabel ?? (isRegion ? 'Parent regions' : 'Regions');
   const regionAncestors = readChildRegions(detail['regionAncestors']);
-  const regionBreadcrumbs = buildRegionBreadcrumbs(
-    regions,
-    regionAncestors,
-  );
+  const regionBreadcrumbs = buildRegionBreadcrumbs(regions, regionAncestors);
   const parentRegion =
     regionAncestors && regionAncestors.length > 0
       ? regionAncestors[regionAncestors.length - 1]
@@ -889,22 +1101,47 @@ export function buildKernelSelectionFromEvent(
         )
       : undefined;
 
-  const subtitleChips = [...(tooltip.subtitleChips ?? [])];
-  if (isRegion && totalInstructions > 0) {
-    subtitleChips.push(
-      `${BUNDLE_FORMAT.format(totalInstructions)} instructions`,
-    );
-  }
+  const instructionMix = tooltip.instructionMix ?? mixResult.mix;
+  const density =
+    tooltip.density ??
+    (totalInstructions > 0 && hovered.duration > 0
+      ? `${DENSITY_FORMAT.format(totalInstructions / hovered.duration)} instr / bundle`
+      : undefined);
+  const meanUtilization: RegionUtilizationSummary | undefined =
+    tooltip.meanUtilization ??
+    (utilizationBars && utilizationBars.length > 0
+      ? {items: utilizationBars.slice(0, 3)}
+      : undefined);
+  const subtitleChips: string[] = isSpan
+    ? [
+        ...(tooltip.length ? [tooltip.length] : []),
+        ...(hovered.totalBundles && hovered.totalBundles > 0
+          ? [
+              `${clampPercent((hovered.duration / hovered.totalBundles) * 100)}% of static schedule`,
+            ]
+          : []),
+        ...(hovered.regionDepth !== undefined
+          ? [`depth ${hovered.regionDepth}`]
+          : []),
+        ...(totalInstructions > 0
+          ? [
+              `${BUNDLE_FORMAT.format(totalInstructions)} ${totalInstructions === 1 ? 'instruction' : 'instructions'}`,
+            ]
+          : []),
+      ]
+    : [...(tooltip.subtitleChips ?? [])];
 
-  return {
+  return finalizeSelectionContent({
     mode,
-    kind: tooltip.kind,
+    kind,
     name: tooltip.name,
     isCode: tooltip.isCode,
     ...(tooltip.unit ? {unit: tooltip.unit} : {}),
     accentColor: tooltip.accentColor,
     badgeLabel,
     badgeIcon,
+    ...(spanTrackName ? {spanTrackName} : {}),
+    ...(spanKindLabel ? {spanKindLabel} : {}),
     bundlesLabel: tooltip.bundlesLabel,
     bundles: tooltip.bundles,
     ...(tooltip.length ? {length: tooltip.length} : {}),
@@ -928,6 +1165,7 @@ export function buildKernelSelectionFromEvent(
       : {}),
     ...(tooltip.operands ? {operands: tooltip.operands} : {}),
     ...(tooltip.consumers ? {consumers: tooltip.consumers} : {}),
+    ...(tooltip.consumerGroups ? {consumerGroups: tooltip.consumerGroups} : {}),
     ...(tooltip.spillsLabel
       ? {spillsLabel: tooltip.spillsLabel, hasSpills: tooltip.hasSpills}
       : {}),
@@ -946,15 +1184,13 @@ export function buildKernelSelectionFromEvent(
     ...(regionBreadcrumbs ? {regionBreadcrumbs} : {}),
     ...(parentRegion && parentRegion.eventIndex >= 0 ? {parentRegion} : {}),
     ...(schedulePosition ? {schedulePosition} : {}),
-    ...(tooltip.instructionMix ? {instructionMix: tooltip.instructionMix} : {}),
+    ...(instructionMix ? {instructionMix} : {}),
     totalInstructions,
-    ...(tooltip.meanUtilization
-      ? {meanUtilization: tooltip.meanUtilization}
-      : {}),
-    ...(tooltip.density ? {density: tooltip.density} : {}),
+    ...(meanUtilization ? {meanUtilization} : {}),
+    ...(density ? {density} : {}),
     ...(childRegions ? {childRegions} : {}),
     ...(topInstructions ? {topInstructions} : {}),
-  };
+  });
 }
 
 /**
@@ -962,9 +1198,10 @@ export function buildKernelSelectionFromEvent(
  * multi-event rectangle selection payload. Returns `undefined` when cleared.
  */
 export function buildKernelSelectionFromRange(
-  detail: unknown,
+  rawDetail: unknown,
 ): KernelSelectionContent | undefined {
-  if (!isRecord(detail)) {
+  const detail = asRecord(rawDetail);
+  if (!detail) {
     return undefined;
   }
 
@@ -975,9 +1212,7 @@ export function buildKernelSelectionFromRange(
   ) {
     try {
       const parsed: unknown = JSON.parse(detail['events_selected_data']);
-      if (isRecord(parsed)) {
-        parsedJson = parsed;
-      }
+      parsedJson = asRecord(parsed);
     } catch {
       // Ignore malformed JSON fallback.
     }
@@ -1093,7 +1328,7 @@ export function buildKernelSelectionFromRange(
       : mixResult.mix?.[0]?.unit;
   const accentColor = dominantUnit?.color ?? DEFAULT_ACCENT_COLOR;
 
-  return {
+  return finalizeSelectionContent({
     mode: 'range',
     kind: 'range',
     name: `Bundles ${bundles}`,
@@ -1115,7 +1350,7 @@ export function buildKernelSelectionFromRange(
     ...(density ? {density} : {}),
     ...(topInstructions ? {topInstructions} : {}),
     ...(selectedEvents ? {selectedEvents} : {}),
-  };
+  });
 }
 
 function tooltipOrMix(
@@ -1137,9 +1372,18 @@ function tooltipOrMix(
   templateUrl: './kernel_selection_panel.ng.html',
   styleUrls: ['./kernel_selection_panel.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, MatButtonModule, MatIconModule, MatTooltipModule],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatDividerModule,
+    MatIconModule,
+    MatMenuModule,
+    MatTooltipModule,
+  ],
 })
 export class KernelSelectionPanel implements AfterViewInit, OnDestroy {
+  /** Active HLO op / kernel name, shown in op-wide counter tooltips. */
+  @Input() kernelName: string | undefined = undefined;
   /** Emits true when a selection is active, false when closed or deselected. */
   @Output() readonly openChange = new EventEmitter<boolean>();
   /** Emits an `eventIndex` to select and reveal on the timeline. */
@@ -1156,8 +1400,30 @@ export class KernelSelectionPanel implements AfterViewInit, OnDestroy {
   hoveredMixUnit: string | undefined = undefined;
   /** Tab mode for the right-hand table in range selections (`top` or `events`). */
   rangeTableTab: 'top' | 'events' = 'top';
+  /** Active mode for the Pillar 2 unit pills row (`Mean util` or `Unit instrs`). */
+  unitPillMode: 'util' | 'instrs' = 'util';
+  /** Whether the collapsible `Stack (N)` frame picker under Source is open. */
+  stackOpen = false;
+  /** 0-based index of the call-stack frame picked by the user, if any. */
+  pickedStackFrameIndex: number | undefined = undefined;
   /** Stack of previously inspected selections for in-panel back navigation. */
   historyStack: KernelSelectionContent[] = [];
+  /** Whether a deep region scope breadcrumb trail is expanded in-place. */
+  scopeExpanded = false;
+  /** Cached unit focus pills for the active range selection and mode. */
+  unitPills: readonly UnitFocusPillItem[] = [];
+  /** Cached options for the `All units` filter menu in Pillar 3. */
+  unitMenuOpts: readonly UnitMenuOption[] | undefined = undefined;
+  /** Cached collapsible breadcrumb view for the active selection's scope. */
+  scopeView: {
+    readonly head: readonly VisibleScopeCrumb[];
+    readonly tail: readonly VisibleScopeCrumb[];
+    readonly hiddenCount: number;
+  } = {head: [], tail: [], hiddenCount: 0};
+  /** Cached filtered top instructions for the active unit filter. */
+  filteredTopInstructions: readonly TopInstructionItem[] = [];
+  /** Cached filtered selected events for the active unit filter. */
+  filteredSelectedEvents: readonly SelectedRangeEventItem[] = [];
   copied = false;
 
   private copiedTimer: ReturnType<typeof setTimeout> | undefined = undefined;
@@ -1216,12 +1482,43 @@ export class KernelSelectionPanel implements AfterViewInit, OnDestroy {
   toggleUnitFilter(unitLabel: string): void {
     this.selectedUnitFilter =
       this.selectedUnitFilter === unitLabel ? undefined : unitLabel;
+    this.recomputeDerivedState();
     this.changeDetectorRef.detectChanges();
+  }
+
+  /** Sets the unit filter from the `All units` dropdown menu. */
+  selectUnitFilter(unitLabel: string | undefined): void {
+    if (this.selectedUnitFilter !== unitLabel) {
+      this.selectedUnitFilter = unitLabel;
+      this.recomputeDerivedState();
+      this.changeDetectorRef.detectChanges();
+    }
   }
 
   clearUnitFilter(): void {
     if (this.selectedUnitFilter !== undefined) {
       this.selectedUnitFilter = undefined;
+      this.recomputeDerivedState();
+      this.changeDetectorRef.detectChanges();
+    }
+  }
+
+  setUnitPillMode(mode: 'util' | 'instrs'): void {
+    if (this.unitPillMode !== mode) {
+      this.unitPillMode = mode;
+      this.recomputeDerivedState();
+      this.changeDetectorRef.detectChanges();
+    }
+  }
+
+  toggleStackOpen(): void {
+    this.stackOpen = !this.stackOpen;
+    this.changeDetectorRef.detectChanges();
+  }
+
+  selectStackFrame(index: number): void {
+    if (this.pickedStackFrameIndex !== index) {
+      this.pickedStackFrameIndex = index;
       this.changeDetectorRef.detectChanges();
     }
   }
@@ -1234,8 +1531,11 @@ export class KernelSelectionPanel implements AfterViewInit, OnDestroy {
   }
 
   setRangeTableTab(tab: 'top' | 'events'): void {
-    this.rangeTableTab = tab;
-    this.changeDetectorRef.detectChanges();
+    if (this.rangeTableTab !== tab) {
+      this.rangeTableTab = tab;
+      this.recomputeDerivedState();
+      this.changeDetectorRef.detectChanges();
+    }
   }
 
   onSelectEventIndex(eventIndex: number | undefined): void {
@@ -1278,20 +1578,312 @@ export class KernelSelectionPanel implements AfterViewInit, OnDestroy {
     }
   }
 
-  get filteredTopInstructions(): readonly TopInstructionItem[] {
-    const items = this.content?.topInstructions ?? [];
-    if (!this.selectedUnitFilter) {
-      return items;
-    }
-    return items.filter((item) => item.trackName === this.selectedUnitFilter);
+  unitFamily(label: string | undefined): UnitTokenFamily {
+    return unitFamilyForLabel(label);
   }
 
-  get filteredSelectedEvents(): readonly SelectedRangeEventItem[] {
-    const items = this.content?.selectedEvents ?? [];
-    if (!this.selectedUnitFilter) {
-      return items;
+  counterGroupCrumb(c: KernelSelectionContent): string {
+    const kind = c.counterDetails?.kind ?? classifyCounterTrack(c.name);
+    if (kind === 'bytes') {
+      return 'Memory';
     }
-    return items.filter((item) => item.trackName === this.selectedUnitFilter);
+    if (kind === 'registers') {
+      return 'Registers';
+    }
+    return (c.isSparseCore ?? computeIsSparseCore(c))
+      ? 'SparseCore'
+      : 'TensorCore';
+  }
+
+  counterAtBundleTooltip(
+    c: KernelSelectionContent,
+    cd: CounterSelectionDetails,
+  ): string {
+    const delta = cd.deltaFromMeanLabel ? ` (${cd.deltaFromMeanLabel})` : '';
+    return `${c.name} at bundle ${c.bundles}: ${cd.formattedCurrent}${delta}`;
+  }
+
+  counterOpMeanTooltip(c: KernelSelectionContent): string {
+    const span = c.schedulePosition?.totalBundles
+      ? ` · ${c.schedulePosition.totalBundles} bundles`
+      : '';
+    return `Mean across ${this.counterOpLabel()}${span}`;
+  }
+
+  counterOpPeakTooltip(
+    c: KernelSelectionContent,
+    cd: CounterSelectionDetails,
+  ): string {
+    const loc = cd.peakBundleLabel
+      ? ` · ${cd.peakBundleLabel.replace(/^@\s*/, '')}`
+      : '';
+    return `Peak of ${c.name} across ${this.counterOpLabel()}${loc}`;
+  }
+
+  counterOpRangeTooltip(
+    c: KernelSelectionContent,
+    cd: CounterSelectionDetails,
+  ): string {
+    const bounds =
+      cd.formattedMin && cd.formattedPeak
+        ? `: ${cd.formattedMin} – ${cd.formattedPeak}`
+        : '';
+    const mean = cd.formattedMean ? ` (mean: ${cd.formattedMean})` : '';
+    return `Range of ${c.name} across ${this.counterOpLabel()}${bounds}${mean}`;
+  }
+
+  counterOpMeanMarkerTooltip(cd: CounterSelectionDetails): string {
+    const opSuffix = this.kernelName ? ` (${this.kernelName})` : '';
+    return `Op mean${opSuffix}: ${cd.formattedMean ?? ''}`;
+  }
+
+  counterStepHoldTooltip(cd: CounterSelectionDetails): string {
+    return `Step hold interval: ${cd.stepRangeLabel} · ${cd.stepDurationLabel}`;
+  }
+
+  counterCoverageTooltip(c: KernelSelectionContent): string {
+    return `Non-zero bundle coverage of ${c.name} across ${this.counterOpLabel()}`;
+  }
+
+  private counterOpLabel(): string {
+    const trimmed = this.kernelName?.trim();
+    return trimmed ? `HLO op ${trimmed}` : 'this HLO op';
+  }
+
+  effectiveStackIndex(c: KernelSelectionContent): number {
+    const stack = c.sourceStack;
+    if (!stack || stack.length === 0) {
+      return 0;
+    }
+    if (
+      this.pickedStackFrameIndex !== undefined &&
+      this.pickedStackFrameIndex >= 0 &&
+      this.pickedStackFrameIndex < stack.length
+    ) {
+      return this.pickedStackFrameIndex;
+    }
+    return stack.length - 1;
+  }
+
+  activeSourceFrame(c: KernelSelectionContent): SourceFrameItem | undefined {
+    const stack = c.sourceStack;
+    if (
+      stack &&
+      this.pickedStackFrameIndex !== undefined &&
+      this.pickedStackFrameIndex >= 0 &&
+      this.pickedStackFrameIndex < stack.length
+    ) {
+      return stack[this.pickedStackFrameIndex];
+    }
+    return c.sourceInfo ?? stack?.[stack.length - 1];
+  }
+
+  shouldShowRangeSource(c: KernelSelectionContent): boolean {
+    return Boolean(this.activeSourceFrame(c));
+  }
+
+  hasRangeUtil(c: KernelSelectionContent): boolean {
+    return Boolean(
+      (c.utilizationMetrics && c.utilizationMetrics.length > 0) ||
+        (c.utilizationBars && c.utilizationBars.length > 0),
+    );
+  }
+
+  hasRangeInstrCounts(c: KernelSelectionContent): boolean {
+    return Boolean(c.instructionMix && c.instructionMix.length > 0);
+  }
+
+  hasRangeTableItems(c: KernelSelectionContent): boolean {
+    return Boolean(
+      (c.topInstructions && c.topInstructions.length > 0) ||
+        (c.selectedEvents && c.selectedEvents.length > 0),
+    );
+  }
+
+  trackByUnitFocusPill(_index: number, item: UnitFocusPillItem): string {
+    return item.unit;
+  }
+
+  trackByUnitMenuOption(_index: number, opt: UnitMenuOption): string {
+    return opt.unit;
+  }
+
+  trackByScopeCrumb(_index: number, item: VisibleScopeCrumb): string {
+    return `${item.crumb.eventIndex ?? -1}:${item.crumb.name}`;
+  }
+
+  canSwitchUnitPillMode(c: KernelSelectionContent): boolean {
+    return this.hasRangeUtil(c) && this.hasRangeInstrCounts(c);
+  }
+
+  effectiveUnitPillMode(c: KernelSelectionContent): 'util' | 'instrs' {
+    if (this.canSwitchUnitPillMode(c)) {
+      return this.unitPillMode;
+    }
+    return this.hasRangeUtil(c) ? 'util' : 'instrs';
+  }
+
+  rangeUnitPills(c: KernelSelectionContent): readonly UnitFocusPillItem[] {
+    const mode = this.effectiveUnitPillMode(c);
+    const baseLanes =
+      (c.isSparseCore ?? computeIsSparseCore(c))
+        ? SPARSE_CORE_UNIT_LANES
+        : TENSOR_CORE_UNIT_LANES;
+    const seen = new Set<string>(baseLanes);
+    const extraUnits: string[] = [];
+    if (mode === 'instrs') {
+      for (const item of c.instructionMix ?? []) {
+        if (item.count > 0 && !seen.has(item.unit.label)) {
+          seen.add(item.unit.label);
+          extraUnits.push(item.unit.label);
+        }
+      }
+    } else {
+      for (const item of c.utilizationMetrics ?? []) {
+        if (
+          (item.meanPercent > 0 ||
+            item.peakPercent > 0 ||
+            item.activeBundles > 0) &&
+          !seen.has(item.unit.label)
+        ) {
+          seen.add(item.unit.label);
+          extraUnits.push(item.unit.label);
+        }
+      }
+      for (const item of c.utilizationBars ?? []) {
+        if (item.percent > 0 && !seen.has(item.unit.label)) {
+          seen.add(item.unit.label);
+          extraUnits.push(item.unit.label);
+        }
+      }
+    }
+    const lanes =
+      extraUnits.length > 0 ? [...baseLanes, ...extraUnits] : baseLanes;
+    return lanes.map((unit) => {
+      if (mode === 'instrs') {
+        const mixItem = c.instructionMix?.find(
+          (item) => item.unit.label === unit,
+        );
+        const count = mixItem?.count ?? 0;
+        if (count <= 0) {
+          return {unit, active: false, ariaLabel: unit};
+        }
+        const metric = `×${BUNDLE_FORMAT.format(count)}`;
+        const ariaLabel =
+          this.selectedUnitFilter === unit
+            ? `${unit}, ${metric}. Show all units`
+            : `${unit}, ${metric}. Show only ${unit} instructions`;
+        return {unit, active: true, metric, ariaLabel};
+      }
+
+      const m = c.utilizationMetrics?.find((item) => item.unit.label === unit);
+      const bar = c.utilizationBars?.find((item) => item.unit.label === unit);
+      const isActive = m
+        ? m.meanPercent > 0 || m.peakPercent > 0 || m.activeBundles > 0
+        : (bar?.percent ?? 0) > 0;
+      if (!isActive) {
+        return {unit, active: false, ariaLabel: unit};
+      }
+      const percent = m ? m.meanPercent : (bar?.percent ?? 0);
+      const metric = m
+        ? m.formattedMean
+        : (bar?.formattedPercent ?? `${percent}%`);
+      const hoverText =
+        m && m.peakPercent > 0
+          ? `Peak ${m.formattedPeak}${
+              m.peakBundleLabel
+                ? ` at bundle ${m.peakBundleLabel.replace(/^@\s*/, '')}`
+                : ''
+            }`
+          : undefined;
+      const summary = [unit, metric, hoverText].filter(Boolean).join(', ');
+      const ariaLabel =
+        this.selectedUnitFilter === unit
+          ? `${summary}. Show all units`
+          : `${summary}. Show only ${unit} instructions`;
+      return {
+        unit,
+        active: true,
+        metric,
+        ...(hoverText ? {hoverText} : {}),
+        ariaLabel,
+      };
+    });
+  }
+
+  unitMenuOptions(
+    c: KernelSelectionContent,
+  ): readonly UnitMenuOption[] | undefined {
+    const counts = new Map<string, number>();
+    if (this.rangeTableTab === 'events' && c.selectedEvents?.length) {
+      for (const ev of c.selectedEvents) {
+        if (ev.trackName) {
+          counts.set(ev.trackName, (counts.get(ev.trackName) ?? 0) + 1);
+        }
+      }
+    } else if (c.topInstructions?.length) {
+      for (const item of c.topInstructions) {
+        if (item.trackName) {
+          counts.set(item.trackName, (counts.get(item.trackName) ?? 0) + 1);
+        }
+      }
+    }
+    if (this.selectedUnitFilter && !counts.has(this.selectedUnitFilter)) {
+      counts.set(this.selectedUnitFilter, 0);
+    }
+    if (counts.size === 0 || (counts.size < 2 && !this.selectedUnitFilter)) {
+      return undefined;
+    }
+    const entries = Array.from(counts.entries());
+    const nonScEntries = entries.filter(
+      ([unit]) => !SPARSE_CORE_UNIT_LABELS.has(unit),
+    );
+    const scEntries = entries.filter(([unit]) =>
+      SPARSE_CORE_UNIT_LABELS.has(unit),
+    );
+    const ordered = [...nonScEntries, ...scEntries];
+    return ordered.map(([unit, count], index) => ({
+      unit,
+      description: UNIT_DESCRIPTIONS.get(unit) ?? '',
+      count,
+      dividerBefore: nonScEntries.length > 0 && index === nonScEntries.length,
+    }));
+  }
+
+  expandScope(): void {
+    if (!this.scopeExpanded) {
+      this.scopeExpanded = true;
+      this.recomputeDerivedState();
+      this.changeDetectorRef.detectChanges();
+    }
+  }
+
+  getScopeView(crumbs: readonly RegionBreadcrumbItem[] | undefined): {
+    head: readonly VisibleScopeCrumb[];
+    tail: readonly VisibleScopeCrumb[];
+    hiddenCount: number;
+  } {
+    if (!crumbs || crumbs.length === 0) {
+      return {head: [], tail: [], hiddenCount: 0};
+    }
+    if (crumbs.length <= 4 || this.scopeExpanded) {
+      return {
+        head: crumbs.map((crumb, idx) => ({
+          crumb,
+          isLast: idx === crumbs.length - 1,
+        })),
+        tail: [],
+        hiddenCount: 0,
+      };
+    }
+    return {
+      head: [{crumb: crumbs[0], isLast: false}],
+      tail: [
+        {crumb: crumbs[crumbs.length - 2], isLast: false},
+        {crumb: crumbs[crumbs.length - 1], isLast: true},
+      ],
+      hiddenCount: crumbs.length - 3,
+    };
   }
 
   copySummary(): void {
@@ -1352,22 +1944,57 @@ export class KernelSelectionPanel implements AfterViewInit, OnDestroy {
   }
 
   private applyContent(nextContent: KernelSelectionContent | undefined): void {
+    const normalized =
+      nextContent &&
+      (nextContent.isSparseCore === undefined ||
+        nextContent.headerSwatchFamily === undefined)
+        ? finalizeSelectionContent(nextContent)
+        : nextContent;
     const wasOpen = this.content !== undefined;
-    const isOpen = nextContent !== undefined;
+    const isOpen = normalized !== undefined;
     if (!isOpen) {
       this.historyStack = [];
     }
-    this.content = nextContent;
+    this.content = normalized;
     this.selectedUnitFilter = undefined;
     this.hoveredMixUnit = undefined;
+    this.scopeExpanded = false;
+    this.stackOpen = false;
+    this.pickedStackFrameIndex = undefined;
+    this.unitPillMode = 'util';
     this.rangeTableTab =
-      nextContent?.topInstructions && nextContent.topInstructions.length > 0
+      normalized?.topInstructions && normalized.topInstructions.length > 0
         ? 'top'
         : 'events';
     this.copied = false;
+    this.recomputeDerivedState();
     if (wasOpen !== isOpen) {
       this.openChange.emit(isOpen);
     }
     this.changeDetectorRef.detectChanges();
+  }
+
+  private recomputeDerivedState(): void {
+    const c = this.content;
+    if (!c) {
+      this.unitPills = [];
+      this.unitMenuOpts = undefined;
+      this.scopeView = {head: [], tail: [], hiddenCount: 0};
+      this.filteredTopInstructions = [];
+      this.filteredSelectedEvents = [];
+      return;
+    }
+    const topItems = c.topInstructions ?? [];
+    const selEvents = c.selectedEvents ?? [];
+    this.filteredTopInstructions = this.selectedUnitFilter
+      ? topItems.filter((item) => item.trackName === this.selectedUnitFilter)
+      : topItems;
+    this.filteredSelectedEvents = this.selectedUnitFilter
+      ? selEvents.filter((item) => item.trackName === this.selectedUnitFilter)
+      : selEvents;
+    this.unitPills = c.mode === 'range' ? this.rangeUnitPills(c) : [];
+    this.unitMenuOpts =
+      c.mode === 'range' ? this.unitMenuOptions(c) : undefined;
+    this.scopeView = this.getScopeView(c.regionBreadcrumbs);
   }
 }

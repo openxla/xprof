@@ -80,6 +80,14 @@ inline constexpr double kAsyncDoneThresholdInPercent = 10;
 // high.
 inline constexpr double kMemoryUtilizationHighThreshold = 50;
 
+// GPU kernels with a theoretical occupancy below this percentage are
+// considered low occupancy.
+inline constexpr double kGpuLowOccupancyThresholdInPercent = 25.0;
+// If low-occupancy kernels take at least this percentage of the GPU kernel
+// time with a known occupancy, it is considered a bottleneck.
+inline constexpr double kGpuLowOccupancyTimeThresholdInPercent = 10.0;
+// The maximum number of low-occupancy kernels listed in the suggestion.
+inline constexpr int kGpuLowOccupancyMaxKernelsListed = 3;
 // A small number to compare floating point numbers with zero.
 inline constexpr double kZeroEpsilon = 1e-6;
 

@@ -19,6 +19,7 @@ cc_library(
         ":tool_data_provider",
         "//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
+        "//plugin/xprof/protobuf:kernel_stats_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:overview_page_proto_cc",
@@ -169,6 +170,42 @@ cc_library(
 )
 
 cc_library(
+    name = "gpu_low_occupancy_rule",
+    hdrs = ["gpu_low_occupancy_rule.h"],
+    deps = [
+        ":constants",
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "//plugin/xprof/protobuf:kernel_stats_proto_cc",
+        "//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//xprof/convert:source_info_utils",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_test(
+    name = "gpu_low_occupancy_rule_test",
+    srcs = ["gpu_low_occupancy_rule_test.cc"],
+    deps = [
+        ":gpu_low_occupancy_rule",
+        ":mock_tool_data_provider",
+        ":signal_provider",
+        "//plugin/xprof/protobuf:kernel_stats_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "tensor_core_idle_bound_rule",
     hdrs = ["tensor_core_idle_bound_rule.h"],
     deps = [
@@ -275,6 +312,7 @@ cc_library(
         ":data_shuffle_bound_rule",
         ":data_transfer_bound_rule",
         ":debug_print_rule",
+        ":gpu_low_occupancy_rule",
         ":host_processing_bound_rule",
         ":input_bound_rule",
         ":memory_bound_rule",

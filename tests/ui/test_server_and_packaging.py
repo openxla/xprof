@@ -2043,6 +2043,117 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
         ],
     )
 
+  def test_conftest_context_and_sxs_block_external_fonts_cleanly(self) -> None:
+    """Verifies conftest.context and _walk_journey fulfill Google Fonts."""
+    conftest_mod = self._load_isolated_conftest()
+    sxs_mod = self._load_isolated_ui_module("test_journey_sxs.py", conftest_mod)
+
+    class _FakeRoute:
+      """Minimal Playwright Route double recording fulfill and abort calls."""
+
+      def __init__(self) -> None:
+        self.fulfilled: list[dict[str, Any]] = []
+        self.aborted = False
+
+      def fulfill(self, **kwargs: Any) -> None:
+        self.fulfilled.append(kwargs)
+
+      def abort(self) -> None:
+        self.aborted = True
+
+    class _FakeContext:
+      """Minimal Playwright BrowserContext double for route wiring tests."""
+
+      def __init__(self) -> None:
+        self.routes: list[tuple[Any, Any]] = []
+        self.init_scripts: list[str] = []
+        self.closed = False
+        self.page = mock.MagicMock()
+        self.page.url = "http://127.0.0.1:8000/?tag=overview_page"
+
+      def route(self, pattern: Any, handler: Any) -> None:
+        self.routes.append((pattern, handler))
+
+      def add_init_script(self, script: str) -> None:
+        self.init_scripts.append(script)
+
+      def new_page(self) -> Any:
+        return self.page
+
+      def close(self) -> None:
+        self.closed = True
+
+    # 1. Verify conftest.context registers the shared blocker and leaves
+    # BrowserErrors clean when external font URLs are fulfilled with 200 CSS.
+    fixture_ctx = _FakeContext()
+    self.assertIs(conftest_mod.context(fixture_ctx), fixture_ctx)
+    self.assertEqual(len(fixture_ctx.routes), 1)
+    pattern, handler = fixture_ctx.routes[0]
+    self.assertIs(pattern, journey_capture.EXTERNAL_FONTS_ROUTE_RE)
+
+    fake_route = _FakeRoute()
+    handler(fake_route)
+    self.assertFalse(fake_route.aborted)
+    self.assertEqual(fake_route.fulfilled[0]["status"], 200)
+    self.assertIn("text/css", fake_route.fulfilled[0]["content_type"])
+
+    listeners: dict[str, Callable[[Any], None]] = {}
+    tracked_page = types.SimpleNamespace(
+        url="http://127.0.0.1:8000/?tag=overview_page",
+        on=listeners.__setitem__,
+    )
+    tracker = conftest_mod.BrowserErrors()
+    tracker.attach(tracked_page)
+    listeners["response"](
+        types.SimpleNamespace(
+            status=fake_route.fulfilled[0]["status"],
+            url="https://fonts.googleapis.com/css2?family=Roboto",
+            request=types.SimpleNamespace(method="GET"),
+        )
+    )
+    tracker.assert_clean("fulfilled_external_font_request")
+
+    # 2. Verify test_journey_sxs._walk_journey uses the same clean route
+    # handler instead of aborting font requests.
+    sxs_ctx = _FakeContext()
+    fake_browser = types.SimpleNamespace(
+        new_context=lambda viewport: sxs_ctx,
+    )
+    scenario = types.SimpleNamespace(
+        id="smoke",
+        fixture="run1",
+        initial_tool="overview_page",
+        steps=(),
+    )
+    fake_capture = journey_capture.WaypointCapture(
+        name="00_overview_page",
+        png_bytes=b"\x89PNG",
+        html="<html></html>",
+        requests=[],
+        stabilized=True,
+    )
+    with mock.patch.object(
+        sxs_mod, "capture_waypoint", return_value=fake_capture
+    ):
+      # pylint: disable=protected-access
+      captures = sxs_mod._walk_journey(
+          fake_browser,
+          "http://127.0.0.1:8000",
+          "/tmp/logdir",
+          scenario,
+          ["00_overview_page"],
+      )
+      # pylint: enable=protected-access
+    self.assertEqual(captures, [fake_capture])
+    self.assertTrue(sxs_ctx.closed)
+    self.assertEqual(len(sxs_ctx.routes), 1)
+    sxs_pattern, sxs_handler = sxs_ctx.routes[0]
+    self.assertIs(sxs_pattern, journey_capture.EXTERNAL_FONTS_ROUTE_RE)
+    sxs_route = _FakeRoute()
+    sxs_handler(sxs_route)
+    self.assertFalse(sxs_route.aborted)
+    self.assertEqual(sxs_route.fulfilled[0]["status"], 200)
+
 
 if __name__ == "__main__":
   if absltest is not None:

@@ -60,6 +60,12 @@ _API_POLL_MS: int = 50
 _QUIESCENCE_POLL_MS: int = 250
 _QUIESCENCE_TIMEOUT_MS: int = 8000
 
+# Bounded hang guard for awaiting `document.fonts.ready` before screenshots.
+# Local container fonts and bundled WOFF2 icon fonts normally resolve in a few
+# milliseconds; this cap prevents a stalled FontFace from blocking capture.
+_FONTS_READY_POLL_MS: int = 100
+_FONTS_READY_TIMEOUT_MS: int = 5000
+
 # Angular reports itself stable once change detection, timers, and zone-tracked
 # requests have all drained. Host Angular components reach this state well
 # within the timeout (Roofline Model is slowest at ~4.7s). Tools hosted inside
@@ -119,6 +125,42 @@ MASK_SELECTORS: tuple[str, ...] = (
 
 _SESSION_PATH_RE = re.compile(r"(?<=\bsession_path=)[^&\"'\s<>]*")
 _LOCALHOST_ORIGIN_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1):[0-9]+")
+
+# External Google Fonts hosts intercepted in Playwright tests so screenshots
+# use deterministic local container fonts without public network egress.
+EXTERNAL_FONTS_ROUTE_RE = re.compile(
+    r"^https?://fonts\.(?:googleapis|gstatic)\.com(?::[0-9]+)?(?:/|$)",
+    re.IGNORECASE,
+)
+
+
+def _fulfill_external_font_route(route: Any) -> None:
+  """Fulfills external Google Fonts requests locally with an empty 200 CSS."""
+  route.fulfill(
+      status=200,
+      content_type="text/css; charset=utf-8",
+      headers={"Access-Control-Allow-Origin": "*"},
+      body="",
+  )
+
+
+def block_external_fonts(target: Any) -> Any:
+  """Intercepts external Google Fonts egress on a Playwright context or page.
+
+  External webfonts resolve asynchronously over the public network and introduce
+  latency or CDN font-metric drift between baseline and candidate captures.
+  Fulfilling matched requests locally with an empty 200 CSS response prevents
+  network stalls and `net::ERR_FAILED` console errors while letting Chromium
+  resolve local fonts.
+
+  Args:
+    target: Playwright `BrowserContext` or `Page` exposing `.route()`.
+
+  Returns:
+    The registered route handler callable (suitable for `target.unroute()`).
+  """
+  target.route(EXTERNAL_FONTS_ROUTE_RE, _fulfill_external_font_route)
+  return _fulfill_external_font_route
 
 
 @dataclasses.dataclass(frozen=True)
@@ -700,6 +742,80 @@ def _wait_for_charts_to_render(page: Any) -> bool:
   return False
 
 
+_FONTS_READY_JS = """(timeoutMs) => {
+  if (!document.fonts || !document.fonts.ready) {
+    return Promise.resolve(true);
+  }
+  return new Promise(resolve => {
+    let settled = false;
+    const timerId = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
+    }, timeoutMs);
+    Promise.resolve(document.fonts.ready)
+      .then(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timerId);
+          resolve(true);
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timerId);
+          resolve(false);
+        }
+      });
+  });
+}"""
+
+
+def _wait_for_fonts_ready(
+    page: Any, timeout_ms: int = _FONTS_READY_TIMEOUT_MS
+) -> bool:
+  """Awaits `document.fonts.ready` with a bounded timeout guard.
+
+  Args:
+    page: Playwright page to wait on.
+    timeout_ms: Maximum milliseconds to wait for fonts to finish loading.
+
+  Returns:
+    True if `document.fonts.ready` settled within `timeout_ms`, False if the
+    timeout expired or evaluation failed before settling.
+  """
+  deadline = time.monotonic() + timeout_ms / 1000
+  while True:
+    remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+    try:
+      ready = page.evaluate(_FONTS_READY_JS, remaining_ms)
+    except _PlaywrightTimeoutError as err:
+      logging.warning(
+          "Failed while waiting for document.fonts.ready within %dms: %s",
+          timeout_ms,
+          err,
+      )
+      return False
+    except _PlaywrightError as err:
+      if time.monotonic() >= deadline:
+        logging.warning(
+            "Failed while waiting for document.fonts.ready within %dms: %s",
+            timeout_ms,
+            err,
+        )
+        return False
+      page.wait_for_timeout(_FONTS_READY_POLL_MS)
+      continue
+    if isinstance(ready, bool) and not ready:
+      logging.warning(
+          "document.fonts.ready did not settle within %dms.", timeout_ms
+      )
+      return False
+    return True
+
+
 def _wait_for_dom_quiescence(page: Any) -> tuple[str, bool]:
   """Polls until the serialized DOM stops changing, returning (html, settled).
 
@@ -709,10 +825,6 @@ def _wait_for_dom_quiescence(page: Any) -> tuple[str, bool]:
   Returns:
     A tuple of (last_serialized_html, is_settled).
   """
-  try:
-    page.evaluate("document.fonts.ready")
-  except _PlaywrightError:
-    pass
   deadline = time.monotonic() + _QUIESCENCE_TIMEOUT_MS / 1000
   try:
     previous = _normalized_html(page)
@@ -952,7 +1064,13 @@ def capture_waypoint(
   except _PlaywrightError:
     pass
 
-  # 8. Stabilize serialized DOM across consecutive quiescence polls.
+  # 8. Wait for webfont loading (`document.fonts.ready`) to settle within a
+  # bounded timeout so text metrics and icon ligatures finish painting before
+  # DOM sampling, mask bounding boxes, and screenshot capture.
+  if not _wait_for_fonts_ready(page):
+    unsettled.append("fonts_ready_timeout")
+
+  # 9. Stabilize serialized DOM across consecutive quiescence polls.
   html, dom_settled = _wait_for_dom_quiescence(page)
   if not dom_settled:
     unsettled.append("dom_quiescence_timeout")

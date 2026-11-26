@@ -241,6 +241,13 @@ def browser_type_launch_args(
   }
 
 
+@pytest.fixture
+def context(context: Any) -> Any:
+  """Blocks external Google Fonts egress across all Playwright tests."""
+  journey_capture.block_external_fonts(context)
+  return context
+
+
 @pytest.fixture(scope="session")
 def server_url(logdir: str) -> Iterator[str]:
   """Launches the XProf web server and provides its URL to all tests."""

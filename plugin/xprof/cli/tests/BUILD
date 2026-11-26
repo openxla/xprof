@@ -27,6 +27,15 @@ py_test(
 )
 
 py_test(
+    name = "hlo_graph_db_test",
+    srcs = ["hlo_graph_db_test.py"],
+    deps = [
+        "//plugin/xprof/cli/internal:hlo_graph_db",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+py_test(
     name = "xplane_event_query_test",
     srcs = ["xplane_event_query_test.py"],
     visibility = ["//visibility:public"],

@@ -384,14 +384,13 @@ _CHECK_SIDENAV_OVERLAP_JS = """
 }
 """
 
-# Upstream 1280px unwrapped flex chart/filter rows. `framework-op-stats` and
-# `hlo-stats` are tracked by strict xfail tests in
+# Upstream 1280px unwrapped flex chart/filter rows. `framework-op-stats` is
+# tracked by a strict xfail test in
 # `test_tools_rendering.py::test_desktop_chart_rows_fit_content_pane`.
 # `perf-counters` overflows at 1280px only in internal builds (Copybara strips
 # the extra `Host` and `Show Zero Values` controls in OSS).
 KNOWN_UNWRAPPED_ROW_SELECTORS: tuple[str, ...] = (
     "framework-op-stats .row",
-    "hlo-stats .row",
     "perf-counters .row",
 )
 

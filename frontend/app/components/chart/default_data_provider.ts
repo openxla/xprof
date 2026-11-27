@@ -57,6 +57,7 @@ export class DefaultDataProvider implements ChartDataProvider {
   parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
     if (!data) {
       this.pendingData = null;
+      this.dataTable = undefined;
       return;
     }
     if (!this.ensureChartPackagesLoaded(data)) return;
@@ -86,13 +87,24 @@ export class DefaultDataProvider implements ChartDataProvider {
     }
 
     const dataView = new google.visualization.DataView(this.dataTable);
+    const numColumns = this.dataTable.getNumberOfColumns();
 
     if (this.visibleColumns && this.visibleColumns.length > 0) {
-      dataView.setColumns(this.visibleColumns);
+      const validVisibleColumns = this.visibleColumns.filter(
+        (index) => index >= 0 && index < numColumns,
+      );
+      if (validVisibleColumns.length > 0) {
+        dataView.setColumns(validVisibleColumns);
+      }
     }
 
     if (this.filters && this.filters.length > 0) {
-      dataView.setRows(this.dataTable.getFilteredRows(this.filters));
+      const validFilters = this.filters.filter(
+        (filter) => filter.column >= 0 && filter.column < numColumns,
+      );
+      if (validFilters.length > 0) {
+        dataView.setRows(this.dataTable.getFilteredRows(validFilters));
+      }
     }
 
     return dataView;
@@ -136,6 +148,7 @@ export class ArrayDataProvider extends DefaultDataProvider {
   override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
     if (!data) {
       this.pendingData = null;
+      this.dataTable = undefined;
       return;
     }
     if (
@@ -153,6 +166,13 @@ export class ArrayDataProvider extends DefaultDataProvider {
   }
 }
 
+// Matches explicit braced lists (`{{0, 1}, {2, 3}}`, `{{0,2}{1,3}}`, `{}`),
+// compact IotaReplicaGroupList (`[m,n]<=[...]` with optional `T(...)`), and
+// MeshAxesReplicaGroupList (`mesh[a=2,b=4] {a}`, `mesh[...] , device_ids=(...) {...}`,
+// `single_device[device_id=0] {}`).
+const REPLICA_GROUPS_REGEX =
+  /replica_groups=(?:\{(?:\s*\{(?:\s*\d+(?:\s*,\s*\d+)*)?\s*\}\s*,?)*\s*\}|\[\s*\d+(?:\s*,\s*\d+)*\s*\]\s*<=\s*\[\s*\d+(?:\s*,\s*\d+)*\s*\](?:\s*T\(\s*\d+(?:\s*,\s*\d+)*\s*\))?|[a-zA-Z_]\w*\[[^\]]*\](?:\s*,\s*device_ids=\((?:[^()]|\([^)]*\))*\))?\s*\{[^}]*\})/;
+
 /**
  * A chart data provider that accepts SimpleDataTable and allows computing
  * metrics grouped by replica groups.
@@ -160,22 +180,35 @@ export class ArrayDataProvider extends DefaultDataProvider {
 export class ReplicaGroupDataProvider extends DefaultDataProvider {
   // Communication HLO ops are ops who have the field 'replica_groups'.
   // Ex. all-reduce, all-gather, etc
-  communicationOps = new Set();
+  communicationOps = new Set<string>();
   // Column indexes
-  opCategoryIndex?: number;  // 'category' column
-  hloOpNameIndex?: number;   // 'hlo_op_expression' column
-  selfTimeIndex?: number;    // 'total_self_time' column
+  opCategoryIndex?: number; // 'category' column
+  hloOpNameIndex?: number; // 'hlo_op_expression' column
+  selfTimeIndex?: number; // 'total_self_time' column
+
+  private resetState() {
+    this.pendingData = null;
+    this.dataTable = undefined;
+    this.communicationOps.clear();
+    this.opCategoryIndex = undefined;
+    this.hloOpNameIndex = undefined;
+    this.selfTimeIndex = undefined;
+  }
 
   override parseData(data: SimpleDataTable | null) {
     const rowWithReplicaGroups: google.visualization.DataObjectRow[] = [];
 
     if (!data || !data.cols || !data.rows) {
-      this.pendingData = null;
+      this.resetState();
       return;
     }
     if (!this.ensureChartPackagesLoaded(data)) {
       return;
     }
+
+    this.opCategoryIndex = undefined;
+    this.hloOpNameIndex = undefined;
+    this.selfTimeIndex = undefined;
 
     // Set the column index member variables.
     for (let i = 0; i < data.cols.length; i++) {
@@ -186,23 +219,26 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
       if (data.cols[i].id === 'total_self_time') this.selfTimeIndex = i;
     }
 
-    if (this.opCategoryIndex === undefined ||
-        this.hloOpNameIndex === undefined || this.selfTimeIndex === undefined) {
+    if (
+      this.opCategoryIndex === undefined ||
+      this.hloOpNameIndex === undefined ||
+      this.selfTimeIndex === undefined
+    ) {
+      this.resetState();
       return;
     }
 
     // Filter through rows whose hloOpName string has the field
     // 'replica_groups'. Set the value for the hloOpName to only be the
-    // 'replica_groups={{...}}' string. This allows computing metrics grouped by
-    // replica groups.
+    // 'replica_groups=...' substring so metrics can be grouped by replica
+    // groups.
     for (const row of data.rows) {
       if (row?.c) {
         const hloOpName = row.c[this.hloOpNameIndex]?.v;
 
-        if (typeof hloOpName !== 'string') return;
+        if (typeof hloOpName !== 'string') continue;
 
-        const hasReplicaGroup =
-            hloOpName.match(/replica_groups={({(\d,?)+},?)*}/);
+        const hasReplicaGroup = hloOpName.match(REPLICA_GROUPS_REGEX);
 
         if (hasReplicaGroup !== null) {
           const newRow = {c: [...row.c]};
@@ -215,12 +251,16 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
     // Create a set of the categories of communication HLO ops.
     this.communicationOps.clear();
     for (const row of rowWithReplicaGroups) {
-      if (row?.c) {
-        this.communicationOps.add(row.c[this.opCategoryIndex].v);
+      const category = row?.c?.[this.opCategoryIndex]?.v;
+      if (category != null) {
+        this.communicationOps.add(String(category));
       }
     }
 
-    this.dataTable = new google.visualization.DataTable(
-        {cols: data.cols, rows: rowWithReplicaGroups, p: data.p});
+    this.dataTable = new google.visualization.DataTable({
+      cols: data.cols,
+      rows: rowWithReplicaGroups,
+      p: data.p,
+    });
   }
 }

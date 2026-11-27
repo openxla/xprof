@@ -21,6 +21,14 @@ export class CategoryDiffTableDataProcessor implements
       return null;
     }
 
+    if (
+      !this.diffData ||
+      !this.diffData.cols ||
+      this.diffData.cols.length === 0
+    ) {
+      return null;
+    }
+
     const diffTable = new google.visualization.DataTable(this.diffData);
     if (!diffTable) {
       return null;
@@ -31,9 +39,29 @@ export class CategoryDiffTableDataProcessor implements
       return null;
     }
 
+    if (this.gColumn < 0 || this.vColumn < 0) {
+      return null;
+    }
+
+    const maxColumn = Math.max(this.gColumn, this.vColumn);
+    const dataNumCols = dataTable.getNumberOfColumns();
+    const diffNumCols = diffTable.getNumberOfColumns();
+    if (dataNumCols <= maxColumn || diffNumCols <= maxColumn) {
+      return null;
+    }
+
+    const filters = this.filters || [];
+    const validDataFilters = filters.filter(
+      (filter) => filter.column >= 0 && filter.column < dataNumCols,
+    );
+    const validDiffFilters = filters.filter(
+      (filter) => filter.column >= 0 && filter.column < diffNumCols,
+    );
+
     return computeCategoryDiffTable(
-        computeGroupView(dataTable, this.filters, this.gColumn, this.vColumn),
-        computeGroupView(diffTable, this.filters, this.gColumn, this.vColumn),
-        chart);
+      computeGroupView(dataTable, validDataFilters, this.gColumn, this.vColumn),
+      computeGroupView(diffTable, validDiffFilters, this.gColumn, this.vColumn),
+      chart,
+    );
   }
 }

@@ -97,7 +97,7 @@ export class Chart implements OnChanges, OnInit {
     }
 
     if (!this.dataInfo || !this.dataInfo.dataProvider) {
-      this.chart.clearChart();
+      this.chart.clearChart?.();
       return;
     }
 
@@ -115,6 +115,8 @@ export class Chart implements OnChanges, OnInit {
     if (processedData) {
       // tslint:disable-next-line:no-any
       this.chart.draw(processedData, drawOptions as any);
+    } else {
+      this.chart.clearChart?.();
     }
 
     this.processedNumberOfRows.emit(

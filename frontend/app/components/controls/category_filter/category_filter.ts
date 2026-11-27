@@ -33,8 +33,16 @@ export class CategoryFilter implements OnChanges {
     this.processData();
   }
 
+  private resetState() {
+    this.columnIndex = -1;
+    this.columnLabel = '';
+    this.options = [];
+    this.value = '';
+  }
+
   processData() {
     if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+      this.resetState();
       return;
     }
 
@@ -88,13 +96,20 @@ export class CategoryFilter implements OnChanges {
       } else {
         this.value = this.options[0];
       }
+    } else {
+      this.resetState();
+      return;
     }
 
     this.updateFilter();
   }
 
   updateFilter() {
-    if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+    if (
+      !this.dataTable ||
+      this.dataTable.getNumberOfRows() === 0 ||
+      this.columnIndex < 0
+    ) {
       return;
     }
 

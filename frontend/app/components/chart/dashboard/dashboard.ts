@@ -67,16 +67,52 @@ export class Dashboard {
       this.pendingData = null;
       this.dataTable = undefined;
       this.dataView = undefined;
+      this.filters.clear();
       return;
     }
     if (!this.ensureChartPackagesLoaded(data)) return;
 
+    const previousDataTable = this.dataTable;
     this.dataTable = new google.visualization.DataTable(data);
+    this.pruneFilters(previousDataTable);
     this.updateView();
   }
 
+  protected pruneFilters(previousDataTable?: google.visualization.DataTable) {
+    if (!this.dataTable) {
+      this.filters.clear();
+      return;
+    }
+    const numColumns = this.dataTable.getNumberOfColumns();
+    if (this.dataTable.getNumberOfRows() === 0 || numColumns <= 0) {
+      this.filters.clear();
+      return;
+    }
+    for (const column of Array.from(this.filters.keys())) {
+      if (column < 0 || column >= numColumns) {
+        this.filters.delete(column);
+        continue;
+      }
+      if (previousDataTable) {
+        if (column >= previousDataTable.getNumberOfColumns()) {
+          this.filters.delete(column);
+          continue;
+        }
+        const prevKey =
+          previousDataTable.getColumnId(column) ||
+          previousDataTable.getColumnLabel(column);
+        const nextKey =
+          this.dataTable.getColumnId(column) ||
+          this.dataTable.getColumnLabel(column);
+        if (prevKey !== nextKey) {
+          this.filters.delete(column);
+        }
+      }
+    }
+  }
+
   updateFilters(filter: google.visualization.DataTableCellFilter) {
-    if (filter.column === -1) {
+    if (filter.column < 0) {
       return;
     }
     if (('value' in filter && filter.value !== undefined) ||
@@ -94,12 +130,16 @@ export class Dashboard {
     if (!this.dataTable) {
       return;
     }
+    const numColumns = this.dataTable.getNumberOfColumns();
     const dataView = new google.visualization.DataView(this.dataTable);
     if (this.columns.length !== 0) {
       dataView.setColumns(this.columns);
     }
-    if (this.filters.size !== 0) {
-      dataView.setRows(this.dataTable.getFilteredRows(this.getFilters()));
+    const validFilters = this.getFilters().filter(
+      (filter) => filter.column >= 0 && filter.column < numColumns,
+    );
+    if (validFilters.length !== 0) {
+      dataView.setRows(this.dataTable.getFilteredRows(validFilters));
     }
     this.dataView = dataView;
   }

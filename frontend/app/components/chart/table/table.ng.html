@@ -1,4 +1,4 @@
-<div [style.height]="height">
+<div>
   <mat-form-field *ngIf="displayPageSizeSelector()" appearance="outline">
     <mat-label>Rows per Page: </mat-label>
     <mat-select (selectionChange)="drawTable()" [(value)]="pageSize">

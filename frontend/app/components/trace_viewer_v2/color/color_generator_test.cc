@@ -1,5 +1,7 @@
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -166,6 +168,95 @@ TEST(ColorPaletteTest, FromPreset_NotFoundForUnknownPreset) {
   ColorPalette palette = ColorPalette::Default();
   EXPECT_THAT(palette.FromPreset("NonExistentPreset"),
               StatusIs(absl::StatusCode::kNotFound));
+}
+
+float ReferenceSrgbToLinear(float c) {
+  if (c <= 0.03928f) {
+    return c / 12.92f;
+  }
+  return std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+float ReferenceLuminance(ImU32 color) {
+  const float r = ReferenceSrgbToLinear((color & 0xFF) / 255.0f);
+  const float g = ReferenceSrgbToLinear(((color >> 8) & 0xFF) / 255.0f);
+  const float b = ReferenceSrgbToLinear(((color >> 16) & 0xFF) / 255.0f);
+  return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+}
+
+TEST(ColorsTest, CalculateLuminanceMatchesIeeePowReference) {
+  for (int i = 0; i < 256; ++i) {
+    const float ref_linear =
+        ReferenceSrgbToLinear(static_cast<float>(i) / 255.0f);
+    const ImU32 gray = 0xFF000000 | (i << 16) | (i << 8) | i;
+    EXPECT_NEAR(CalculateLuminance(gray), ref_linear, 1e-6f)
+        << "Grayscale channel value " << i;
+
+    const ImU32 pure_r = 0xFF000000 | i;
+    EXPECT_NEAR(CalculateLuminance(pure_r), 0.2126f * ref_linear, 1e-6f)
+        << "Red channel value " << i;
+
+    const ImU32 pure_g = 0xFF000000 | (i << 8);
+    EXPECT_NEAR(CalculateLuminance(pure_g), 0.7152f * ref_linear, 1e-6f)
+        << "Green channel value " << i;
+
+    const ImU32 pure_b = 0xFF000000 | (i << 16);
+    EXPECT_NEAR(CalculateLuminance(pure_b), 0.0722f * ref_linear, 1e-6f)
+        << "Blue channel value " << i;
+  }
+}
+
+TEST(ColorsTest,
+     GetTextColorForContrastMatchesReferenceAcrossAllChannelsAndPalette) {
+  auto reference_contrast = [](ImU32 c1, ImU32 c2) -> float {
+    const float l1 = ReferenceLuminance(c1);
+    const float l2 = ReferenceLuminance(c2);
+    return (std::max(l1, l2) + 0.05f) / (std::min(l1, l2) + 0.05f);
+  };
+  auto reference_text_color = [&](ImU32 bg, ImU32 on_surf,
+                                  ImU32 inv_on_surf) -> ImU32 {
+    return reference_contrast(bg, on_surf) >= 4.5f ? on_surf : inv_on_surf;
+  };
+
+  const ImU32 on_surface = 0xFF1F1F1F;
+  const ImU32 inv_on_surface = 0xFFF2F2F2;
+
+  // Test across all 256 channel values in grayscale, pure R, pure G, pure B.
+  for (int i = 0; i < 256; ++i) {
+    const ImU32 gray = 0xFF000000 | (i << 16) | (i << 8) | i;
+    EXPECT_EQ(GetTextColorForContrast(gray, on_surface, inv_on_surface),
+              reference_text_color(gray, on_surface, inv_on_surface));
+
+    const ImU32 pure_r = 0xFF000000 | i;
+    EXPECT_EQ(GetTextColorForContrast(pure_r, on_surface, inv_on_surface),
+              reference_text_color(pure_r, on_surface, inv_on_surface));
+
+    const ImU32 pure_g = 0xFF000000 | (i << 8);
+    EXPECT_EQ(GetTextColorForContrast(pure_g, on_surface, inv_on_surface),
+              reference_text_color(pure_g, on_surface, inv_on_surface));
+
+    const ImU32 pure_b = 0xFF000000 | (i << 16);
+    EXPECT_EQ(GetTextColorForContrast(pure_b, on_surface, inv_on_surface),
+              reference_text_color(pure_b, on_surface, inv_on_surface));
+  }
+
+  // Test across all preset palette entries.
+  for (const auto& [name, preset] : kPresetPalettes) {
+    for (ImU32 c : preset.trace_colors) {
+      EXPECT_EQ(GetTextColorForContrast(c, preset.on_surface,
+                                        preset.inverse_on_surface),
+                reference_text_color(c, preset.on_surface,
+                                     preset.inverse_on_surface))
+          << "Palette: " << name;
+    }
+    for (ImU32 c : preset.flow_colors) {
+      EXPECT_EQ(GetTextColorForContrast(c, preset.on_surface,
+                                        preset.inverse_on_surface),
+                reference_text_color(c, preset.on_surface,
+                                     preset.inverse_on_surface))
+          << "Palette: " << name;
+    }
+  }
 }
 
 }  // namespace

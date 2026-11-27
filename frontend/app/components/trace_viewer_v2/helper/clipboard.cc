@@ -13,12 +13,13 @@ namespace traceviewer {
 void CopyToClipboard(absl::string_view text) {
 #ifdef __EMSCRIPTEN__
   std::string s(text);
+  // clang-format off
   EM_ASM(
       {
         const textToCopy = UTF8ToString($0);
-        if (navigator.clipboard) {
+        if (typeof navigator !== 'undefined' && navigator.clipboard) {
           navigator.clipboard.writeText(textToCopy).catch(function(err){});
-        } else {
+        } else if (typeof document !== 'undefined' && document.body) {
           const textArea = document.createElement("textarea");
           textArea.value = textToCopy;
           textArea.style.position = "fixed";
@@ -33,6 +34,7 @@ void CopyToClipboard(absl::string_view text) {
         }
       },
       s.c_str());
+  // clang-format on
 #endif
 }
 

@@ -75,7 +75,7 @@ JAX_ENABLE_X64=1 xparity verify \
   --contract="sqnr" \
   --min_sqnr_db=22 \
   --kernel_oracle="auto" \
-  --regimes="normal,scale_sweep,student_t,outliers,boundary"
+  --regimes="normal,scale_sweep,student_t,outliers,boundary,per_channel_outliers"
 
 # Generate and persist a multi-regime .npz stress test suite
 xparity generate_suite \
@@ -165,7 +165,10 @@ sqnr_report = validate_kernels(
     dtype_str="float32",
     contract=CONTRACT_SQNR,
     kernel_oracle="auto",  # Needs jax_enable_x64 for a JAX reference.
-    regimes=("normal", "scale_sweep", "student_t", "outliers", "boundary"),
+    regimes=(
+        "normal", "scale_sweep", "student_t", "outliers", "boundary",
+        "per_channel_outliers",
+    ),
     # About 6 dB below the input-format model (references/sqnr.md).
     sqnr_config=sqnr.SqnrConfig(min_sqnr_db=22.0),
 )

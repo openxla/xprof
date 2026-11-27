@@ -249,8 +249,10 @@ def _matmul_operands(seed: int, k: int, m: int = 256):
   return a, b
 
 
-def _matmul_case(op_dtype: np.dtype, k: int, seed: int) -> CaseData:
-  a, b = _matmul_operands(seed, k)
+def _rounded_operands_case(
+    a: np.ndarray, b: np.ndarray, op_dtype: np.dtype
+) -> CaseData:
+  """Returns a @ b with both operands rounded to op_dtype, f32 accumulation."""
   oracle = a.astype(np.float64) @ b.astype(np.float64)
   # Products of two narrow operands are exact in float32. Accumulate in fp32.
   cand = a.astype(op_dtype).astype(np.float32) @ b.astype(op_dtype).astype(
@@ -263,9 +265,14 @@ def _matmul_case(op_dtype: np.dtype, k: int, seed: int) -> CaseData:
       precision=sqnr.PrecisionSpec(
           operand_dtypes=(op_dtype.name, op_dtype.name),
           output_dtype="float32",
-          reduction_length=k,
+          reduction_length=a.shape[1],
       ),
   )
+
+
+def _matmul_case(op_dtype: np.dtype, k: int, seed: int) -> CaseData:
+  a, b = _matmul_operands(seed, k)
+  return _rounded_operands_case(a, b, op_dtype)
 
 
 def _bf16_accumulator_case(seed: int, k: int = 256) -> CaseData:
@@ -891,6 +898,268 @@ def _new_shared_bug(seed: int) -> CaseData:
   )
 
 
+def _outlier_round(x: np.ndarray, fmt: str) -> np.ndarray:
+  """Rounds a matmul operand. e4m3 has one scale per tensor, mxfp4 per 32 K."""
+  x = np.asarray(x, np.float64)
+  if fmt == "mxfp4":
+    return mxfp4_round(x.T).T.astype(np.float64)
+  scale = np.max(np.abs(x)) / 448.0 if fmt == "float8_e4m3fn" else 1.0
+  q = (x / scale).astype(np.float32).astype(np.dtype(fmt))
+  return q.astype(np.float64) * scale
+
+
+def _per_channel_outlier_matmul(kernel: str, seed: int) -> CaseData:
+  """Matmul whose w has 2% output columns scaled by 50.
+
+  The output noise of each column scales with its energy sum_k x**2 w**2, so
+  the outlier columns are about 50**2 times noisier than the others.
+
+  Args:
+    kernel: "<x format>_x_<w format>".
+    seed: Seed of the operands.
+
+  Returns:
+    The case data, with float32 outputs and f32 accumulation.
+  """
+  x = numerical_generator.generate_per_channel_outlier_tensor(
+      (256, 1024), "float32", outlier_scale=50.0, seed=seed + 10000
+  )
+  w = numerical_generator.generate_per_channel_outlier_tensor(
+      (1024, 512), "float32", outlier_scale=50.0, seed=seed + 20000
+  )
+  x_fmt, w_fmt = kernel.split("_x_")
+  oracle = np.asarray(x, np.float64) @ np.asarray(w, np.float64)
+  cand = _outlier_round(x, x_fmt) @ _outlier_round(w, w_fmt)
+  return CaseData(
+      reference=oracle.astype(np.float32),
+      candidate=cand.astype(np.float32),
+      oracle=oracle,
+      precision=sqnr.precision_from_dtypes(
+          "float32",
+          "float32",
+          input_dtypes=(x_fmt, w_fmt),
+          reduction_length=1024,
+      ),
+  )
+
+
+PER_CHANNEL_OUTLIER_KERNELS = (
+    "bfloat16_x_bfloat16",
+    "bfloat16_x_float8_e5m2",
+    "float8_e4m3fn_x_float8_e4m3fn",
+    "bfloat16_x_mxfp4",
+)
+
+
+def _per_channel_column_cheat(
+    kernel: str, column: str, cheat: str, seed: int
+) -> CaseData:
+  """Changes output columns of an honest per-channel-outlier matmul.
+
+  Args:
+    kernel: "<x format>_x_<w format>".
+    column: "big" or "median" changes one column. "normal" changes every column
+      outside the 2% of columns with the most energy.
+    cheat: The change: "times_1_1", "zeroed", "biased" or "block_zeroed" for one
+      column, "noise_x<k>" or "gain_1_05" for the normal columns.
+    seed: Seed of the honest case.
+
+  Returns:
+    The honest case data with the changed candidate.
+  """
+  honest = _per_channel_outlier_matmul(kernel, seed)
+  ref, cand = honest.reference, honest.candidate.copy()
+  energy = np.mean(np.square(ref, dtype=np.float64), axis=0)
+  if column == "normal":
+    top = np.argsort(energy)[::-1][: max(1, round(0.02 * energy.size))]
+    cols = np.setdiff1d(np.arange(energy.size), top)
+    if cheat == "gain_1_05":
+      cand[:, cols] *= np.float32(1.05)
+    else:
+      # Noise with power (k - 1) times the honest error power of each column,
+      # so that the error power becomes k times the honest one.
+      k = float(cheat.removeprefix("noise_x"))
+      err = cand[:, cols].astype(np.float64) - ref[:, cols]
+      sd = np.sqrt((k - 1.0) * np.mean(np.square(err), axis=0))
+      noise = _rng(seed, 57).standard_normal((ref.shape[0], cols.size)) * sd
+      cand[:, cols] = (cand[:, cols] + noise).astype(np.float32)
+    return dataclasses.replace(honest, candidate=cand)
+  if column == "big":
+    j = int(np.argmax(energy))
+  else:
+    j = int(np.argmin(np.abs(energy - np.median(energy))))
+  if cheat == "times_1_1":
+    cand[:, j] *= 1.1
+  elif cheat == "zeroed":
+    cand[:, j] = 0.0
+  elif cheat == "biased":
+    cand[:, j] += np.float32(0.05 * math.sqrt(energy[j]))
+  else:
+    row = int(_rng(seed, 56).integers(0, ref.shape[0]))
+    cand[row, j // 32 * 32 : j // 32 * 32 + 32] = 0.0
+  return dataclasses.replace(honest, candidate=cand)
+
+
+def _sparse_outlier_matmul(op: np.dtype, scale: float, seed: int) -> CaseData:
+  """Student-t matmul, K = 2048, where 1% of the w columns are scaled."""
+  rng = _rng(seed, 9)
+  a = rng.standard_t(5.0, (256, 2048)).astype(np.float32)
+  b = (rng.standard_t(5.0, (2048, 256)) / math.sqrt(2048)).astype(np.float32)
+  b[:, rng.choice(256, 2, replace=False)] *= np.float32(scale)
+  oracle = a.astype(np.float64) @ b.astype(np.float64)
+  cand = a.astype(op).astype(np.float32) @ b.astype(op).astype(np.float32)
+  return CaseData(
+      reference=oracle.astype(np.float32),
+      candidate=cand,
+      oracle=oracle,
+      precision=sqnr.PrecisionSpec(
+          operand_dtypes=(op.name, op.name),
+          output_dtype="float32",
+          reduction_length=2048,
+      ),
+  )
+
+
+def _sparse_outlier_column_scale(seed: int) -> CaseData:
+  """Scales the largest output column of a sparse-outlier matmul by 1.05."""
+  honest = _sparse_outlier_matmul(_BF16, 30.0, seed)
+  cand = honest.candidate.copy()
+  energy = np.mean(np.square(honest.reference, dtype=np.float64), axis=0)
+  cand[:, int(np.argmax(energy))] *= np.float32(1.05)
+  return dataclasses.replace(honest, candidate=cand)
+
+
+# ---------------------------------------------------------------------------
+# Heavy-tailed matmul cases.
+# ---------------------------------------------------------------------------
+
+# Honest bf16 x bf16 matmuls with f32 accumulation and heavy-tailed operands.
+HEAVY_TAIL_KINDS = (
+    "gaussian",
+    "elements_1pct_x50",
+    "elements_0p1pct_x50",
+    "rows_1pct_x50",
+    "massive_x30_t512",
+    "massive_x100_t512",
+    "massive_x1000_t512",
+    "massive_x30_t2048",
+    "massive_x100_t2048",
+    "massive_x1000_t2048",
+)
+# Kinds that get the cheat twins, and the cheats.
+_HEAVY_TAIL_CHEAT_KINDS = (
+    "gaussian",
+    "elements_1pct_x50",
+    "rows_1pct_x50",
+    "massive_x1000_t512",
+)
+_HEAVY_TAIL_CHEATS = (
+    "spike1_5x",
+    "spike1_10x",
+    "spike1_20x",
+    "spike8_row_5x",
+    "spike8_row_10x",
+    "spike8_row_20x",
+    "row_noise_power_2",
+    "row_noise_power_4",
+)
+_MASSIVE_DIM = 1024
+
+
+def _heavy_tail_operands(kind: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
+  """Returns the float32 operands x and w of a heavy-tailed matmul.
+
+  The "elements" kinds scale a random 1% or 0.1% of the x elements by 50, and
+  "rows_1pct_x50" scales 1% of the x rows by 50 (x is 512x256, w is 256x512).
+  "massive_x<s>_t<T>" is a (T, 1024) activation x where 4 tokens times 4
+  feature dimensions are scaled by s, with w of shape (1024, 256) and variance
+  1/1024. "gaussian" is the control without outliers.
+
+  Args:
+    kind: A HEAVY_TAIL_KINDS name.
+    seed: Seed of the operands.
+
+  Raises:
+    ValueError: For an unknown kind.
+  """
+  rng = _rng(seed, 60)
+  if kind.startswith("massive_"):
+    _, scale, tokens = kind.split("_")
+    x = rng.standard_normal((int(tokens.removeprefix("t")), _MASSIVE_DIM))
+    w = rng.standard_normal((_MASSIVE_DIM, 256)) / math.sqrt(_MASSIVE_DIM)
+    rows = rng.choice(x.shape[0], 4, replace=False)
+    cols = rng.choice(_MASSIVE_DIM, 4, replace=False)
+    x[np.ix_(rows, cols)] *= float(scale.removeprefix("x"))
+    return x.astype(np.float32), w.astype(np.float32)
+  x = rng.standard_normal((512, 256))
+  w = rng.standard_normal((256, 512))
+  if kind == "elements_1pct_x50":
+    x[rng.random(x.shape) < 0.01] *= 50.0
+  elif kind == "elements_0p1pct_x50":
+    x[rng.random(x.shape) < 0.001] *= 50.0
+  elif kind == "rows_1pct_x50":
+    x[rng.choice(x.shape[0], round(0.01 * x.shape[0]), replace=False)] *= 50.0
+  elif kind != "gaussian":
+    raise ValueError(f"unknown heavy-tailed matmul kind {kind!r}")
+  return x.astype(np.float32), w.astype(np.float32)
+
+
+def _heavy_tail_matmul(kind: str, seed: int) -> CaseData:
+  """Honest bf16 x bf16 matmul with f32 accumulation on heavy-tailed operands.
+
+  An output that is small by cancellation in a row with large inputs has an
+  honest error far above the error that its own magnitude predicts.
+
+  Args:
+    kind: A HEAVY_TAIL_KINDS name.
+    seed: Seed of the operands.
+
+  Returns:
+    The case data, with a float64 oracle.
+  """
+  x, w = _heavy_tail_operands(kind, seed)
+  return _rounded_operands_case(x, w, _BF16)
+
+
+def _heavy_tail_cheat(kind: str, cheat: str, seed: int) -> CaseData:
+  """Adds a local error to an honest heavy-tailed matmul output.
+
+  Every cheat adds to the honest error, so the candidate is always worse than
+  its honest twin: each added term has the sign of the honest error of its
+  element.
+
+  Args:
+    kind: A HEAVY_TAIL_KINDS name.
+    cheat: "spike1_<m>x" adds m times the error RMS of the leaf to one random
+      element. "spike8_row_<m>x" adds it to 8 random elements of one random
+      row. "row_noise_power_<p>" adds the magnitudes of normal noise of p times
+      the error power of the leaf to one random row.
+    seed: Seed of the honest case.
+
+  Returns:
+    The honest case data with the changed candidate.
+  """
+  honest = _heavy_tail_matmul(kind, seed)
+  ref = np.asarray(honest.reference, np.float64)
+  cand = np.asarray(honest.candidate, np.float64)
+  err = cand - ref
+  e_rms = math.sqrt(float(np.mean(np.square(err))))
+  sign = np.where(err < 0, -1.0, 1.0)
+  # One random stream per cheat, so the cheats of one seed use other rows.
+  rng = _rng(seed, 61, _HEAVY_TAIL_CHEATS.index(cheat))
+  row = int(rng.integers(0, ref.shape[0]))
+  if cheat.startswith("row_noise_power_"):
+    power = float(cheat.removeprefix("row_noise_power_"))
+    noise = np.abs(rng.standard_normal(ref.shape[1]))
+    cand[row] += math.sqrt(power) * e_rms * noise * sign[row]
+  else:
+    count = 1 if cheat.startswith("spike1_") else 8
+    mult = float(cheat.rsplit("_", 1)[-1].removesuffix("x"))
+    cols = rng.choice(ref.shape[1], count, replace=False)
+    cand[row, cols] += mult * e_rms * sign[row, cols]
+  return dataclasses.replace(honest, candidate=cand.astype(np.float32))
+
+
 # ---------------------------------------------------------------------------
 # Corpus assembly.
 # ---------------------------------------------------------------------------
@@ -938,6 +1207,37 @@ def honest_cases(
           seeds=seed_list,
       )
   )
+  for kernel in PER_CHANNEL_OUTLIER_KERNELS:
+    cases.append(
+        Case(
+            name=f"matmul_per_channel_outliers_{kernel}",
+            label=HONEST,
+            group="matmul_per_channel_outliers",
+            generate=functools.partial(_per_channel_outlier_matmul, kernel),
+            seeds=seed_list,
+        )
+    )
+  for op in (_BF16, _E4M3):
+    for scale in (10.0, 30.0):
+      cases.append(
+          Case(
+              name=f"matmul_sparse_outliers_{op.name}_x{scale:g}_k2048",
+              label=HONEST,
+              group="matmul_per_channel_outliers",
+              generate=functools.partial(_sparse_outlier_matmul, op, scale),
+              seeds=seed_list,
+          )
+      )
+  for kind in HEAVY_TAIL_KINDS:
+    cases.append(
+        Case(
+            name=f"matmul_heavy_tail_{kind}",
+            label=HONEST,
+            group="matmul_heavy_tail",
+            generate=functools.partial(_heavy_tail_matmul, kind),
+            seeds=seed_list,
+        )
+    )
   src = []
 
   def add(
@@ -1121,6 +1421,40 @@ def cheat_cases(seeds: int = CHEAT_SEEDS) -> list[Case]:
   add("single_element_spike", _new_single_spike, new)
   add("sign_flip_block", _new_sign_flip_block, new)
   add("shared_bug_oracle", _new_shared_bug, new)
+
+  column = "per_channel_column_cheats"
+  for kernel, col, cheat in (
+      ("bfloat16_x_bfloat16", "big", "times_1_1"),
+      ("bfloat16_x_bfloat16", "big", "zeroed"),
+      ("bfloat16_x_bfloat16", "big", "biased"),
+      ("bfloat16_x_bfloat16", "big", "block_zeroed"),
+      ("bfloat16_x_bfloat16", "median", "times_1_1"),
+      ("bfloat16_x_bfloat16", "median", "zeroed"),
+      ("bfloat16_x_float8_e5m2", "big", "zeroed"),
+      ("float8_e4m3fn_x_float8_e4m3fn", "big", "zeroed"),
+      ("bfloat16_x_bfloat16", "normal", "noise_x10"),
+      ("bfloat16_x_bfloat16", "normal", "gain_1_05"),
+      ("bfloat16_x_float8_e5m2", "normal", "noise_x10"),
+  ):
+    add(
+        f"per_channel_{kernel}_{col}_column_{cheat}",
+        functools.partial(_per_channel_column_cheat, kernel, col, cheat),
+        column,
+    )
+  add(
+      "sparse_outlier_bfloat16_largest_column_times_1_05",
+      _sparse_outlier_column_scale,
+      column,
+  )
+
+  heavy = "heavy_tail_cheats"
+  for kind in _HEAVY_TAIL_CHEAT_KINDS:
+    for cheat in _HEAVY_TAIL_CHEATS:
+      add(
+          f"heavy_tail_{kind}_{cheat}",
+          functools.partial(_heavy_tail_cheat, kind, cheat),
+          heavy,
+      )
   return cases
 
 

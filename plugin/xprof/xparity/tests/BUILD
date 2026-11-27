@@ -211,7 +211,10 @@ pytype_strict_contrib_test(
 pytype_strict_contrib_test(
     name = "sqnr_checks_test",
     srcs = ["sqnr_checks_test.py"],
+    shard_count = 4,
     deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
         "//plugin/xprof/xparity:sqnr",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",

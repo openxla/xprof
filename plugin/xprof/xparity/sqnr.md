@@ -44,20 +44,23 @@ case). Other names raise `ValueError`. This includes short forms such as
     summation orders of one bfloat16 matmul gave 0 false failures in 620
     trials (K up to 4096, outputs up to 1048576 elements). The 95% upper
     bound is about 1 in 200 leaves.
-*   Heavy-tailed matmul inputs can make the spike check (`max_error_ulp`)
-    fail an honest bfloat16 matmul with float32 accumulation. The fitted
-    noise model follows the output magnitude, but the rounding error of a
-    matmul output follows the norms of its input row and column. An output
-    that is small by cancellation, in a row with a large input, can get an
-    error many times its modeled standard deviation. Examples are 1% or 0.1%
-    of the elements of one input scaled by 50, or a few tokens and channels
-    scaled by 100 to 1000 (massive activations). At a scale of 30, and in
-    some cases at 100 or 1000, the block-noise check fails instead or as
-    well. The global SQNR matches the model in these cases. A per-row floor
-    on the spike bound removes the spike-check failures, but it also passes
-    spikes on small outputs of element-wise casts, so the checks do not use
-    one. With `strict=False`, only the global (or oracle) SQNR rule and the
-    leaf rules run: these cases pass, and so do most local errors.
+*   Heavy-tailed matmul inputs can still make the block-noise check or the
+    spike check (`max_error_ulp`) fail an honest bfloat16 matmul with
+    float32 accumulation on some seeds. The energy term h is a row-column
+    estimate from the reference output only (`_dc_energy`), not from the
+    input norms, so it does not follow the input energy of each element
+    exactly. With 1% of the rows of one input scaled by 50 (512x256x512),
+    honest kernels fail on 3 of 20 seeds. With a few tokens and channels
+    scaled by 1000 (massive activations, 512 tokens x 1024), they fail on up
+    to 8 of 20 seeds. With the input formats in the `PrecisionSpec`, these
+    cases fail on at most 2 of the tested seeds. A per-tensor float8_e4m3fn
+    matmul with a 22 dB floor also fails the spike check on one outliers
+    batch with seed 7. The global SQNR passes in all of these cases. A
+    per-row floor on the spike bound removes the spike-check failures but
+    not the block-check failures, and it passes spikes on small outputs of
+    element-wise casts, so the checks do not use one. With `strict=False`,
+    only the global (or oracle) SQNR rule and the leaf rules run: these
+    cases pass, and so do most local errors.
 *   The correlation checks do not test AC below 16 eps^2 of the energy of
     the reference values in a window (about 4 eps standard deviation). A
     row-bias-only error at that level passes them: 130 dB or more in

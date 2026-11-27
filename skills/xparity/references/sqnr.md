@@ -262,7 +262,10 @@ $N$ elements (a skipped tile, a dropped expert), global SQNR is at most $10
 the average hides:
 
 -   **Block noise** (`max_block_noise_ratio_db`): one block with much more noise
-    than honest rounding gives.
+    than honest rounding gives. Its threshold grows with the number of blocks,
+    and blocks of zero padding count too. In a tested output with zero-padded
+    columns, the threshold was about 0.5 dB looser, and a column defect that
+    failed the unpadded output passed.
 -   **Correlation** (`centered_corr_snr_db`, `diff_corr_snr_db`,
     `plaquette_corr_snr_db`): constant, mean-only and bias shortcuts. They check
     that the candidate follows the reference on three signals, each with its
@@ -287,31 +290,69 @@ oracle on the other regimes, pass `regimes` as shown below, or `regimes="all"`
 the verdict of the rerun with `regimes`. Do not change the floor or the strict
 checks to make up for regimes that did not run.
 
-Without `regimes`, `validate_kernels` and `verify` gate on every input regime
-of the suite at the `presubmit` and `deep_fuzzing` tiers. With `kernel_oracle`
-set, they do so at every tier, also `fast_agent`. A kernel that rounds its
-inputs to a narrow float format (FP8, FP4 or bf16) cannot pass two of them:
+Without `regimes`, `validate_kernels` and `verify` gate on every input regime of
+the suite at the `presubmit` and `deep_fuzzing` tiers. With `kernel_oracle` set,
+they do so at every tier, also `fast_agent`. A kernel that rounds its inputs to
+a narrow float format (FP8, FP4 or bf16) cannot pass one of them, and passes two
+others only within limits:
 
 -   `cancellation`: the inputs are pairs such as 1000 and -999.9. The narrow
     format rounds both to the same magnitude, so the pair cancels and SQNR is
     about 0 dB. The information is lost before the kernel computes.
 -   `per_channel_outliers`: a few output columns are about 50 times larger than
-    the rest. The block-noise and spike checks use one noise model for the
-    whole output, so the small elements in those columns read as too noisy.
+    the rest. The derived checks model the noise of each row and column with an
+    energy term, so an honest kernel passes. With more than 65536 columns, the
+    derived tiles split the last axis and the energy term is off, so the small
+    elements in the outlier columns can read as too noisy. A shard with one row
+    also has no energy term. The fitted energy term can also take in some
+    defects. At the tested seeds and shapes, extra noise in the low-energy
+    columns passed up to 100 times the honest noise power. Only the global floor
+    caught it, at 300 times. A 1% gain on the largest column passed on 5 of 6
+    seeds. A 2% gain failed the block check on 5 of 6 seeds and the global floor
+    on 6 of 6. The `six_gate_v1` preset caught gains of 1% to 3% on 6 of 6
+    seeds. On heavy-tailed inputs, extra noise with a standard deviation of u
+    times the output magnitude, on the few elements where one product
+    dominates, passed on most seeds (u is the unit roundoff of the coarsest
+    input format).
+-   `boundary` passes, also within limits. Its largest outputs come from one
+    product each. In the tested batch, relative noise of about 0.6% on them
+    passed for a bf16 matmul, and about 14% for a matmul with float8_e5m2
+    weights.
 
-For such a kernel, pass
-`regimes=("normal", "scale_sweep", "student_t", "outliers", "boundary")`
-(on the command line,
-`--regimes="normal,scale_sweep,student_t,outliers,boundary"`) and keep the
-floor. Never lower the floor to pass the other regimes. The report's `coverage`
-lists the regimes that did not run: quote them with the verdict.
+For such a kernel, pass these six regimes and keep the floor:
+
+```python
+regimes=(
+    "normal", "scale_sweep", "student_t", "outliers", "boundary",
+    "per_channel_outliers",
+)
+```
+
+On the command line, pass:
+
+```shell
+--regimes="normal,scale_sweep,student_t,outliers,boundary,per_channel_outliers"
+```
+
+Never lower the floor to pass the other regimes. The report's `coverage` lists
+the regimes that did not run: quote them with the verdict. Also state the known
+limits of the check with the verdict, for example the limits of
+`per_channel_outliers` above.
+
+An honest kernel can fail `per_channel_outliers` in three cases: with the
+`six_gate_v1` preset, when an output has more than 65536 columns, and when a
+shard has one row. In these cases, leave that regime out and pass
+`regimes=("normal", "scale_sweep", "student_t", "outliers", "boundary")` (on the
+command line, `--regimes="normal,scale_sweep,student_t,outliers,boundary"`).
 
 The suite seed is fixed (42 by default), so a result repeats from run to run.
-With some seeds, an honest narrow float kernel still fails
-`max_block_noise_ratio_db` or `max_error_ulp` on one or two `student_t` or
-`outliers` batches, while its global SQNR matches the model. This was measured
-on bf16, FP8 e4m3 and FP8 e5m2 matmuls. Do not lower the floor or turn off the
-strict checks to pass it. Quote the failing batch and reason with the verdict.
+With some seeds, an honest narrow float kernel can still fail
+`max_block_noise_ratio_db` or `max_error_ulp` on one `student_t` or `outliers`
+batch, while its global SQNR matches the model. This can occur when one product
+dominates an output element. Do not lower the floor, change `--sqnr_alpha` or
+the seed, or turn off the strict checks to pass it. Report the verdict as it is,
+and quote the failing batch name and its `failed_reasons` with it. Then reason
+about whether one dominant product explains them.
 
 This set fits float formats only. An integer kernel (int8, int4) with one scale
 per tensor, row or column also misses a typical floor on `student_t` and

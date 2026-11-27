@@ -70,10 +70,11 @@ DEFAULT_MIN_SQNR_DB = 45.0
 # stays at or below alpha. z(1 - 1e-6) = 4.75. The normal score grows as
 # sqrt(2 ln(1 / alpha)), so a 1000x smaller alpha widens the bounds by only
 # about 25% (z = 6.0) and costs little detection power.
-# The rate holds for noise that the fitted model E[e**2] = A v + B describes.
-# Two float32 summation orders of the same bf16 matmul (K up to 4096, outputs
-# up to 1048576 elements) gave 0 false failures in 620 seeds, a 95% upper
-# bound of about 1 in 200 leaves.
+# The rate holds for noise that the fitted model E[e**2] = A v + B + C h of
+# the derived checks describes (see the honest-noise model of the derived
+# checks). Two float32 summation orders of the same bf16 matmul (K up to 4096,
+# outputs up to 1048576 elements) gave 0 false failures in 620 seeds, a 95%
+# upper bound of about 1 in 200 leaves.
 DEFAULT_ALPHA = 1e-6
 # Elements per block along the minor axis. 32 is the OCP MX scale block, so
 # one block holds one shared scale. A 32-sample chi-square bound at
@@ -2033,15 +2034,28 @@ def _six_gate_v1_checks(
 
 
 # --- BEGIN DERIVED CHECKS (alpha-derived gates) ---
-# Honest-noise model of the derived checks. Each output y_i is rounded once to
-# a grid with step u_i (the candidate dtype or a PrecisionSpec format), so the
-# error has E[e_i**2] = u_i**2 / 12 (Widrow and Kollar, "Quantization Noise",
-# 2008). Accumulation and upstream rounding add noise that does not scale with
-# u_i, so the checks fit E[e_i**2] = A * u_i**2 / 12 + B by least squares on
-# the leaf and test the fit against the leaf structure. The B term also covers
-# error near zero that comes from larger inputs, so u_i has no near-zero floor:
-# a floor at 2**-8 max|y| overstates the step of small elements, biases A low,
-# and makes outlier elements look like spikes.
+# Honest-noise model of the derived checks: E[e_i**2] = A v_i + B + C h_i.
+# Each output y_i is rounded once to a grid with step u_i (the candidate dtype
+# or a PrecisionSpec format), so the error has E[e_i**2] = v_i = u_i**2 / 12
+# (Widrow and Kollar, "Quantization Noise", 2008). Accumulation and upstream
+# rounding add noise that does not scale with u_i: the B term. The B term also
+# covers error near zero that comes from larger inputs, so u_i has no near-zero
+# floor: a floor at 2**-8 max|y| overstates the step of small elements, biases
+# A low, and makes outlier elements look like spikes. The noise of a sum of
+# products also scales with its energy sum_k a_k**2 b_k**2, which varies per
+# row and column when one operand has per-channel outliers: the C h term, with
+# h a row-column estimate of that energy (`_dc_energy`). The checks fit A, B
+# and C by least squares on the leaf and test the fit against the leaf
+# structure. The fit keeps A >= _DC_MIN_A, so every element keeps its rounding
+# variance. The checks then grade each element with max(h, y**2) in place of
+# h: when one product holds most of the energy of an element (heavy-tailed
+# inputs), the row-column mean h is far below y**2, and the honest error of
+# the input rounding is about eps_in |y|. The spike bound of an element with
+# y**2 below the resolution of the reference dtype at the mean reference power
+# also allows e**2 = y**2: an honest kernel can flush it to zero.
+# A fitted term can take in extra noise of the candidate. On inputs with
+# per-channel outliers, the fitted C can take in extra noise in the
+# low-energy columns: only the global SQNR floor bounds it there.
 
 # Safety factor on the block-noise bound (3 dB). The bound is the chi-square
 # quantile for normal e. If e has kurtosis kappa (3 for normal e, 1.8 for one
@@ -2107,7 +2121,9 @@ _DC_MIN_A = 1.0
 # -1073..1024, so 1100 holds them all.
 _DC_BIN_OFFSET = 1100
 # Reweighting rounds of the fit. Each round moves the weights to the current
-# fit. Five rounds converge to 1e-3 relative on the corpus.
+# fit. Five rounds are a fixed cost, not a convergence test. The weights only
+# set how the bins are balanced: each round is a valid weighted least-squares
+# fit, and the checks grade against the last one.
 _DC_FIT_ITERATIONS = 5
 # Floor of the fit variance relative to its largest bin. 1e-12 caps the
 # weight ratio at 1e24, so the weighted sums stay finite in float64.
@@ -2316,33 +2332,278 @@ def _dc_subnormal_var(ctx: _LeafContext, fmts: Sequence[_DcFormat]) -> float:
   )
 
 
+class _DcColEnergy:
+  """Collects the column means of y**2 per shard, see `_dc_energy`.
+
+  `_dc_fit` adds each tile in its pass over the leaf, so the means need no
+  pass of their own. The mean of each column is over its finite elements. A
+  component with fewer than two columns of positive mean gets zero means, so
+  it has no energy term. A shard gets None when no component is left, when it
+  has fewer than two rows with a finite element, or when the derived tiles
+  split its last axis. Such a shard has no energy term.
+  """
+
+  def __init__(self, ctx: _LeafContext):
+    n_shards = len(ctx.pairs)
+    self._sums: list[np.ndarray | None] = [None] * n_shards
+    self._counts: list[np.ndarray | None] = [None] * n_shards
+    self._rows = [0] * n_shards
+    self._bad = {
+        s_i
+        for s_i, sl in ctx.row_tiles
+        if sl and sl[-1] != slice(None) and sl[-1].start != 0
+    }
+
+  def drop(self, s_i: int) -> None:
+    """Gives shard s_i no energy term, for example for an empty tile."""
+    self._bad.add(s_i)
+
+  def add(self, s_i: int, y2: np.ndarray, m: np.ndarray) -> None:
+    """Adds a tile of shard s_i.
+
+    Args:
+      s_i: Shard index.
+      y2: y**2 for the y of `_dc_tile`.
+      m: The mask of `_dc_tile`.
+    """
+    if s_i in self._bad:
+      return
+    # y is 0 where an element is not finite, so the sum is over finite ones.
+    part, cnt = np.sum(y2, 0), np.sum(m, 0)
+    prev, prev_cnt = self._sums[s_i], self._counts[s_i]
+    if prev is not None and prev.shape != part.shape:
+      self._bad.add(s_i)
+      return
+    self._sums[s_i] = part if prev is None else prev + part
+    self._counts[s_i] = cnt if prev_cnt is None else prev_cnt + cnt
+    self._rows[s_i] += int(np.count_nonzero(np.any(m, 1)))
+
+  def means(self) -> list[np.ndarray | None]:
+    """Returns the column means per shard, or None for a shard without them."""
+    out: list[np.ndarray | None] = []
+    for s_i, (total, cnt) in enumerate(zip(self._sums, self._counts)):
+      if (
+          s_i in self._bad
+          or total is None
+          or cnt is None
+          or self._rows[s_i] < 2
+      ):
+        out.append(None)
+        continue
+      col = np.where(cnt[:, None] > 0, total / np.maximum(cnt, 1)[:, None], 0.0)
+      col[:, np.sum(col > 0.0, 0) < 2] = 0.0
+      out.append(col if np.any(col > 0.0) else None)
+    return out
+
+
+def _dc_energy(
+    cols: Sequence[np.ndarray | None],
+    s_i: int,
+    sl: tuple[slice, ...],
+    y: np.ndarray,
+    m: np.ndarray,
+) -> np.ndarray | None:
+  """Returns the row-column energy h of a tile, or None for no energy term.
+
+  h = r_i c_j, with c_j the mean of y**2 over the finite elements of column j
+  of the shard and r_i the mean of y**2 / c_j over the finite elements of the
+  tile row with c_j > 0, per component. Columns with c_j = 0 (for example zero
+  padding) and elements that are not finite do not enter r_i, so they do not
+  scale h. r_i is a mean of
+  ratios, so a few high-energy columns do not set the row factor. For a sum
+  y = sum_k a_k b_k of independent zero-mean terms, E[y**2] = sum_k a_k**2
+  b_k**2 is the variance scale of its accumulated and operand rounding error.
+  A rank-one product of row and column means follows it when the row and the
+  column energies vary, for example per-channel outliers in one operand.
+
+  Args:
+    cols: Column means of y**2 per shard, shape (L, components), or None.
+    s_i: Shard index.
+    sl: Tile slices.
+    y: Scaled reference tile, shape (rows, L, components).
+    m: Element mask of the tile, shape (rows, L).
+  """
+  col = cols[s_i]
+  if col is None:
+    return None
+  if sl:
+    col = col[sl[-1]]
+  valid = m[..., None] & (col > 0.0)
+  with np.errstate(all="ignore"):
+    ratio = np.where(valid, np.square(y) / col, 0.0)
+  n_valid = np.maximum(np.sum(valid, 1, keepdims=True), 1)
+  return np.sum(ratio, 1, keepdims=True) / n_valid * col
+
+
+def _dc_fit_energy(
+    ctx: _LeafContext,
+    fmts: Sequence[_DcFormat],
+    fit: tuple[float, float],
+    cols: Sequence[np.ndarray | None],
+) -> tuple[float, float, float]:
+  """Fits E[e**2] = A v + B + C h with A >= _DC_MIN_A, B >= 0 and C >= 0.
+
+  The fit is the reweighted least squares of `_dc_fit`, with one more term.
+  It starts from the (A, B) of `_dc_fit` and C = 0. The sums are binned by
+  the binary exponents of v and h. A joint fit is needed: with A and B held
+  at the values of `_dc_fit`, B holds the noise of the high-energy columns,
+  and is too large for the other columns.
+
+  Args:
+    ctx: The leaf context.
+    fmts: The output of `_dc_formats`.
+    fit: (A, B) from `_dc_fit`.
+    cols: Column means of y**2 per shard, see `_dc_energy`.
+
+  Returns:
+    (A, B, C). When the constrained fit gives C = 0, C is 0 and (A, B) is the
+    input.
+  """
+  acc: dict[int, np.ndarray] = {}
+  for s_i, sl in ctx.row_tiles:
+    if cols[s_i] is None:
+      continue
+    y, c, vu, m, _ = _dc_tile(ctx, s_i, sl, fmts)
+    if y.size == 0:
+      continue
+    v = np.minimum(vu, np.square(y))
+    h = _dc_energy(cols, s_i, sl, y, m)
+    if h is None:
+      continue
+    mk = np.broadcast_to(m[..., None], y.shape).ravel()
+    v, h, e2 = v.ravel()[mk], h.ravel()[mk], np.square(c - y).ravel()[mk]
+    # Bin 0 of v (reference zeros) stays out, as in `_dc_fit`.
+    keep = v > 0.0
+    v, h, e2 = v[keep], h[keep], e2[keep]
+    kv = np.frexp(v)[1] + _DC_BIN_OFFSET
+    kh = np.where(h > 0.0, np.frexp(h)[1] + _DC_BIN_OFFSET, 0)
+    keys, inv = np.unique(kv * (2 * _DC_BIN_OFFSET) + kh, return_inverse=True)
+    rows = (None, v, h, v * v, v * h, h * h, e2, e2 * v, e2 * h)
+    part = np.stack([np.bincount(inv, w, minlength=keys.size) for w in rows])
+    for j, key in enumerate(keys.tolist()):
+      if key in acc:
+        acc[key] += part[:, j]
+      else:
+        acc[key] = part[:, j].copy()
+  if not acc:
+    return fit[0], fit[1], 0.0
+  n_k, v_k, h_k, vv_k, vh_k, hh_k, e_k, ev_k, eh_k = np.stack(
+      list(acc.values()), 1
+  )
+  if not np.any(hh_k > 0.0):
+    return fit[0], fit[1], 0.0
+  a_fit, b_fit, c_fit = fit[0], fit[1], 0.0
+  for _ in range(_DC_FIT_ITERATIONS):
+    s2 = (a_fit * v_k + c_fit * h_k) / n_k + b_fit
+    s2_max = float(np.max(s2))
+    if not s2_max > 0.0:
+      break
+    s2 = np.maximum(s2, _DC_FIT_REL_FLOOR * s2_max)
+    w = np.square(s2_max / s2)
+    g = np.array([
+        [np.sum(w * vv_k), np.sum(w * v_k), np.sum(w * vh_k)],
+        [np.sum(w * v_k), np.sum(w * n_k), np.sum(w * h_k)],
+        [np.sum(w * vh_k), np.sum(w * h_k), np.sum(w * hh_k)],
+    ])
+    r = np.array([np.sum(w * ev_k), np.sum(w * e_k), np.sum(w * eh_k)])
+    a_fit, b_fit, c_fit = (float(x) for x in _dc_bounded_lsq3(g, r))
+  if not c_fit > 0.0:
+    return fit[0], fit[1], 0.0
+  return a_fit, b_fit, c_fit
+
+
+def _dc_bounded_lsq3(g: np.ndarray, r: np.ndarray) -> np.ndarray:
+  """Minimizes x g x - 2 r x over A >= _DC_MIN_A, B >= 0, C >= 0.
+
+  x = (A, B, C), g and r are the weighted normal equations of
+  `_dc_fit_energy`, so the objective is the weighted residual of the fit up
+  to a constant. The problem is convex, so its minimum is the stationary
+  point of one face of the box: the interior, a face, an edge or the vertex
+  (_DC_MIN_A, 0, 0). Each of the 8 is solved with the other coordinates at
+  their bounds, and the feasible point with the smallest objective is kept.
+  A clamp of the unconstrained solution would keep an A that compensates
+  for a negative B or C.
+
+  Args:
+    g: The 3x3 weighted normal matrix.
+    r: The weighted right-hand side.
+
+  Returns:
+    The minimizer (A, B, C).
+  """
+  lo = np.array([_DC_MIN_A, 0.0, 0.0])
+  best = lo
+  best_obj = float(lo @ g @ lo - 2.0 * r @ lo)
+  for n_free in (1, 2, 3):
+    for free in itertools.combinations(range(3), n_free):
+      f = list(free)
+      fixed = [i for i in range(3) if i not in free]
+      g_ff = g[np.ix_(f, f)]
+      # By Sylvester's criterion, g_ff is positive definite when its diagonal
+      # and the leading minors of the equilibrated matrix (unit diagonal) are
+      # positive. The minors must be above a margin of 1e-12, so that a
+      # near-singular face is not solved. The test runs on the equilibrated
+      # matrix, so that it does not depend on the scale of g: at a small
+      # scale, det(g_ff) and the product of its diagonal can underflow to 0.
+      d = np.diag(g_ff)
+      if not np.all(d > 0.0):
+        continue
+      s = np.sqrt(d)
+      g_eq = g_ff / np.outer(s, s)
+      if not all(
+          np.linalg.det(g_eq[:k, :k]) > 1e-12 for k in range(2, n_free + 1)
+      ):
+        continue
+      # The solve also runs on the equilibrated matrix. On g_ff, a subnormal
+      # diagonal entry or a wide range of scales loses the pivot to rounding:
+      # the solve then raises on a matrix that passed the test above, or
+      # gives a wrong point.
+      x = lo.copy()
+      rhs = r[f] - g[np.ix_(f, fixed)] @ lo[fixed]
+      with np.errstate(all="ignore"):
+        x[f] = np.linalg.solve(g_eq, rhs / s) / s
+      # A NaN or an infinity fails this test.
+      if not np.all(np.isfinite(x[f]) & (x[f] >= lo[f])):
+        continue
+      obj = float(x @ g @ x - 2.0 * r @ x)
+      if obj < best_obj:
+        best, best_obj = x, obj
+  return best
+
+
 def _dc_fit(
     ctx: _LeafContext, fmts: Sequence[_DcFormat]
-) -> tuple[float, float, float, int]:
-  """Fits E[e**2] = A v + B. Returns (A, B, v_min, block count).
+) -> tuple[float, float, float, int, list[np.ndarray | None]]:
+  """Fits E[e**2] = A v + B. Returns (A, B, v_min, block count, cols).
 
   The fit is weighted least squares with weights 1 / (A v + B)**2, the inverse
   variance of e**2 for normal e, so that a few large elements do not set A.
   The sums are binned by the binary exponent of v, which takes few values, so
-  the reweighting runs on the bins and needs one pass over the leaf.
+  the reweighting runs on the bins and needs one pass over the leaf. The same
+  pass collects the column means of y**2 for the energy term.
 
   Args:
     ctx: The leaf context.
     fmts: The output of `_dc_formats`.
 
   Returns:
-    A tuple (A, B, v_min, block count). v_min is the smallest mean v of a
-    fit bin. When no bin has v > 0 (for example a reference of zeros), it is
-    the variance of the finest subnormal step, from `_dc_subnormal_var`.
+    A tuple (A, B, v_min, block count, cols). v_min is the smallest mean v of
+    a fit bin. When no bin has v > 0 (for example a reference of zeros), it is
+    the variance of the finest subnormal step, from `_dc_subnormal_var`. cols
+    holds the column means of y**2 per shard, from `_DcColEnergy`.
   """
   # Bin 0 holds v = 0. Bin k > 0 holds frexp exponent k - _DC_BIN_OFFSET.
   sums = np.zeros((5, 2 * _DC_BIN_OFFSET))  # n, v, v**2, e**2, e**2 v
   n_blocks = 0
+  cols = _DcColEnergy(ctx)
   for s_i, sl in ctx.row_tiles:
     y, c, vu, m, _ = _dc_tile(ctx, s_i, sl, fmts)
     if y.size == 0:
+      cols.drop(s_i)
       continue
-    v = np.minimum(vu, np.square(y))
+    y2 = np.square(y)
+    cols.add(s_i, y2, m)
+    v = np.minimum(vu, y2)
     mk = np.broadcast_to(m[..., None], y.shape).ravel()
     v, e2 = v.ravel()[mk], np.square(c - y).ravel()[mk]
     k = np.where(v > 0.0, np.frexp(v)[1] + _DC_BIN_OFFSET, 0)
@@ -2358,7 +2619,13 @@ def _dc_fit(
   fit_bins = sums[0] > 0.0
   fit_bins[0] = False
   if not np.any(fit_bins):
-    return _DC_MIN_A, 0.0, _dc_subnormal_var(ctx, fmts), n_blocks
+    return (
+        _DC_MIN_A,
+        0.0,
+        _dc_subnormal_var(ctx, fmts),
+        n_blocks,
+        cols.means(),
+    )
   n_k, v_k, v2_k, e_k, ev_k = sums[:, fit_bins]
   v_min = float(np.min(v_k / n_k))
   # Start from A = 1 and B = mean(e**2). Then a single large element that is
@@ -2399,7 +2666,7 @@ def _dc_fit(
       b_fit = float(np.sum(w * np.maximum(e_k - _DC_MIN_A * v_k, 0.0)) / sw)
     elif b_fit < 0.0:
       a_fit, b_fit = max(_DC_MIN_A, float(swev / swv2)), 0.0
-  return a_fit, b_fit, v_min, n_blocks
+  return a_fit, b_fit, v_min, n_blocks, cols.means()
 
 
 def _dc_window_corr(
@@ -2658,7 +2925,8 @@ def _dc_tile_blocks(
   Args:
     y: Reference tile, shape (rows, L, components).
     e2: Squared error, same shape.
-    s2: Fitted variance A v + B, zero outside the mask, same shape.
+    s2: Allowed variance of each element, as in `_dc_spatial`, zero outside the
+      mask, same shape.
     mk: Element mask, shape (rows, L, 1).
     s2_zero: Variance per component for a block of reference zeros that has
       sigma**2 = 0.
@@ -2716,8 +2984,8 @@ def _dc_tile_spike(
 ) -> _DcSpikeResult:
   """Spike check of one tile.
 
-  An element is graded against its fitted sigma**2 = A v + B. An element with
-  u = 0 (a reference zero) has no step of its own and is left to the
+  An element is graded against its sigma**2 from `_dc_spatial`. An element
+  with u = 0 (a reference zero) has no step of its own and is left to the
   block-noise check, which grades it against the variance of its block.
 
   Known gap: a spike at a reference zero that is small next to the block
@@ -2730,7 +2998,8 @@ def _dc_tile_spike(
   Args:
     e: Error tile, shape (rows, L, components).
     v: Rounding variance tile, same shape.
-    s2: Fitted variance A v + B, zero outside the mask, same shape.
+    s2: Allowed variance of each element, as in `_dc_spatial`, zero outside the
+      mask, same shape.
 
   Returns:
     The reductions of the tile.
@@ -2763,8 +3032,9 @@ def _dc_tile_corr(
   The gate variance v of a window is the noise that the window AC must be
   above before the window is tested (q in `_dc_window_corr`). `_dc_spatial`
   sets it to u**2 / 12 + b per element, with
-  b = min(B, _DC_RESOLVE_EPS_FACTOR * eps**2 * sig / n). B is the fitted
-  noise floor. sig is the sum of y**2 over the finite components of the
+  b = min(B, _DC_RESOLVE_EPS_FACTOR * eps**2 * sig / n). B is the noise
+  floor of `_dc_fit`, not the B of `_dc_fit_energy`. sig is the sum of y**2 over
+  the finite components of the
   prescaled reference (`_LeafContext.sig`), n is the finite component count,
   and eps is finfo(reference dtype).eps. Thus b is at most the resolution of
   the reference dtype at the mean reference power.
@@ -2924,11 +3194,38 @@ def _dc_spatial_report(
   return metrics, reasons
 
 
+@dataclasses.dataclass(frozen=True)
+class _DcFit:
+  """The fitted noise model of a leaf, sigma**2 = A v + B + C h.
+
+  Attributes:
+    a: A of `_dc_fit_energy`, at or above _DC_MIN_A.
+    b: B of `_dc_fit_energy`.
+    c: C of `_dc_fit_energy`, 0 when the leaf has no energy term.
+    s2_zero: Variance per component for a block of reference zeros that has
+      sigma**2 = 0, max(b, a v_min).
+    cols: The column means of y**2 from `_dc_fit`, used for h as in
+      `_dc_energy`.
+    a_plain: A of `_dc_fit`, before `_dc_fit_energy`.
+    b_plain: B of `_dc_fit`, before `_dc_fit_energy`.
+    s2_zero_plain: s2_zero for (a_plain, b_plain).
+  """
+
+  a: float
+  b: float
+  c: float
+  s2_zero: float
+  cols: Sequence[np.ndarray | None]
+  a_plain: float
+  b_plain: float
+  s2_zero_plain: float
+
+
 def _dc_spatial(
     ctx: _LeafContext,
     config: SqnrConfig,
     fmts: Sequence[_DcFormat],
-    fit: tuple[float, float, float],
+    fit: _DcFit,
     n_blocks: int,
     loc: str,
 ) -> tuple[dict[str, float | None], list[str]]:
@@ -2941,16 +3238,18 @@ def _dc_spatial(
     ctx: The leaf context.
     config: The policy (alpha).
     fmts: The output of `_dc_formats`.
-    fit: (A, B, s2_zero). A and B are the terms of sigma**2 = A v + B, with A
-      already at its floor. s2_zero is the variance per component for a block of
-      reference zeros that has sigma**2 = 0.
+    fit: The fitted noise model. The checks grade each element with C max(h,
+      y**2) in place of C h. A shard without an energy term uses the fit of
+      `_dc_fit` when C > 0. The spike check adds y**2 where y**2 is below the
+      resolution of the reference dtype. Only the block-noise and spike checks
+      use the fit. The correlation gate uses fit.b_plain, as it does without the
+      energy term.
     n_blocks: Block count of the leaf.
     loc: Leaf name for messages.
 
   Returns:
     A tuple (metrics, reasons). metrics maps report field names to values.
   """
-  a_fit, b_fit, s2_zero = fit
   bs, alpha = ctx.block_size, config.alpha
   z_blk = _dc_z(alpha / max(n_blocks, 1))
   z_spk = _dc_z(alpha / (2.0 * max(ctx.n_finite, 1)))
@@ -2961,11 +3260,13 @@ def _dc_spatial(
   )
   z_cor = _dc_z(alpha / (2.0 * max(n_tests, 1)))
   # The noise floor of the correlation gate, capped by the resolution of the
-  # reference dtype at the mean reference power. See `_dc_tile_corr`.
-  b_gate = min(
-      b_fit,
-      _DC_RESOLVE_EPS_FACTOR * ctx.eps_sq * ctx.sig / max(ctx.n_finite, 1),
-  )
+  # reference dtype at the mean reference power. See `_dc_tile_corr`. Below
+  # b_res per element, the reference dtype does not resolve the error. The
+  # gate uses the B of `_dc_fit`: the energy fit can move noise from B to
+  # C h, and B = 0 then tests windows of flushed values (see the boundary
+  # probe tests).
+  b_res = _DC_RESOLVE_EPS_FACTOR * ctx.eps_sq * ctx.sig / max(ctx.n_finite, 1)
+  b_gate = min(fit.b_plain, b_res)
   blocks, spikes, corr = _DcBlockResult(), _DcSpikeResult(), _DcCorrResult()
   for s_i, sl in ctx.row_tiles:
     y, c, vu, m, h = _dc_tile(ctx, s_i, sl, fmts)
@@ -2974,11 +3275,31 @@ def _dc_spatial(
     v = np.minimum(vu, np.square(y))
     e = c - y
     mk = m[..., None]
-    s2 = np.where(mk, a_fit * v + b_fit, 0.0)
+    # The allowed variance A v + B + C max(h, y**2). The fit stays on h, so
+    # the y**2 term grades elements but does not set A, B or C.
+    y2 = np.square(y)
+    # With C = 0 the energy term adds nothing, so the energy is not computed.
+    # No check depends on this condition.
+    en = _dc_energy(fit.cols, s_i, sl, y, m) if fit.c > 0.0 else None
+    if en is not None:
+      s2, s2_zero = fit.a * v + fit.b + fit.c * np.maximum(en, y2), fit.s2_zero
+    elif fit.c > 0.0:
+      # The shard has no energy term, so the B of `_dc_fit_energy` lacks the
+      # noise that C h holds. The fit of `_dc_fit` has it in B.
+      s2, s2_zero = fit.a_plain * v + fit.b_plain, fit.s2_zero_plain
+    else:
+      s2, s2_zero = fit.a * v + fit.b, fit.s2_zero
+    s2 = np.where(mk, s2, 0.0)
+    e2 = np.square(e)
     blocks = _dc_merge_blocks(
-        blocks, _dc_tile_blocks(y, np.square(e), s2, mk, s2_zero, bs, z_blk)
+        blocks, _dc_tile_blocks(y, e2, s2, mk, s2_zero, bs, z_blk)
     )
-    spikes = _dc_merge_spikes(spikes, _dc_tile_spike(e, v, s2))
+    # An honest kernel can flush an element with y**2 below b_res to zero, so
+    # the spike bound of such an element also allows e**2 = y**2. The block
+    # check does not get this term: a block of such elements next to larger
+    # ones still has its own noise bound.
+    s2_spk = s2 + np.where(mk & (y2 < b_res), y2, 0.0)
+    spikes = _dc_merge_spikes(spikes, _dc_tile_spike(e, v, s2_spk))
     v_gate = np.where(mk, vu + b_gate, 0.0)
     corr = _dc_merge_corr(
         corr, _dc_tile_corr(y, c, v_gate, m, h, z_cor, ctx.eps_sq)
@@ -3444,11 +3765,15 @@ def _derived_checks(
 ) -> _CheckOutcome:
   """Checks with bounds from config.alpha and the honest-noise model.
 
-  1. Block noise: R_b = sum_b e**2 / sum_b sigma**2 with sigma**2 = A v + B.
-     Fails when R_b is above the 1 - alpha / n_blocks quantile of
-     chi2_n / n times _DC_BLOCK_SAFETY, with n = (sum_b sigma**2)**2 /
-     sum_b sigma**4, the effective sample count of the block.
+  1. Block noise: R_b = sum_b e**2 / sum_b sigma**2 with sigma**2 = A v + B
+     + C max(h, y**2), A, B and C as in `_dc_fit_energy` (`_dc_spatial`).
+     Fails when R_b is above the
+     1 - alpha / n_blocks quantile of chi2_n / n times _DC_BLOCK_SAFETY, with
+     n = (sum_b sigma**2)**2 / sum_b sigma**4, the effective sample count of
+     the block.
   2. Spike: max |e| / sigma above z(1 - alpha / (2 N)) * _DC_SPIKE_SAFETY.
+     sigma**2 also allows e**2 = y**2 where y**2 is below the resolution of
+     the reference dtype.
   3. AC correlation (centered, first difference, mixed difference) on windows
      of _DC_CORR_WINDOW elements, as in `_dc_window_corr`.
   4. Input delta: equality, gain, sign count and correlation, as in
@@ -3465,11 +3790,23 @@ def _derived_checks(
     checks.
   """
   fmts = _dc_formats(ctx)
-  a_fit, b_fit, v_min, n_blocks = _dc_fit(ctx, fmts)
+  a_fit, b_fit, v_min, n_blocks, cols = _dc_fit(ctx, fmts)
   # A block of reference zeros has sigma**2 = B, which is 0 when the other
   # elements show no noise beyond their rounding. Its error is then graded
   # against the smallest honest rounding variance of the leaf.
-  fit = (a_fit, b_fit, max(b_fit, a_fit * v_min))
+  a_plain, b_plain, c_fit = a_fit, b_fit, 0.0
+  if any(col is not None for col in cols):
+    a_fit, b_fit, c_fit = _dc_fit_energy(ctx, fmts, (a_fit, b_fit), cols)
+  fit = _DcFit(
+      a=a_fit,
+      b=b_fit,
+      c=c_fit,
+      s2_zero=max(b_fit, a_fit * v_min),
+      cols=cols,
+      a_plain=a_plain,
+      b_plain=b_plain,
+      s2_zero_plain=max(b_plain, a_plain * v_min),
+  )
   metrics, reasons = _dc_spatial(ctx, config, fmts, fit, n_blocks, loc)
   if ctx.n_elements > 1 and ctx.centered_sig > 0.0:
     metrics["centered_snr_db"] = _db(ctx.centered_sig, ctx.centered_err)

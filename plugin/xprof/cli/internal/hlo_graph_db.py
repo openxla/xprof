@@ -774,6 +774,17 @@ class HloGraphDb:
       for cc in called_tuple:
         self.comp_callers.setdefault(cc, []).append(rec.id)
 
+  def ensure_all_indexed(self) -> None:
+    """Indexes all computations that are not indexed yet.
+
+    `from_text` and `from_proto` index only the entry computation. They index
+    the other computations when a lookup needs them. Call this method before
+    you read the public maps (for example `comp_instr_ids` or `id_to_instr`)
+    when you need all computations of the module in them. Calls after the
+    first one have no effect.
+    """
+    self._ensure_all_indexed()
+
   def _ensure_all_indexed(self) -> None:
     """Indexes all remaining unindexed computations on demand."""
     while self._unindexed_comp_map:

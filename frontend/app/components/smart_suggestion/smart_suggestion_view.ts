@@ -122,24 +122,30 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
           this.throbber.stop();
         }),
       )
-      .subscribe((report: SmartSuggestionReport | null) => {
-        if (report && report.suggestions) {
-          this.processedSuggestions = report.suggestions.map((suggestion) => {
-            const content = suggestion.suggestionText || '';
-            return {
-              id: this.generateSuggestionKey(
-                suggestion.ruleName || 'UnknownRule',
-                content,
-              ),
-              ruleName: suggestion.ruleName || 'UnknownRule',
-              htmlContent: content,
-            };
-          });
-          // Reload feedback state in case new suggestions appeared
-          this.loadFeedbackState();
-        } else {
+      .subscribe({
+        next: (report: SmartSuggestionReport | null) => {
+          if (report && report.suggestions) {
+            this.processedSuggestions = report.suggestions.map((suggestion) => {
+              const content = suggestion.suggestionText || '';
+              return {
+                id: this.generateSuggestionKey(
+                  suggestion.ruleName || 'UnknownRule',
+                  content,
+                ),
+                ruleName: suggestion.ruleName || 'UnknownRule',
+                htmlContent: content,
+              };
+            });
+            // Reload feedback state in case new suggestions appeared
+            this.loadFeedbackState();
+          } else {
+            this.processedSuggestions = [];
+          }
+        },
+        error: (err: unknown) => {
+          console.warn('Failed to load smart suggestions:', err);
           this.processedSuggestions = [];
-        }
+        },
       });
   }
 

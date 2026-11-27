@@ -11627,6 +11627,268 @@ TEST_F(TimelineImGuiFixture,
   EXPECT_EQ(fetch_count, 1);
 }
 
+TEST(TimelineTest, PanUsesTargetVisibleRangeScaleDuringActiveZoomAnimation) {
+  Animation::ClearAll();
+  ColorPalette color_palette = ColorPalette::Default();
+  TestTimeline timeline(color_palette);
+  timeline.set_current_timeline_width_for_test(1000.0f);
+  timeline.set_data_time_range({0.0, 2000.0});
+  timeline.SetVisibleRange({0.0, 1000.0}, /*animate=*/false);
+
+  // Start an animated zoom from [0, 1000] toward [400, 600] (200 us target).
+  timeline.SetVisibleRange({400.0, 600.0}, /*animate=*/true);
+  ASSERT_DOUBLE_EQ(timeline.visible_range().duration(), 1000.0);
+  ASSERT_EQ(timeline.visible_range_target(), TimeRange(400.0, 600.0));
+
+  // 100 px on a 1000 px canvas is 10% of the 200 us target (+20 us), not 10%
+  // of the 1000 us on-screen range (+100 us).
+  timeline.Pan(100.0f, /*warn_at_boundary=*/true);
+
+  EXPECT_EQ(timeline.visible_range_target(), TimeRange(420.0, 620.0));
+}
+
+TEST(TimelineTest, PanIgnoresNonPositiveOrNonFiniteDimensionsAndDelta) {
+  Animation::ClearAll();
+  ColorPalette color_palette = ColorPalette::Default();
+  TestTimeline timeline(color_palette);
+  int viewport_changed_count = 0;
+  timeline.set_event_callback([&](absl::string_view type, const EventData&) {
+    if (type == kViewportChanged) {
+      ++viewport_changed_count;
+    }
+  });
+  timeline.set_data_time_range({0.0, 2000.0});
+
+  const auto expect_no_op = [&](float width, TimeRange current,
+                                TimeRange target, float delta) {
+    timeline.set_current_timeline_width_for_test(width);
+    timeline.SetVisibleRange(current, /*animate=*/false);
+    if (target != current) {
+      timeline.SetVisibleRange(target, /*animate=*/true);
+    }
+    const TimeRange before_visible = timeline.visible_range();
+    const TimeRange before_target = timeline.visible_range_target();
+    viewport_changed_count = 0;
+
+    timeline.Pan(delta, /*warn_at_boundary=*/true);
+
+    EXPECT_EQ(timeline.visible_range(), before_visible);
+    EXPECT_EQ(timeline.visible_range_target(), before_target);
+    EXPECT_EQ(viewport_changed_count, 0);
+  };
+
+  const float kNanF = std::numeric_limits<float>::quiet_NaN();
+  const float kInfF = std::numeric_limits<float>::infinity();
+  const double kInfD = std::numeric_limits<double>::infinity();
+
+  // Zero and non-finite pixel deltas.
+  expect_no_op(1000.0f, {0.0, 1000.0}, {0.0, 1000.0}, 0.0f);
+  expect_no_op(1000.0f, {0.0, 1000.0}, {0.0, 1000.0}, kNanF);
+  expect_no_op(1000.0f, {0.0, 1000.0}, {0.0, 1000.0}, kInfF);
+
+  // Non-positive and non-finite timeline widths.
+  expect_no_op(0.0f, {0.0, 1000.0}, {0.0, 1000.0}, 50.0f);
+  expect_no_op(-10.0f, {0.0, 1000.0}, {0.0, 1000.0}, 50.0f);
+  expect_no_op(kNanF, {0.0, 1000.0}, {0.0, 1000.0}, 50.0f);
+  expect_no_op(kInfF, {0.0, 1000.0}, {0.0, 1000.0}, 50.0f);
+
+  // Zero target duration (even when on-screen duration is positive) and
+  // non-finite target duration.
+  expect_no_op(1000.0f, {0.0, 1000.0}, {500.0, 500.0}, 50.0f);
+  expect_no_op(1000.0f, {0.0, 1000.0}, {0.0, kInfD}, 50.0f);
+
+  // Overflowing finite product `pixel_amount * target_duration`.
+  timeline.set_data_time_range({0.0, 1e305});
+  expect_no_op(1.0f, {0.0, 1e300}, {0.0, 1e300}, 1e30f);
+}
+
+TEST_F(TimelineImGuiFixture, MouseDragPansImmediatelyWithoutAnimationLag) {
+  Animation::ClearAll();
+  ImGuiIO& io = ImGui::GetIO();
+  io.DeltaTime = 0.016f;
+  SimulateFrame();  // Init window.
+
+  timeline_.set_smooth_navigation_enabled(true);
+  timeline_.set_mouse_mode(MouseMode::kPan);
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.SetVisibleRange({1000.0, 2000.0}, /*animate=*/false);
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+  const float tracks_x = GetTimelineStartX();
+  const float start_y = window->DC.CursorStartPos.y + kRulerHeight + 20.0f;
+
+  io.AddMousePosEvent(tracks_x + 100.0f, start_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag left by 50 px without stepping Animation::UpdateAll().
+  io.AddMousePosEvent(tracks_x + 50.0f, start_y);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::EndFrame();
+
+  EXPECT_GT(timeline_.visible_range().start(), 1000.0);
+  EXPECT_EQ(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+
+  // On the exact mouse-release frame, keyboard pan must still animate smoothly.
+  io.ConfigInputTrickleEventQueue = false;
+  io.AddMouseButtonEvent(0, false);
+  io.AddKeyEvent(ImGuiKey_D, true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::EndFrame();
+
+  EXPECT_GT(timeline_.visible_range_target().start(),
+            timeline_.visible_range().start());
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+}
+
+TEST_F(TimelineImGuiFixture,
+       KeyboardPanRemainsAnimatedDuringSelectionDragAndOverlayAlignsOnPanDrag) {
+  Animation::ClearAll();
+  ImGuiIO& io = ImGui::GetIO();
+  io.DeltaTime = 0.016f;
+  SimulateFrame();  // Init window.
+
+  timeline_.set_smooth_navigation_enabled(true);
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.SetVisibleRange({1000.0, 2000.0}, /*animate=*/false);
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+  const float tracks_x = GetTimelineStartX();
+  const float start_y = window->DC.CursorStartPos.y + kRulerHeight + 20.0f;
+
+  // Start a box-selection drag (`is_dragging_` and `is_selecting_` both true)
+  // and press `D` while dragging: keyboard pan must remain animated.
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+  io.AddMousePosEvent(tracks_x + 100.0f, start_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(tracks_x + 140.0f, start_y);
+  io.AddKeyEvent(ImGuiKey_D, true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::EndFrame();
+
+  EXPECT_GT(timeline_.visible_range_target().start(),
+            timeline_.visible_range().start());
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+
+  // Clean up selection drag and key.
+  io.AddKeyEvent(ImGuiKey_D, false);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Now start an active zoom animation from [0, 1000] -> [400, 600] with a
+  // selected time range [450, 550], and perform a pan drag. Because the drag
+  // pan snaps before `px_per_time_unit_val` is computed, the SelectionOverlay
+  // curtain must be drawn using the post-drag snapped range and scale.
+  Animation::ClearAll();
+  timeline_.set_mouse_mode(MouseMode::kPan);
+  timeline_.AddSelectedTimeRange(TimeRange(450.0, 550.0));
+  timeline_.SetVisibleRange({0.0, 1000.0}, /*animate=*/false);
+  timeline_.SetVisibleRange({400.0, 600.0}, /*animate=*/true);
+
+  io.AddMousePosEvent(tracks_x + 200.0f, start_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag left by 50 px during the active zoom animation.
+  io.AddMousePosEvent(tracks_x + 150.0f, start_y);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImDrawList* overlay_draw_list = GetSelectionOverlayDrawList();
+  ASSERT_NE(overlay_draw_list, nullptr);
+  const TimeRange snapped = timeline_.visible_range();
+  EXPECT_EQ(snapped, timeline_.visible_range_target());
+  EXPECT_DOUBLE_EQ(snapped.duration(), 200.0);
+  EXPECT_GT(snapped.start(), 400.0);
+
+  const double expected_px_per_us = timeline_.px_per_time_unit();
+  const float expected_x_start =
+      tracks_x +
+      static_cast<float>((450.0 - snapped.start()) * expected_px_per_us);
+  const float expected_x_end =
+      tracks_x +
+      static_cast<float>((550.0 - snapped.start()) * expected_px_per_us);
+
+  // Verify the curtain vertices in SelectionOverlay match the post-drag
+  // snapped range and scale rather than the pre-drag 1000 us zoom scale.
+  bool found_start_edge = false;
+  bool found_end_edge = false;
+  for (const ImDrawVert& vtx : overlay_draw_list->VtxBuffer) {
+    if (std::abs(vtx.pos.x - expected_x_start) <= 1.0f) {
+      found_start_edge = true;
+    }
+    if (std::abs(vtx.pos.x - expected_x_end) <= 1.0f) {
+      found_end_edge = true;
+    }
+  }
+  ImGui::EndFrame();
+
+  EXPECT_TRUE(found_start_edge);
+  EXPECT_TRUE(found_end_edge);
+
+  // Clean up pan drag.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Horizontal dragging in MouseMode::kZoom must not trigger pre-draw panning.
+  Animation::ClearAll();
+  timeline_.set_mouse_mode(MouseMode::kZoom);
+  timeline_.SetVisibleRange({1000.0, 2000.0}, /*animate=*/false);
+  io.AddMousePosEvent(tracks_x + 200.0f, start_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(tracks_x + 120.0f, start_y);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::EndFrame();
+
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(1000.0, 2000.0));
+  EXPECT_EQ(timeline_.visible_range_target(), TimeRange(1000.0, 2000.0));
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Clicking and moving on the same frame in MouseMode::kPan (exercising the
+  // HandleMouseDrag fallback path) must also snap without animation lag.
+  Animation::ClearAll();
+  timeline_.set_mouse_mode(MouseMode::kPan);
+  timeline_.SetVisibleRange({1000.0, 2000.0}, /*animate=*/false);
+  io.AddMousePosEvent(tracks_x + 200.0f, start_y);
+  SimulateFrame();
+  io.ConfigInputTrickleEventQueue = false;
+  io.AddMousePosEvent(tracks_x + 160.0f, start_y);
+  io.AddMouseButtonEvent(0, true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::EndFrame();
+
+  EXPECT_GT(timeline_.visible_range().start(), 1000.0);
+  EXPECT_EQ(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+
+  // Subsequent keyboard panning on the release frame must remain smoothly
+  // animated, verifying that the HandleMouseDrag fallback resets
+  // `is_mouse_drag_panning_` after Pan().
+  io.AddMouseButtonEvent(0, false);
+  io.AddKeyEvent(ImGuiKey_D, true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::EndFrame();
+  EXPECT_NE(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+  io.AddKeyEvent(ImGuiKey_D, false);
+}
+
 TEST_F(TimelineImGuiFixture, PanModeCursor) {
   ImGuiIO& io = ImGui::GetIO();
   SimulateFrame();  // Init window

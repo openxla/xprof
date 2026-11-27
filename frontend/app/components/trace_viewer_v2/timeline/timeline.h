@@ -2231,6 +2231,11 @@ class Timeline {
 
   // Whether the user is currently dragging the mouse on the timeline.
   bool is_dragging_ = false;
+  // True only while applying a direct mouse-drag pan via Pan().
+  bool is_mouse_drag_panning_ = false;
+  // True when Timeline::Draw() already applied this frame's ongoing pan drag
+  // before drawing so HandleMouseDrag() does not apply it twice.
+  bool pan_drag_applied_this_frame_ = false;
   // Controls which flow categories are visible:
   //   `FlowCategoryFilter::kAll`: Show all categories.
   //   `FlowCategoryFilter::kNone`: Show no categories.

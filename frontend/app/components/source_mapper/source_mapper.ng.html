@@ -1,13 +1,5 @@
 <div class="source-mapper">
   <div class="stack-trace-snippet-container">
-    <mat-form-field class="source-file-select" (click)="$event.stopPropagation()" appearance="outline">
-      <mat-label>Source File</mat-label>
-      <mat-select [(ngModel)]="selectedSourceFileName">
-        <mat-option *ngFor="let fileName of sourceFileNames" [value]="fileName">
-          {{fileName}}
-        </mat-option>
-      </mat-select>
-    </mat-form-field>
     <stack-trace-snippet
       [srcPathPrefix]="srcPathPrefix"
       [sourceFileAndLineNumber]="adaptedSourceFileAndLineNumber"
@@ -58,8 +50,8 @@
             <ng-container *ngIf="irText && irText.length > 0; else noLines">
               <tr
                 *ngFor="let line of irTextLinesForDisplay; let lineIndex = index; trackBy: trackByIndex"
-                [class.line-selected]="isFocusLine(line)">
-                <td><pre class="line-number"><code>{{ 1 + lineIndex }}</code></pre></td>
+                [class.line-selected]="firstLineNumberForDisplay + lineIndex === focusLineNumberForDisplay">
+                <td><pre class="line-number"><code>{{ firstLineNumberForDisplay + lineIndex }}</code></pre></td>
                 <td><pre class="line-content"><code>{{ line }}</code></pre></td>
               </tr>
             </ng-container>

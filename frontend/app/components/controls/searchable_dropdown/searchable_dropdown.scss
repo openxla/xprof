@@ -7,23 +7,36 @@ mat-form-field {
 }
 
 .search-input {
-    margin-top: 5px;
-    border: none;
-    outline: none;
-    flex: 1;
-    font-size: 1rem;
+  margin-top: 5px;
+  border: none;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
+  background: transparent;
 }
 
-.search-box{
-    display: flex;
-    align-items: center;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    padding: 5px;
-    margin-bottom: 5px;
+.search-box {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  background-color: var(--mat-select-panel-background-color, #fff);
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 5px;
+  margin-bottom: 5px;
 }
 
-.search-icon{
-    margin-right: 5px;
-    color: #888;
+.search-icon {
+  margin-right: 5px;
+  color: #888;
+}
+
+.no-matches {
+  padding: 12px 16px;
+  color: #666;
+  font-size: 14px;
+  font-style: italic;
 }

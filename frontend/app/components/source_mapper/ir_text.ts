@@ -1,10 +1,22 @@
-import {Address, Content} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
+import {
+  Address,
+  Content,
+} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 
 /** Definitions for the current compiler pass used to generate IR. */
 export enum CompilerPass {
   HLO_OPTIMIZED = 'HLO(optimized)',
   HLO_UNOPTIMIZED = 'HLO(original)',
   MOSAIC_ORIGINAL = 'Mosaic(original)',
+}
+
+/**
+ * Extracts the trailing numeric program ID from an HLO module name formatted as
+ * `<name>(<program_id>)`, or returns an empty string if absent.
+ */
+export function extractProgramIdFromHloModuleName(moduleName?: string): string {
+  const match = (moduleName ?? '').trim().match(/\((\d+)\)$/);
+  return match ? match[1] : '';
 }
 
 /**
@@ -50,23 +62,34 @@ export class IrText {
    * found.
    */
   getFocusLineIndex(opName: string): number {
+    return this.findFocusLineIndex(opName) ?? 0;
+  }
+
+  /**
+   * Returns the 0-based focus line index for the given op name, or undefined
+   * when no line is mapped for the current pass or operation.
+   */
+  private findFocusLineIndex(opName: string): number | undefined {
     switch (this.compilerPass) {
       case CompilerPass.HLO_OPTIMIZED: {
-        if (!opName) return 0;
-        return this.opLineIndex.get(opName) ?? 0;
+        if (!opName) return undefined;
+        return this.opLineIndex.get(opName);
       }
       case CompilerPass.MOSAIC_ORIGINAL: {
         if (this.firstKernelLineIndexCache === undefined) {
           // Assumptions: the MLIR text contains the keyword 'kernel' in the
           // kernel definition line.
-          const index = this.lines.findIndex((line) => line.includes('kernel'));
-          this.firstKernelLineIndexCache = index !== -1 ? index : 0;
+          this.firstKernelLineIndexCache = this.lines.findIndex((line) =>
+            line.includes('kernel'),
+          );
         }
-        return this.firstKernelLineIndexCache;
+        return this.firstKernelLineIndexCache !== -1
+          ? this.firstKernelLineIndexCache
+          : undefined;
       }
       case CompilerPass.HLO_UNOPTIMIZED:
       default:
-        return 0;
+        return undefined;
     }
   }
 
@@ -118,21 +141,35 @@ export class IrText {
       return this.lines;
     }
     const focusIndex = this.getFocusLineIndex(opName);
-    const minLineIndex = Math.max(0, focusIndex - contextWindow / 2);
+    const halfWindow = Math.floor(Math.max(0, contextWindow) / 2);
+    const minLineIndex = Math.max(0, focusIndex - halfWindow);
     const maxLineIndex = Math.min(
       this.lines.length - 1,
-      focusIndex + contextWindow / 2,
+      focusIndex + halfWindow,
     );
     return this.lines.slice(minLineIndex, maxLineIndex + 1);
   }
 
   /**
-   * Returns the 1-based focus line number within the displayed window.
+   * Returns the 1-based file line number of the first line in the displayed
+   * window.
    */
-  getFocusLineNumberForDisplay(opName: string, contextWindow: number): number {
+  getFirstLineNumberForDisplay(opName: string, contextWindow: number): number {
+    if (this.compilerPass === CompilerPass.HLO_UNOPTIMIZED) {
+      return 1;
+    }
     const focusIndex = this.getFocusLineIndex(opName);
-    const minLineIndex = Math.max(0, focusIndex - contextWindow / 2);
-    return focusIndex - minLineIndex + 1;
+    const halfWindow = Math.floor(Math.max(0, contextWindow) / 2);
+    return Math.max(0, focusIndex - halfWindow) + 1;
+  }
+
+  /**
+   * Returns the 1-based absolute focus line number in the IR file, or
+   * undefined when the operation is not mapped to a specific line.
+   */
+  getFocusLineNumberForDisplay(opName: string): number | undefined {
+    const focusIndex = this.findFocusLineIndex(opName);
+    return focusIndex !== undefined ? focusIndex + 1 : undefined;
   }
 
   /**
@@ -149,15 +186,19 @@ export class IrText {
       this.lastFrameFocusIndex = focusIndex;
       this.lastContextWindow = contextWindow;
       const lines = this.getLinesForDisplay(opName, contextWindow);
-      const focusLineNumber = this.getFocusLineNumberForDisplay(
+      const firstLineNumber = this.getFirstLineNumberForDisplay(
         opName,
         contextWindow,
       );
+      const focusLineNumber =
+        this.getFocusLineNumberForDisplay(opName) ?? firstLineNumber;
+      const linesBefore = focusLineNumber - firstLineNumber;
+      const linesAfter = Math.max(0, lines.length - 1 - linesBefore);
       const address = new Address(
         'ir_text',
         focusLineNumber,
-        focusLineNumber - 1,
-        Math.max(0, lines.length - focusLineNumber),
+        linesBefore,
+        linesAfter,
       );
       this.cachedFrame = new Content(address, lines, []);
     }

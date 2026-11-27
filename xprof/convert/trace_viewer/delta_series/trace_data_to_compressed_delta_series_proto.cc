@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -532,43 +531,6 @@ absl::StatusOr<std::string> SerializeAndCompress(
                                                    /*zstd_ctx=*/nullptr);
 }
 
-absl::Status StreamingDeltaSeriesProtoConverter::AppendCompressedFrame(
-    const xprof::TraceDataResponse& frame, bool include_magic_header,
-    std::string* out) {
-  if (out == nullptr) {
-    return absl::InvalidArgumentError("Output frame buffer is null.");
-  }
-  absl::StatusOr<std::string> compressed = SerializeAndCompress(frame);
-  if (!compressed.ok()) {
-    return compressed.status();
-  }
-  // `SerializeAndCompress` bounds uncompressed wire bytes to `INT_MAX`
-  // (~2 GiB), and `ZSTD_COMPRESSBOUND(INT_MAX)` (~2.008 GiB) is strictly
-  // below `UINT32_MAX` (4 GiB).
-  DCHECK_LE(compressed->size(),
-            static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
-  if (include_magic_header) {
-    out->append(kXChunkMagic.data(), kXChunkMagic.size());
-  }
-  const uint32_t frame_len = static_cast<uint32_t>(compressed->size());
-  const char len_bytes[4] = {
-      static_cast<char>(frame_len & 0xff),
-      static_cast<char>((frame_len >> 8) & 0xff),
-      static_cast<char>((frame_len >> 16) & 0xff),
-      static_cast<char>((frame_len >> 24) & 0xff),
-  };
-  out->append(len_bytes, 4);
-  out->append(*compressed);
-  return absl::OkStatus();
-}
-
-void StreamingDeltaSeriesProtoConverter::AppendEndOfStreamFrame(
-    std::string* out) {
-  if (out == nullptr) return;
-  constexpr char kEndOfStreamFrame[4] = {0, 0, 0, 0};
-  out->append(kEndOfStreamFrame, sizeof(kEndOfStreamFrame));
-}
-
 DeltaSeriesProtoConverter::DeltaSeriesProtoConverter(
     const Trace* trace, CounterExtractor counter_extractor,
     const DeltaSeriesProtoConversionOptions& options,
@@ -806,7 +768,7 @@ void DeltaSeriesProtoConverter::AddCompleteEventTrack(
     series_metadata->set_thread_id(tid);
 
     uint64_t last_timestamp = 0;
-    internal::GroupIdRunBuilder group_id_runs;
+    GroupIdRunBuilder group_id_runs;
     uint32_t emitted_index = 0;
 
     for (size_t i = chunk_start; i < chunk_end; ++i) {
@@ -857,7 +819,7 @@ void DeltaSeriesProtoConverter::AddAsyncEventTrack(
   }
 
   uint64_t last_timestamp = 0;
-  internal::GroupIdRunBuilder group_id_runs;
+  GroupIdRunBuilder group_id_runs;
   uint32_t emitted_index = 0;
 
   for (size_t i = 0; i < events.size(); ++i) {

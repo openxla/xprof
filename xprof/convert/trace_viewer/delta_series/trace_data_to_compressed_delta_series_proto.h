@@ -93,6 +93,37 @@ class DeltaSeriesStringTable {
   size_t num_interned_strings_flushed_ = 0;
 };
 
+// Run-length encoder for per-event group_id values into a TraceEventSeries.
+class GroupIdRunBuilder {
+ public:
+  void Add(int64_t group_id, xprof::TraceEventSeries* series) {
+    if (run_len_ == 0) {
+      run_val_ = group_id;
+      run_len_ = 1;
+    } else if (group_id == run_val_) {
+      ++run_len_;
+    } else {
+      series->add_group_id_run_values(run_val_);
+      series->add_group_id_run_lengths(run_len_);
+      run_val_ = group_id;
+      run_len_ = 1;
+    }
+  }
+
+  void Flush(xprof::TraceEventSeries* series) {
+    if (run_len_ > 0) {
+      DCHECK(series != nullptr);
+      series->add_group_id_run_values(run_val_);
+      series->add_group_id_run_lengths(run_len_);
+      run_len_ = 0;
+    }
+  }
+
+ private:
+  int64_t run_val_ = 0;
+  uint32_t run_len_ = 0;
+};
+
 // Maximum complete events per TraceEventSeries chunk.
 inline constexpr size_t kMaxEventsPerSeriesChunk = 65536;
 
@@ -106,69 +137,6 @@ absl::StatusOr<std::string> SerializeTraceDataResponseHeaderFirst(
 // Serializes `response` and Zstd-compresses the serialized protobuf payload.
 absl::StatusOr<std::string> SerializeAndCompress(
     const xprof::TraceDataResponse& response);
-
-// Stateful helper for incremental/streaming `TraceDataResponse` encoding and
-// `"XCHN"` frame emission.
-// DEPRECATED: Retained for legacy `"XCHN"` streaming callers. New single-frame
-// callers should use `DeltaSeriesStringTable` and
-// `SerializeTraceDataResponseHeaderFirst` directly.
-class StreamingDeltaSeriesProtoConverter {
- public:
-  StreamingDeltaSeriesProtoConverter() = default;
-
-  // Interns `str` in the converter's string table (index 0 is reserved for "")
-  // and returns its 32-bit reference ID.
-  uint32_t InternString(absl::string_view str) {
-    return string_table_.InternString(str);
-  }
-
-  // Looks up a previously interned string by its reference ID.
-  absl::string_view InternedString(uint32_t id) const {
-    return string_table_.InternedString(id);
-  }
-
-  // Appends any strings interned since the previous call to `response`.
-  void FlushInternedStringsIncrement(xprof::TraceDataResponse* response) {
-    string_table_.FlushInternedStringsIncrement(response);
-  }
-
-  // Populates flow and group metadata fields on `metadata`, interning any
-  // non-generic flow category string.
-  void PopulateFlowAndGroupMetadata(std::optional<uint64_t> flow_id,
-                                    std::optional<uint32_t> flow_category,
-                                    std::optional<int64_t> group_id,
-                                    xprof::TraceEventMetadata* metadata) {
-    string_table_.PopulateFlowAndGroupMetadata(flow_id, flow_category, group_id,
-                                               metadata);
-  }
-
-  // Serializes `frame`, Zstd-compresses it, and appends a length-prefixed frame
-  // to `out` using the `"XCHN"` streaming wire format:
-  // - The 4-byte `kXChunkMagic` (`"XCHN"`) magic header appears once at the
-  //   start of the stream (`include_magic_header == true`, first frame only)
-  //   so clients can distinguish framed streams from a legacy single Zstd blob.
-  // - It is followed by repeated
-  //   `[uint32 little-endian compressed byte length][zstd(TraceDataResponse)]`
-  //   data frames (`frame_len > 0`).
-  // - `interned_strings` are incremental across frames: clients decode frames
-  //   in order and append each frame's `interned_strings` to a running string
-  //   table. If a non-first frame's `interned_strings` starts with `""` (index
-  //   0), that frame carries a self-contained frame-local string table used for
-  //   that frame only without replacing the cumulative table.
-  // - A completed stream terminates with a 4-byte zero-length sentinel frame
-  //   (`[uint32 little-endian 0]`, see `AppendEndOfStreamFrame`), allowing
-  //   clients to distinguish a complete stream from one truncated mid-transfer.
-  static absl::Status AppendCompressedFrame(
-      const xprof::TraceDataResponse& frame, bool include_magic_header,
-      std::string* out);
-
-  // Appends the 4-byte zero-length end-of-stream sentinel frame
-  // (`[uint32 little-endian 0]`) to `out`.
-  static void AppendEndOfStreamFrame(std::string* out);
-
- private:
-  DeltaSeriesStringTable string_table_;
-};
 
 namespace internal {
 

@@ -732,8 +732,15 @@ TEST(ZstdCompressorContextTest, CheckedCompressBoundAndMovedFromErrors) {
               StatusIs(absl::StatusCode::kInvalidArgument));
   EXPECT_THAT(ZstdCompressorContext::CheckedCompressBound(1024), IsOk());
 
-  // Moved-from context returns InternalError on Compress.
+  // Uninitialized context created for testing returns InternalError on
+  // Compress.
   std::string out;
+  ZstdCompressorContext uninitialized =
+      ZstdCompressorContext::CreateUninitializedForTesting();
+  EXPECT_THAT(uninitialized.Compress("abc", &out),
+              StatusIs(absl::StatusCode::kInternal));
+
+  // Moved-from context returns InternalError on Compress.
   ZstdCompressorContext moved_to(std::move(context));
   // NOLINTNEXTLINE(bugprone-use-after-move)
   EXPECT_THAT(context.Compress("abc", &out),

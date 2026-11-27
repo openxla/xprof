@@ -53,6 +53,12 @@ class ZstdCompression {
 // Single-threaded per instance.
 class ZstdCompressorContext {
  public:
+  // Creates an uninitialized context whose Compress() calls return
+  // InternalError. Intended for testing compression error propagation.
+  static ZstdCompressorContext CreateUninitializedForTesting() {
+    return ZstdCompressorContext(nullptr);
+  }
+
   explicit ZstdCompressorContext(int compression_level = 1);
   ~ZstdCompressorContext();
 
@@ -73,6 +79,8 @@ class ZstdCompressorContext {
   struct CCtxDeleter {
     void operator()(ZSTD_CCtx* cctx) const { ZSTD_freeCCtx(cctx); }
   };
+
+  explicit ZstdCompressorContext(std::nullptr_t) {}
 
   std::unique_ptr<ZSTD_CCtx, CCtxDeleter> cctx_;
   std::unique_ptr<char[]> scratch_buf_;

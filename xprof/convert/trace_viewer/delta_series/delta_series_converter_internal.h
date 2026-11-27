@@ -56,36 +56,6 @@ inline absl::string_view ResolveResourceName(const Trace& trace
   return "";
 }
 
-// Run-length encoder for per-event group_id values into a TraceEventSeries.
-class GroupIdRunBuilder {
- public:
-  void Add(int64_t group_id, xprof::TraceEventSeries* series) {
-    if (run_len_ == 0) {
-      run_val_ = group_id;
-      run_len_ = 1;
-    } else if (group_id == run_val_) {
-      ++run_len_;
-    } else {
-      series->add_group_id_run_values(run_val_);
-      series->add_group_id_run_lengths(run_len_);
-      run_val_ = group_id;
-      run_len_ = 1;
-    }
-  }
-
-  void Flush(xprof::TraceEventSeries* series) {
-    if (run_len_ > 0) {
-      series->add_group_id_run_values(run_val_);
-      series->add_group_id_run_lengths(run_len_);
-      run_len_ = 0;
-    }
-  }
-
- private:
-  int64_t run_val_ = 0;
-  uint32_t run_len_ = 0;
-};
-
 // Returns true if `event` has a non-generic, non-legacy flow category.
 inline bool HasNonGenericFlowCategory(const TraceEvent& event) {
   if (!event.has_flow_category()) return false;

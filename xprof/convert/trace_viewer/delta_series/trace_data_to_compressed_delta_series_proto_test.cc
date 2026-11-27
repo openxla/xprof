@@ -2006,65 +2006,6 @@ TEST(DeltaSeriesProtoConverterTest,
   ASSERT_OK_AND_ASSIGN(const xprof::TraceDataResponse no_meta_rt,
                        DecompressAndParseResponse(no_meta_bytes));
   EXPECT_THAT(no_meta_rt, EqualsProto(no_meta_resp));
-
-  // Standalone StreamingDeltaSeriesProtoConverter framing & EOS coverage.
-  EXPECT_THAT(StreamingDeltaSeriesProtoConverter::AppendCompressedFrame(
-                  response, /*include_magic_header=*/true, nullptr),
-              StatusIs(absl::StatusCode::kInvalidArgument));
-  StreamingDeltaSeriesProtoConverter::AppendEndOfStreamFrame(nullptr);
-  std::string xchn_frames;
-  ASSERT_THAT(StreamingDeltaSeriesProtoConverter::AppendCompressedFrame(
-                  response, /*include_magic_header=*/true, &xchn_frames),
-              IsOk());
-  ASSERT_THAT(StreamingDeltaSeriesProtoConverter::AppendCompressedFrame(
-                  no_meta_resp, /*include_magic_header=*/false, &xchn_frames),
-              IsOk());
-  StreamingDeltaSeriesProtoConverter::AppendEndOfStreamFrame(&xchn_frames);
-
-  auto decode_le_u32 = [](absl::string_view bytes, size_t offset) -> uint32_t {
-    return static_cast<uint32_t>(static_cast<uint8_t>(bytes[offset])) |
-           (static_cast<uint32_t>(static_cast<uint8_t>(bytes[offset + 1]))
-            << 8) |
-           (static_cast<uint32_t>(static_cast<uint8_t>(bytes[offset + 2]))
-            << 16) |
-           (static_cast<uint32_t>(static_cast<uint8_t>(bytes[offset + 3]))
-            << 24);
-  };
-
-  ASSERT_GE(xchn_frames.size(), kXChunkMagic.size() + 4);
-  EXPECT_EQ(absl::string_view(xchn_frames).substr(0, kXChunkMagic.size()),
-            kXChunkMagic);
-
-  // Frame 1: starts right after the 4-byte magic header.
-  const size_t frame1_len_offset = kXChunkMagic.size();
-  const uint32_t frame1_len = decode_le_u32(xchn_frames, frame1_len_offset);
-  ASSERT_GT(frame1_len, 0u);
-  const size_t frame1_payload_offset = frame1_len_offset + 4;
-  const size_t frame1_end = frame1_payload_offset + frame1_len;
-  ASSERT_LE(frame1_end + 4, xchn_frames.size());
-  ASSERT_OK_AND_ASSIGN(const xprof::TraceDataResponse frame1_rt,
-                       DecompressAndParseResponse(
-                           absl::string_view(xchn_frames)
-                               .substr(frame1_payload_offset, frame1_len)));
-  EXPECT_THAT(frame1_rt, EqualsProto(response));
-
-  // Frame 2: immediately follows Frame 1 with no duplicate magic header.
-  EXPECT_NE(
-      absl::string_view(xchn_frames).substr(frame1_end, kXChunkMagic.size()),
-      kXChunkMagic);
-  const uint32_t frame2_len = decode_le_u32(xchn_frames, frame1_end);
-  ASSERT_GT(frame2_len, 0u);
-  const size_t frame2_payload_offset = frame1_end + 4;
-  const size_t frame2_end = frame2_payload_offset + frame2_len;
-  ASSERT_EQ(frame2_end + 4, xchn_frames.size());
-  ASSERT_OK_AND_ASSIGN(const xprof::TraceDataResponse frame2_rt,
-                       DecompressAndParseResponse(
-                           absl::string_view(xchn_frames)
-                               .substr(frame2_payload_offset, frame2_len)));
-  EXPECT_THAT(frame2_rt, EqualsProto(no_meta_resp));
-
-  // End-of-stream sentinel: exact 4-byte little-endian 0 right after Frame 2.
-  EXPECT_EQ(decode_le_u32(xchn_frames, frame2_end), 0u);
 }
 
 TEST(DeltaSeriesProtoConverterTest, InternalHelpersGroupIdRunsAndFlowCategory) {
@@ -2211,14 +2152,15 @@ TEST(DeltaSeriesProtoConverterTest, InternalHelpersGroupIdRunsAndFlowCategory) {
   // transitions flush prior run; second flush is idempotent.
   {
     xprof::TraceEventSeries empty_series;
-    internal::GroupIdRunBuilder empty_builder;
+    GroupIdRunBuilder empty_builder;
+    empty_builder.Flush(nullptr);
     empty_builder.Flush(&empty_series);
     EXPECT_THAT(empty_series.group_id_run_values(), IsEmpty());
     EXPECT_THAT(empty_series.group_id_run_lengths(), IsEmpty());
   }
   {
     xprof::TraceEventSeries series;
-    internal::GroupIdRunBuilder builder;
+    GroupIdRunBuilder builder;
     builder.Add(-1, &series);
     builder.Add(-1, &series);
     builder.Add(42, &series);

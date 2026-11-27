@@ -56,11 +56,13 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
   DETAILS_RECEIVED_EVENT_NAME,
+  filterSupportedDetails,
   isDetailsReceivedEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
   TraceData as MainTraceData,
   SearchEventsEventDetail,
   shutdownTraceViewerV2,
+  TRACE_DETAIL_OPTIONS,
   TraceDetailKey,
   TraceDetails,
   TraceViewerV2LoadingStatus,
@@ -310,9 +312,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   get searchQueryForTesting(): Observable<string> {
     return this.searchQuery;
   }
-  readonly availableDetails: Array<{key: TraceDetailKey; label: string}> = [
-    {key: 'full_dma', label: 'Full DMA'},
-  ];
+  readonly availableDetails = TRACE_DETAIL_OPTIONS;
   traceDetails: TraceDetails = new Map();
 
   @ViewChild(TraceViewerContainer, {static: false})
@@ -1029,21 +1029,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!isDetailsReceivedEvent(event)) {
       return;
     }
-    const eventDetails = event.detail.details;
-
-    if (this.areDetailsChanged(eventDetails)) {
-      this.traceDetails = new Map(eventDetails);
-      void this.update(this.navigationEvent);
-    }
+    this.traceDetails = filterSupportedDetails(event.detail.details);
   };
-
-  private areDetailsChanged(newDetails: TraceDetails): boolean {
-    if (this.traceDetails.size !== newDetails.size) return true;
-    for (const [key, value] of newDetails.entries()) {
-      if (this.traceDetails.get(key) !== value) return true;
-    }
-    return false;
-  }
 
   toggleDetail(name: TraceDetailKey, checked: boolean) {
     this.traceDetails.set(name, checked);

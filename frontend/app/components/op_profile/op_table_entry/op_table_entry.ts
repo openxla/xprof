@@ -27,7 +27,27 @@ import {type Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jso
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
-/** An op table entry view component. */
+function getHbmFraction(node?: Node, root?: Node): number {
+  const hbmType = utils.MemBwType.MEM_BW_TYPE_HBM_RW;
+  const nodeBytes = node?.metrics?.rawBytesAccessedArray;
+  const rootBytes = root?.metrics?.rawBytesAccessedArray;
+  if (
+    nodeBytes &&
+    rootBytes &&
+    nodeBytes.length > hbmType &&
+    rootBytes.length > hbmType &&
+    rootBytes[hbmType] !== 0
+  ) {
+    return nodeBytes[hbmType] / rootBytes[hbmType];
+  }
+  return NaN;
+}
+
+/**
+ * An op table entry view component.
+ *
+ * @deprecated Use MatTable in OpTable instead.
+ */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
   standalone: false,
@@ -166,6 +186,7 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
       diffNode?.activeOnly ||
       diffNode?.baselineOnly ||
       !!diffRoot?.baseline;
+    const baseRoot = diffRoot?.baseline || this.rootNode;
 
     const activeFraction =
       this.node && this.rootNode && this.node.metrics
@@ -200,14 +221,14 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
       this.rootNode,
       this.applyScalingFactor,
     );
-    let baseUtilization = NaN;
-    if (hasBaseline && diffNode?.baseline) {
-      baseUtilization = utils.flopsUtilization(
-        diffNode.baseline,
-        diffRoot?.baseline || this.rootNode,
-        this.applyScalingFactor,
-      );
-    }
+    const baseUtilization =
+      hasBaseline && diffNode?.baseline
+        ? utils.flopsUtilization(
+            diffNode.baseline,
+            baseRoot,
+            this.applyScalingFactor,
+          )
+        : NaN;
     this.flopsUtilization = this.formatMetricDiff(
       utilization,
       baseUtilization,
@@ -224,13 +245,10 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
     this.provenance = utils.parseFrameworkOpType(this.node?.xla?.provenance);
 
     const activeWasted = utils.timeWasted(this.node, this.rootNode);
-    let baseWasted = NaN;
-    if (hasBaseline && diffNode?.baseline) {
-      baseWasted = utils.timeWasted(
-        diffNode.baseline,
-        diffRoot?.baseline || this.rootNode,
-      );
-    }
+    const baseWasted =
+      hasBaseline && diffNode?.baseline
+        ? utils.timeWasted(diffNode.baseline, baseRoot)
+        : NaN;
     this.timeWasted = this.formatMetricDiff(
       activeWasted,
       baseWasted,
@@ -238,35 +256,11 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
       diffNode,
     );
 
-    const hbmType = utils.MemBwType.MEM_BW_TYPE_HBM_RW;
-    let activeHbmFrac = NaN;
-    if (
-      this.node?.metrics?.rawBytesAccessedArray &&
-      this.rootNode?.metrics?.rawBytesAccessedArray &&
-      this.node.metrics.rawBytesAccessedArray.length > hbmType &&
-      this.rootNode.metrics.rawBytesAccessedArray.length > hbmType &&
-      this.rootNode.metrics.rawBytesAccessedArray[hbmType] !== 0
-    ) {
-      activeHbmFrac =
-        this.node.metrics.rawBytesAccessedArray[hbmType] /
-        this.rootNode.metrics.rawBytesAccessedArray[hbmType];
-    }
-
-    let baseHbmFrac = NaN;
-    if (hasBaseline && diffNode?.baseline) {
-      const baseRoot = diffRoot?.baseline || this.rootNode;
-      if (
-        diffNode.baseline.metrics?.rawBytesAccessedArray &&
-        baseRoot?.metrics?.rawBytesAccessedArray &&
-        diffNode.baseline.metrics.rawBytesAccessedArray.length > hbmType &&
-        baseRoot.metrics.rawBytesAccessedArray.length > hbmType &&
-        baseRoot.metrics.rawBytesAccessedArray[hbmType] !== 0
-      ) {
-        baseHbmFrac =
-          diffNode.baseline.metrics.rawBytesAccessedArray[hbmType] /
-          baseRoot.metrics.rawBytesAccessedArray[hbmType];
-      }
-    }
+    const activeHbmFrac = getHbmFraction(this.node, this.rootNode);
+    const baseHbmFrac =
+      hasBaseline && diffNode?.baseline
+        ? getHbmFraction(diffNode.baseline, baseRoot)
+        : NaN;
     this.hbmFraction = this.formatMetricDiff(
       activeHbmFrac,
       baseHbmFrac,
@@ -279,13 +273,13 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
       this.node,
       utils.MemBwType.MEM_BW_TYPE_HBM_RW,
     );
-    let baseHbmUtil = NaN;
-    if (hasBaseline && diffNode?.baseline) {
-      baseHbmUtil = utils.memoryBandwidthUtilization(
-        diffNode.baseline,
-        utils.MemBwType.MEM_BW_TYPE_HBM_RW,
-      );
-    }
+    const baseHbmUtil =
+      hasBaseline && diffNode?.baseline
+        ? utils.memoryBandwidthUtilization(
+            diffNode.baseline,
+            utils.MemBwType.MEM_BW_TYPE_HBM_RW,
+          )
+        : NaN;
     this.hbmUtilization = this.formatMetricDiff(
       hbmUtilization,
       baseHbmUtil,

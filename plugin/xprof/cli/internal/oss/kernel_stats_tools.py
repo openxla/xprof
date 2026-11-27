@@ -423,6 +423,26 @@ def _matches(pattern: str, text: str) -> bool:
   return pattern in text
 
 
+def _source_label(source: Any) -> str:
+  """Returns a short label for `source` to use in messages and logs.
+
+  A session ID or path is returned as is. A serialized XSpace is described by
+  its size and an in-memory object by its type, so that the contents of a
+  large profile do not go into the message or the log.
+
+  Args:
+    source: The `get_kernel_stats` source.
+
+  Returns:
+    The label.
+  """
+  if isinstance(source, (bytes, bytearray)):
+    return f"serialized XSpace ({len(source)} bytes)"
+  if isinstance(source, (str, os.PathLike)):
+    return os.fspath(source)
+  return f"in-memory {type(source).__name__}"
+
+
 def get_kernel_stats(
     source: Any,
     *,
@@ -615,7 +635,7 @@ def get_kernel_stats(
               custom_call_intervals.append((start_ns, end_ns))
 
     if not kernel_durations_us:
-      msg = f"No kernel stats found for session {source}"
+      msg = f"No kernel stats found for source {_source_label(source)}"
       if kernel_name:
         msg += f" and kernel {kernel_name}"
       if output_format == "markdown":
@@ -708,6 +728,6 @@ def get_kernel_stats(
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
-        "Error in OSS get_kernel_stats for source %r", source
+        "Error in OSS get_kernel_stats for source %s", _source_label(source)
     )
     raise RuntimeError(f"Failed to get kernel stats: {e}") from e

@@ -240,6 +240,54 @@ class OssKernelStatsToolsTest(unittest.TestCase):
       )
       self.assertIn("fusion_1", md_res)
 
+  def test_empty_result_names_serialized_xspace_by_size(self):
+    source = b"serialized-xspace"
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=[]):
+      info = json.loads(kernel_stats_tools.get_kernel_stats(source))["info"]
+      summary_info = json.loads(
+          kernel_stats_tools.get_kernel_stats(source, include_summary=True)
+      )["info"]
+      md = kernel_stats_tools.get_kernel_stats(
+          source, kernel_name="k", output_format="markdown"
+      )
+
+    expected = "No kernel stats found for source serialized XSpace (17 bytes)"
+    self.assertEqual(info, expected)
+    self.assertEqual(summary_info, expected)
+    self.assertEqual(md, f"# Info\n{expected} and kernel k\n")
+
+  def test_empty_result_keeps_session_id_and_names_in_memory_type(self):
+    profile_data = mock.MagicMock(spec=["planes"], planes=[])
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=[]):
+      session_info = json.loads(
+          kernel_stats_tools.get_kernel_stats("local_session_1")
+      )["info"]
+      memory_info = json.loads(
+          kernel_stats_tools.get_kernel_stats(profile_data)
+      )["info"]
+
+    self.assertEqual(
+        session_info, "No kernel stats found for source local_session_1"
+    )
+    self.assertEqual(
+        memory_info, "No kernel stats found for source in-memory MagicMock"
+    )
+
+  def test_error_log_names_serialized_xspace_by_size(self):
+    with (
+        mock.patch.object(
+            xplane_tools, "iter_planes", side_effect=KeyError("bad plane")
+        ),
+        self.assertLogs(level="ERROR") as logs,
+        self.assertRaisesRegex(RuntimeError, "Failed to get kernel stats"),
+    ):
+      kernel_stats_tools.get_kernel_stats(b"serialized-xspace")
+
+    self.assertIn(
+        "for source serialized XSpace (17 bytes)", logs.records[0].getMessage()
+    )
+    self.assertNotIn("serialized-xspace", logs.records[0].getMessage())
+
   def test_classify_tpu_line(self):
     self.assertEqual(kernel_stats_tools.classify_tpu_line("XLA Ops"), "kernel")
     self.assertEqual(kernel_stats_tools.classify_tpu_line("Pallas"), "kernel")

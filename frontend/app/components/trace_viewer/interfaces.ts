@@ -1,7 +1,11 @@
 import {
+  AdjacentNodeInfo,
+  AdjacentNodesResponse,
   RawEventItem,
   SelectedEventProperty,
 } from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
+
+export type {AdjacentNodeInfo, AdjacentNodesResponse};
 
 /** Represents an item in the metrics array of events selection data. */
 export declare interface MetricsItem {
@@ -50,13 +54,4 @@ export interface AggregatedEventProperty extends SelectedEventProperty {
   wallDuration?: number;
   selfTime?: number;
   avgWallDuration?: number;
-}
-
-/**
- * Response type for graph_viewer.json?type=adj_nodes.
- */
-export declare interface AdjacentNodesResponse {
-  operand_names: string[];
-  consumer_names: string[];
-  [key: string]: string[];
 }

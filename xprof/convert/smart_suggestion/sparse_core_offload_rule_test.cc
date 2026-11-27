@@ -15,13 +15,18 @@ limitations under the License.
 
 #include "xprof/convert/smart_suggestion/sparse_core_offload_rule.h"
 
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xprof/convert/smart_suggestion/mock_tool_data_provider.h"
 #include "xprof/convert/smart_suggestion/signal_provider.h"
 #include "plugin/xprof/protobuf/memory_profile.pb.h"
@@ -32,11 +37,13 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::DoubleEq;
 using ::testing::DoubleNear;
 using ::testing::Eq;
 using ::testing::HasSubstr;
 using ::testing::Return;
 using ::testing::status::IsOkAndHolds;
+using ::testing::status::StatusIs;
 
 class SparseCoreOffloadRuleTest : public ::testing::Test {
  protected:
@@ -203,6 +210,181 @@ TEST_F(SparseCoreOffloadRuleTest, CountsRaggedAllToAllAndReduceGather) {
   // Only the ragged-all-to-all and reduce-gather children count: 15%.
   EXPECT_THAT(signal_provider_->GetAsyncDoneOpPercent(),
               IsOkAndHolds(DoubleNear(15.0, 1e-9)));
+}
+
+TEST_F(SparseCoreOffloadRuleTest,
+       GetAsyncDoneOpPercentMatchesAllCollectivePrefixes) {
+  for (const auto* op_name :
+       {"all-gather.1", "all-reduce.1", "all-to-all.1", "ragged-all-to-all.1",
+        "reduce-gather.1", "reduce-scatter.1", "%all-reduce-done.2",
+        "all-reduce.3 and its duplicate(s)", "all-reduce and its duplicate(s)",
+        "all-reduce-done and its duplicate(s)"}) {
+    op_profile::Profile op_profile;
+    auto* root_node = op_profile.mutable_by_program_exclude_idle();
+    root_node->mutable_metrics()->set_raw_time(1000);
+    auto* child = root_node->add_children();
+    auto* async_done_node = child->add_children();
+    async_done_node->set_name("async-done (OFFLOAD_COLLECTIVE)");
+    auto* collective_node = async_done_node->add_children();
+    collective_node->mutable_metrics()->set_raw_time(150);
+    collective_node->set_name(op_name);
+
+    EXPECT_CALL(*mock_tool_data_provider_, GetOpProfile())
+        .WillOnce(Return(&op_profile));
+
+    EXPECT_THAT(signal_provider_->GetAsyncDoneOpPercent(),
+                IsOkAndHolds(DoubleEq(15.0)))
+        << "Failed for op_name: " << op_name;
+  }
+}
+
+TEST_F(SparseCoreOffloadRuleTest, GetAsyncDoneOpPercentSumsAllPrograms) {
+  op_profile::Profile op_profile;
+  auto* root_node = op_profile.mutable_by_program_exclude_idle();
+  root_node->mutable_metrics()->set_raw_time(1000);
+  auto* first_async_done_node = root_node->add_children()->add_children();
+  first_async_done_node->set_name("async-done");
+  auto* first_collective_node = first_async_done_node->add_children();
+  first_collective_node->set_name("all-reduce.1");
+  first_collective_node->mutable_metrics()->set_raw_time(100);
+  auto* second_async_done_node = root_node->add_children()->add_children();
+  second_async_done_node->set_name("async-done");
+  auto* second_collective_node = second_async_done_node->add_children();
+  second_collective_node->set_name("all-gather.2");
+  second_collective_node->mutable_metrics()->set_raw_time(50);
+
+  EXPECT_CALL(*mock_tool_data_provider_, GetOpProfile())
+      .WillOnce(Return(&op_profile));
+
+  EXPECT_THAT(signal_provider_->GetAsyncDoneOpPercent(),
+              IsOkAndHolds(DoubleEq(15.0)));
+}
+
+TEST_F(SparseCoreOffloadRuleTest,
+       GetAsyncDoneOpPercentIgnoresNonMatchingCategoriesAndOps) {
+  op_profile::Profile op_profile;
+  auto* root_node = op_profile.mutable_by_program_exclude_idle();
+  root_node->mutable_metrics()->set_raw_time(1000);
+  auto* program_node = root_node->add_children();
+  auto* other_category_node = program_node->add_children();
+  other_category_node->set_name("async-done-other");
+  auto* hidden_collective_node = other_category_node->add_children();
+  hidden_collective_node->set_name("all-reduce.1");
+  hidden_collective_node->mutable_metrics()->set_raw_time(100);
+  auto* async_done_node = program_node->add_children();
+  async_done_node->set_name("async-done");
+  for (const auto* op_name :
+       {"", "-done", "%-done", "fusion-done.1", "all-reduce-start.2"}) {
+    auto* op_node = async_done_node->add_children();
+    op_node->set_name(op_name);
+    op_node->mutable_metrics()->set_raw_time(100);
+  }
+
+  EXPECT_CALL(*mock_tool_data_provider_, GetOpProfile())
+      .WillOnce(Return(&op_profile));
+
+  EXPECT_THAT(signal_provider_->GetAsyncDoneOpPercent(),
+              IsOkAndHolds(DoubleEq(0.0)));
+}
+
+TEST_F(SparseCoreOffloadRuleTest,
+       GetAsyncDoneOpPercentReturnsZeroWithoutPositiveRawTime) {
+  for (double raw_time :
+       {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()}) {
+    op_profile::Profile op_profile;
+    auto* root_node = op_profile.mutable_by_program_exclude_idle();
+    root_node->mutable_metrics()->set_raw_time(raw_time);
+    auto* async_done_node = root_node->add_children()->add_children();
+    async_done_node->set_name("async-done");
+    auto* collective_node = async_done_node->add_children();
+    collective_node->set_name("all-reduce.1");
+    collective_node->mutable_metrics()->set_raw_time(100);
+
+    EXPECT_CALL(*mock_tool_data_provider_, GetOpProfile())
+        .WillOnce(Return(&op_profile));
+
+    EXPECT_THAT(signal_provider_->GetAsyncDoneOpPercent(),
+                IsOkAndHolds(DoubleEq(0.0)))
+        << "Failed for raw_time: " << raw_time;
+  }
+}
+
+void AddAllocator(absl::string_view memory_id, int64_t memory_capacity,
+                  int64_t peak_bytes_in_use, MemoryProfile& memory_profile) {
+  PerAllocatorMemoryProfile per_allocator_profile;
+  MemoryProfileSummary* summary =
+      per_allocator_profile.mutable_profile_summary();
+  summary->set_memory_capacity(memory_capacity);
+  summary->mutable_peak_stats()->set_peak_bytes_in_use(peak_bytes_in_use);
+  memory_profile.mutable_memory_profile_per_allocator()->insert(
+      {std::string(memory_id), per_allocator_profile});
+}
+
+TEST_F(SparseCoreOffloadRuleTest,
+       GetPeakMemoryUtilizationIsUnavailableWithoutDeviceCapacity) {
+  MemoryProfile empty_profile;
+  EXPECT_CALL(*mock_tool_data_provider_, GetMemoryProfile())
+      .WillOnce(Return(&empty_profile));
+  EXPECT_THAT(signal_provider_->GetPeakMemoryUtilization(),
+              StatusIs(absl::StatusCode::kUnavailable));
+
+  MemoryProfile host_only_profile;
+  AddAllocator("Host", 1000, 100, host_only_profile);
+  AddAllocator("cpu_0", 1000, 100, host_only_profile);
+  AddAllocator("hbm_0", 0, 100, host_only_profile);
+  EXPECT_CALL(*mock_tool_data_provider_, GetMemoryProfile())
+      .WillOnce(Return(&host_only_profile));
+  EXPECT_THAT(signal_provider_->GetPeakMemoryUtilization(),
+              StatusIs(absl::StatusCode::kUnavailable));
+}
+
+TEST_F(SparseCoreOffloadRuleTest,
+       GetPeakMemoryUtilizationSkipsHostAllocatorsIgnoringCase) {
+  MemoryProfile memory_profile;
+  AddAllocator("hbm_0", 200, 100, memory_profile);
+  for (const auto* host_id :
+       {"host_pageable", "Host", "HOST", "cpu_0", "Cpu_1", "CPU"}) {
+    AddAllocator(host_id, 10000, 100, memory_profile);
+  }
+
+  EXPECT_CALL(*mock_tool_data_provider_, GetMemoryProfile())
+      .WillOnce(Return(&memory_profile));
+  EXPECT_THAT(signal_provider_->GetPeakMemoryUtilization(),
+              IsOkAndHolds(DoubleEq(50.0)));
+}
+
+TEST_F(SparseCoreOffloadRuleTest,
+       GetPeakMemoryUtilizationSkipsZeroCapacityAndClampsNegativePeak) {
+  MemoryProfile memory_profile;
+  AddAllocator("hbm_0", 200, 100, memory_profile);
+  AddAllocator("hbm_1", 0, 400, memory_profile);
+  AddAllocator("hbm_2", 200, -100, memory_profile);
+
+  EXPECT_CALL(*mock_tool_data_provider_, GetMemoryProfile())
+      .WillOnce(Return(&memory_profile));
+  // Only hbm_0 and hbm_2 count, with the negative peak clamped: 100 / 400.
+  EXPECT_THAT(signal_provider_->GetPeakMemoryUtilization(),
+              IsOkAndHolds(DoubleEq(25.0)));
+}
+
+TEST_F(SparseCoreOffloadRuleTest,
+       DoesNotMeetConditionsWithoutDeviceMemoryProfile) {
+  op_profile::Profile op_profile;
+  auto* root_node = op_profile.mutable_by_program_exclude_idle();
+  root_node->mutable_metrics()->set_raw_time(1000);
+  auto* async_done_node = root_node->add_children()->add_children();
+  async_done_node->set_name("async-done");
+  auto* all_reduce_node = async_done_node->add_children();
+  all_reduce_node->set_name("all-reduce.0");
+  all_reduce_node->mutable_metrics()->set_raw_time(200);  // 20% async-done.
+  MemoryProfile empty_profile;
+
+  EXPECT_CALL(*mock_tool_data_provider_, GetOpProfile())
+      .WillRepeatedly(Return(&op_profile));
+  EXPECT_CALL(*mock_tool_data_provider_, GetMemoryProfile())
+      .WillRepeatedly(Return(&empty_profile));
+
+  EXPECT_FALSE(sparse_core_offload_rule_->MeetsConditions(*signal_provider_));
 }
 
 }  // namespace

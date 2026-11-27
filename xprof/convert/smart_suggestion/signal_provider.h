@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_SIGNAL_PROVIDER_H_
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_SIGNAL_PROVIDER_H_
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -29,14 +30,16 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_split.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/util/stats_calculator.h"
 #include "xprof/convert/smart_suggestion/constants.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/memory_profile.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
@@ -213,7 +216,10 @@ class SignalProvider {
     return result;
   }
 
-  // Returns the percentage of time that is spent on SparseCore.
+  // Returns the non-idle SparseCore time as a percentage of the average step
+  // time. Non-idle time is the SparseCore step time minus idle time, so it
+  // includes infeed and outfeed time; when the SparseCore step time is unset,
+  // it falls back to the sum of compute, infeed, and outfeed time.
   absl::StatusOr<double> GetSparseCoreTimePercent() const {
     TF_ASSIGN_OR_RETURN(const auto* input_pipeline_analysis,
                         tool_data_provider_->GetInputPipelineAnalysisResult());
@@ -221,15 +227,23 @@ class SignalProvider {
     double sparse_core_time_ms = 0.0;
     if (input_pipeline_analysis->step_time_breakdown().UnpackTo(
             &step_time_breakdown)) {
-      sparse_core_time_ms = step_time_breakdown.sparse_core_step_summary()
-                                     .sc_step_time_ms_summary()
-                                     .average();
+      const SparseCoreStepSummary& sc_summary =
+          step_time_breakdown.sparse_core_step_summary();
+      if (sc_summary.sc_step_time_ms_summary().average() > 0.0) {
+        sparse_core_time_ms = std::max(
+            0.0, sc_summary.sc_step_time_ms_summary().average() -
+                     sc_summary.sc_idle_ms_summary().average());
+      } else {
+        sparse_core_time_ms = sc_summary.sc_compute_ms_summary().average() +
+                              sc_summary.sc_infeed_ms_summary().average() +
+                              sc_summary.sc_outfeed_ms_summary().average();
+      }
     } else {
       return absl::NotFoundError("Failed to unpack TpuStepTimeBreakdown.");
     }
     double step_time_ms =
         input_pipeline_analysis->step_time_summary().average();
-    if (step_time_ms == 0) {
+    if (!(step_time_ms > 0.0)) {
       return 0.0;
     }
     return (sparse_core_time_ms / step_time_ms) * 100.0;
@@ -345,6 +359,10 @@ class SignalProvider {
     return stragglers;
   }
 
+  // Returns the time spent in collective ops under the `async-done` category
+  // (including categories such as `async-done (...)`), summed across all
+  // programs, as a percentage of total program time. Returns 0.0 when there
+  // is no program time.
   absl::StatusOr<double> GetAsyncDoneOpPercent() const {
     static const absl::flat_hash_set<absl::string_view> kAsyncDoneOpPrefixes = {
         "all-gather",        "all-reduce",    "all-to-all",
@@ -354,20 +372,28 @@ class SignalProvider {
     TF_ASSIGN_OR_RETURN(const auto* op_profile,
                         tool_data_provider_->GetOpProfile());
     const auto& root_node = op_profile->by_program_exclude_idle();
-    if (root_node.children().empty()) {
+    if (root_node.children().empty() ||
+        !(root_node.metrics().raw_time() > 0.0)) {
       return 0.0;
     }
 
     double async_done_op_time_ps = 0;
-    for (const auto& node : root_node.children(0).children()) {
-      if (node.name() == "async-done") {
-        for (const auto& child : node.children()) {
-          // TODO(b/475282356): Determine by Node's offload_type instead of HLO
-          // op name's prefix.
-          std::vector<absl::string_view> parts =
-              absl::StrSplit(child.name(), '.');
-          if (kAsyncDoneOpPrefixes.contains(parts[0])) {
-            async_done_op_time_ps += child.metrics().raw_time();
+    for (const auto& program_node : root_node.children()) {
+      for (const auto& node : program_node.children()) {
+        absl::string_view category_name = node.name();
+        if (category_name == "async-done" ||
+            absl::StartsWith(category_name, "async-done ")) {
+          for (const auto& child : node.children()) {
+            // TODO(b/475282356): Determine by Node's offload_type instead of
+            // HLO op name's prefix.
+            absl::string_view op_name = child.name();
+            absl::string_view op_prefix = op_name.substr(0, op_name.find('.'));
+            op_prefix = absl::StripSuffix(op_prefix, " and its duplicate(s)");
+            op_prefix = absl::StripPrefix(op_prefix, "%");
+            op_prefix = absl::StripSuffix(op_prefix, "-done");
+            if (kAsyncDoneOpPrefixes.contains(op_prefix)) {
+              async_done_op_time_ps += child.metrics().raw_time();
+            }
           }
         }
       }
@@ -375,18 +401,34 @@ class SignalProvider {
     return async_done_op_time_ps / root_node.metrics().raw_time() * 100.0;
   }
 
+  // Returns the peak memory usage as a percentage of memory capacity, summed
+  // across device allocators. Host and CPU allocators, and allocators without
+  // a positive capacity, are excluded. Returns an `UnavailableError` when no
+  // device allocator reports a positive capacity.
   absl::StatusOr<double> GetPeakMemoryUtilization() const {
     TF_ASSIGN_OR_RETURN(const auto* memory_profile,
                         tool_data_provider_->GetMemoryProfile());
+    auto is_host_allocator = [](absl::string_view id) {
+      return absl::StrContainsIgnoreCase(id, "host") ||
+             absl::StrContainsIgnoreCase(id, "cpu");
+    };
     double memory_usage = 0.0;
     double memory_capacity = 0.0;
     for (const auto& [memory_id, per_allocator_profile] :
          memory_profile->memory_profile_per_allocator()) {
-      memory_usage += per_allocator_profile.profile_summary()
-                          .peak_stats()
-                          .peak_bytes_in_use();
-      memory_capacity +=
-          per_allocator_profile.profile_summary().memory_capacity();
+      const MemoryProfileSummary& summary =
+          per_allocator_profile.profile_summary();
+      if (is_host_allocator(memory_id) || summary.memory_capacity() <= 0) {
+        continue;
+      }
+      memory_usage +=
+          std::max<int64_t>(0, summary.peak_stats().peak_bytes_in_use());
+      memory_capacity += summary.memory_capacity();
+    }
+    if (!(memory_capacity > 0.0)) {
+      return absl::UnavailableError(
+          "Peak memory utilization is unavailable: no device memory allocator "
+          "reports a positive capacity.");
     }
     return memory_usage / memory_capacity * 100.0;
   }

@@ -19,6 +19,7 @@ cc_library(
         ":tool_data_provider",
         "//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
+        "//plugin/xprof/protobuf:memory_profile_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:overview_page_proto_cc",
@@ -208,7 +209,9 @@ cc_test(
         "//plugin/xprof/protobuf:memory_profile_proto_cc",
         "//plugin/xprof/protobuf:op_profile_proto_cc",
         "//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
     ],
 )

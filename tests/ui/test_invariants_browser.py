@@ -22,14 +22,23 @@ import pathlib
 from PIL import Image
 from playwright.sync_api import expect
 from playwright.sync_api import Page
-
 from tests.ui.conftest import BrowserErrors
 from tests.ui.invariants import check_no_horizontal_overflow
 from tests.ui.invariants import check_no_sidenav_overlap
 from tests.ui.invariants import run_cell_invariants
 from tests.ui.invariants import run_dom_invariants
-from tests.ui.sxs_diff_engine import SxsDiffEngine
 from tests.ui.sxs_report_generator import generate_sxs_html_report
+
+# pylint: disable=g-import-not-at-top
+try:
+  from tests.ui import journey_capture
+  from tests.ui import sxs_diff_engine
+except ImportError:
+  import journey_capture
+  import sxs_diff_engine
+# pylint: enable=g-import-not-at-top
+
+SxsDiffEngine = sxs_diff_engine.SxsDiffEngine
 
 
 def _png_bytes(size: tuple[int, int], color: tuple[int, int, int]) -> bytes:
@@ -195,3 +204,98 @@ def test_sxs_report_interactive_tabs_modes_slider_and_approval(
       == wp_diff.diff_hash
   )
   browser_errors.assert_clean("sxs_report_interactive")
+
+
+# pylint: disable=protected-access
+def test_normalized_html_cdk_overlay_filtering_in_chromium(
+    page: Page, browser_errors: BrowserErrors
+) -> None:
+  """Verifies _normalized_html strips inactive overlays and diffs dialogs."""
+  page.set_viewport_size({"width": 1280, "height": 900})
+  page.set_content("""
+    <html><head><style>
+      .css-hidden-pane { display: none; }
+    </style></head><body>
+      <main>Overview</main>
+      <div class="cdk-overlay-container">
+        <div class="cdk-overlay-backdrop"></div>
+        <div class="cdk-global-overlay-wrapper">
+          <div id="cdk-overlay-0" class="cdk-overlay-pane css-hidden-pane">
+            <mat-dialog-container>Hidden by stylesheet</mat-dialog-container>
+          </div>
+          <div id="cdk-overlay-1" class="cdk-overlay-pane"
+               style="visibility: hidden; width: 200px; height: 80px">
+            <div>Hidden by visibility</div>
+          </div>
+          <div id="cdk-overlay-2" class="cdk-overlay-pane"
+               style="opacity: 0; width: 200px; height: 80px">
+            <div>Transparent</div>
+          </div>
+          <div id="cdk-overlay-3" class="cdk-overlay-pane mat-mdc-tooltip-panel"
+               style="width: 120px; height: 32px">
+            <mat-tooltip-component>Hover tip</mat-tooltip-component>
+          </div>
+          <div id="cdk-overlay-4" class="cdk-overlay-pane"></div>
+        </div>
+      </div>
+    </body></html>
+  """)
+  inactive_html = journey_capture._normalized_html(page)
+  assert "cdk-overlay-container" not in inactive_html
+  assert "Hidden by stylesheet" not in inactive_html
+  assert "Hover tip" not in inactive_html
+
+  dialog_template = """
+    <html><body>
+      <main>Trace Viewer</main>
+      <div class="cdk-overlay-container">
+        <div class="cdk-overlay-backdrop cdk-overlay-dark-backdrop"></div>
+        <div class="cdk-global-overlay-wrapper" style="top: {top}px">
+          <div id="cdk-overlay-{ov}" class="cdk-overlay-pane"
+               style="width: 600px; height: 320px; left: {left}px">
+            <div class="cdk-focus-trap-anchor" aria-hidden="true"></div>
+            <mat-dialog-container id="mat-mdc-dialog-{dlg}"
+                aria-labelledby="mat-mdc-dialog-title-{dlg}" role="dialog">
+              <h2 id="mat-mdc-dialog-title-{dlg}">{title}</h2>
+              <button class="mdc-button {focus}">Close</button>
+            </mat-dialog-container>
+          </div>
+        </div>
+      </div>
+    </body></html>
+  """
+  page.set_content(
+      dialog_template.format(
+          top=12,
+          left=40,
+          ov=0,
+          dlg=0,
+          title="Trace Viewer Settings",
+          focus="cdk-focused cdk-program-focused",
+      )
+  )
+  active_1 = journey_capture._normalized_html(page)
+  page.set_content(
+      dialog_template.format(
+          top=18, left=44, ov=4, dlg=2, title="Trace Viewer Settings", focus=""
+      )
+  )
+  active_2 = journey_capture._normalized_html(page)
+  assert active_1 == active_2
+  assert "cdk-overlay-container" in active_1
+  assert 'id="cdk-overlay-N"' in active_1
+  assert 'id="mat-mdc-dialog-N"' in active_1
+  assert "Trace Viewer Settings" in active_1
+  assert "cdk-focus-trap-anchor" not in active_1
+  assert "cdk-focused" not in active_1
+
+  engine = SxsDiffEngine()
+  assert not engine.compute_dom_diff(active_1, active_2).has_changes
+  page.set_content(
+      dialog_template.format(
+          top=18, left=44, ov=4, dlg=2, title="Profiler Settings", focus=""
+      )
+  )
+  active_changed = journey_capture._normalized_html(page)
+  assert engine.compute_dom_diff(active_1, active_changed).has_changes
+  browser_errors.assert_clean("normalized_html_cdk_overlay_filtering")

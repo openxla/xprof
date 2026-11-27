@@ -28,8 +28,10 @@ if __package__ in (None, ""):
 
 try:
   from tests.ui import journey_capture
+  from tests.ui import sxs_diff_engine
 except ImportError:
   import journey_capture
+  import sxs_diff_engine
 
 
 @dataclasses.dataclass(frozen=True)
@@ -231,19 +233,81 @@ class JourneyCaptureTest(unittest.TestCase):
         ),
         "google-visualization-errors-all-N",
     )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("cdk-overlay-4"),
+        "cdk-overlay-N",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("mat-mdc-dialog-2"),
+        "mat-mdc-dialog-N",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("mat-mdc-dialog-title-2"),
+        "mat-mdc-dialog-title-N",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("mat-radio-group-3"),
+        "mat-radio-group-N",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "mat-mdc-checkbox-5-input"
+        ),
+        "mat-mdc-checkbox-N-input",
+    )
+    # Idempotence: already-normalized tokens must not lose semantic tab indices.
+    for sample in (
+        "mat-tab-label-0-1",
+        "cdk-overlay-4",
+        "mat-mdc-dialog-title-2 custom-subtitle",
+    ):
+      once = journey_capture.normalize_generated_attr_ids(sample)
+      self.assertEqual(journey_capture.normalize_generated_attr_ids(once), once)
 
   def test_normalized_html_js_id_regexes_match_python(self):
-    """Verifies the in-page ID regexes mirror normalize_generated_attr_ids."""
+    """Verifies in-page JS regexes mirror sxs_diff_engine canonical rules."""
+    self.assertIs(
+        journey_capture.normalize_generated_attr_ids,
+        sxs_diff_engine.normalize_generated_attr_ids,
+    )
     js = journey_capture._NORMALIZED_HTML_JS
     self.assertIn("[hidden]", js)
+    self.assertIn("getBoundingClientRect()", js)
+    self.assertIn("getComputedStyle(livePane)", js)
+    self.assertIn("!container.querySelector('.cdk-overlay-pane')", js)
+    self.assertIn("cleanedVal.trim().replace(/\\s+/g, ' ')", js)
+    # .cdk-overlay-container must only be removed when no active pane remains,
+    # never unconditionally inside the global clone.querySelectorAll removal.
+    unconditional_strip = js[
+        js.index("for (const el of clone.querySelectorAll(") : js.index(
+            "for (const pane of clone.querySelectorAll("
+        )
+    ]
+    self.assertNotIn(".cdk-overlay-container", unconditional_strip)
+    attr_block = js[js.index("for (const attr of [") : js.index("const val =")]
+    self.assertEqual(
+        tuple(re.findall(r"'([a-z-]+)'", attr_block)),
+        sxs_diff_engine.GENERATED_ID_ATTRS,
+    )
     block = js[js.index("const norm = val") : js.index("if (norm !== val)")]
     self.assertEqual(
         re.findall(r"\.replace\(\s*/(.+?)/g,", block, re.DOTALL),
         [
-            journey_capture._GVIS_ID_RE.pattern,
-            journey_capture._MAT_TWO_COUNTER_ID_RE.pattern,
-            journey_capture._MAT_SINGLE_COUNTER_ID_RE.pattern,
+            sxs_diff_engine.GVIS_ID_RE.pattern,
+            sxs_diff_engine.MAT_TWO_COUNTER_ID_RE.pattern,
+            sxs_diff_engine.MAT_SINGLE_COUNTER_ID_RE.pattern,
         ],
+    )
+
+  def test_normalized_html_masks_origin_and_session_path(self):
+    """Verifies _normalized_html masks localhost origin and session_path."""
+    raw = (
+        '<a href="http://127.0.0.1:8791/?run=tpu&session_path=/tmp/abc&tag=op">'
+        "Link</a>"
+    )
+    self.assertEqual(
+        journey_capture._normalized_html(_FakePage([raw])),
+        '<a href="/?run=tpu&session_path=<masked>&tag=op">Link</a>',
     )
 
   def test_wait_for_angular_stable_handles_bootstrap_errors_and_timeouts(self):

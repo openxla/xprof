@@ -63,6 +63,119 @@ _IMAGE_DECODE_ERRORS = (
     zlib.error,
     Image.DecompressionBombError,
 )
+GVIS_ID_RE = re.compile(r"\b(google-visualization-errors(?:-all)?-)[0-9]+\b")
+MAT_TWO_COUNTER_ID_RE = re.compile(
+    r"\b((?:mat-(?:mdc-)?tab-(?:label|content)|mat-tab-group|cdk-stepper)-)"
+    r"[0-9]+(-(?:(?:label|content)-)?[0-9]+)\b"
+)
+MAT_SINGLE_COUNTER_ID_RE = re.compile(
+    r"\b((?:mat|cdk)-[a-z0-9-]+?)(?:-[0-9]+)+\b"
+)
+GENERATED_ID_ATTRS: tuple[str, ...] = (
+    "id",
+    "for",
+    "name",
+    "aria-labelledby",
+    "aria-controls",
+    "aria-owns",
+    "aria-describedby",
+    "aria-activedescendant",
+)
+_GENERATED_ID_ATTR_RE = re.compile(
+    r"(?<![\w:-])("
+    + "|".join(GENERATED_ID_ATTRS)
+    + r""")\s*=\s*("[^"]*"|'[^']*')""",
+    re.IGNORECASE,
+)
+_DIV_TAG_RE = re.compile(
+    r"""</?div\b((?:[^>'\"]|'[^']*'|\"[^\"]*\")*)>""", re.IGNORECASE
+)
+_HTML_ATTR_TOKEN_RE = re.compile(
+    r"""([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"'/]+)))?"""
+)
+_STYLE_ATTR_RE = re.compile(
+    r"""\s*(?<![\w:-])style\s*=\s*(?:"[^"]*"|'[^']*')""", re.IGNORECASE
+)
+_DISPLAY_NONE_STYLE_RE = re.compile(
+    r"(?:^|;)\s*display\s*:\s*none\b", re.IGNORECASE
+)
+_POSITION_ABSOLUTE_STYLE_RE = re.compile(
+    r"(?:^|;)\s*position\s*:\s*absolute\b", re.IGNORECASE
+)
+_HIDDEN_PANE_STYLE_RE = re.compile(
+    r"(?:^|;)\s*(?:visibility\s*:\s*hidden\b|"
+    r"opacity\s*:\s*0(?:\.0+)?\s*(?:!important\s*)?(?:;|$))",
+    re.IGNORECASE,
+)
+_HAS_OVERLAY_PANE_RE = re.compile(
+    r"(?<![\w:-])class\s*=\s*(?:"
+    r'"(?:[^"]*\s)?cdk-overlay-pane(?:\s[^"]*)?"|'
+    r"'(?:[^']*\s)?cdk-overlay-pane(?:\s[^']*)?'|"
+    r"cdk-overlay-pane(?=\s|/|>|$))",
+    re.IGNORECASE,
+)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_UNWANTED_DIV_CLASSES: frozenset[str] = frozenset({
+    "cdk-live-announcer-element",
+    "cdk-describedby-message-container",
+    "cdk-overlay-backdrop",
+    "cdk-focus-trap-anchor",
+    "mat-ripple-element",
+    "mat-mdc-tooltip-panel",
+    "mat-tooltip-panel",
+    "google-visualization-tooltip",
+})
+_OVERLAY_WRAPPER_CLASSES: frozenset[str] = frozenset({
+    "cdk-global-overlay-wrapper",
+    "cdk-overlay-connected-position-bounding-box",
+})
+_OVERLAY_STYLE_STRIP_CLASSES: frozenset[str] = (
+    _OVERLAY_WRAPPER_CLASSES | frozenset({"cdk-overlay-pane"})
+)
+_OVERLAY_FOCUS_CLASSES: frozenset[str] = frozenset({
+    "cdk-focused",
+    "cdk-program-focused",
+    "cdk-mouse-focused",
+    "cdk-keyboard-focused",
+    "cdk-touch-focused",
+})
+
+
+def normalize_generated_attr_ids(value: str) -> str:
+  """Normalizes page-global counters in Material/CDK and Google Charts IDs."""
+  norm = GVIS_ID_RE.sub(r"\1N", value)
+  norm = MAT_TWO_COUNTER_ID_RE.sub(r"\1N\2", norm)
+  return MAT_SINGLE_COUNTER_ID_RE.sub(r"\1-N", norm)
+
+
+def _parse_html_attrs(attrs: str) -> dict[str, str]:
+  """Parses HTML tag attributes into a lowercase-name mapping."""
+  return {
+      m.group(1).lower(): "".join(m.groups("")[1:])
+      for m in _HTML_ATTR_TOKEN_RE.finditer(attrs)
+  }
+
+
+def _strip_overlay_focus_classes(html: str) -> str:
+  """Removes transient CDK focus-origin classes from class attributes."""
+
+  def _clean_class_attr(match: re.Match[str]) -> str:
+    tokens = "".join(match.groups("")).split()
+    kept = [c for c in tokens if c not in _OVERLAY_FOCUS_CLASSES]
+    if len(kept) == len(tokens):
+      return match.group(0)
+    if not kept:
+      return ""
+    leading = " " if match.group(0)[:1].isspace() else ""
+    quote = match.group(0)[-1]
+    return f"{leading}class={quote}{' '.join(kept)}{quote}"
+
+  return re.sub(
+      r"""\s*(?<![\w:-])class\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"'/]+))""",
+      _clean_class_attr,
+      html,
+      flags=re.IGNORECASE,
+  )
 
 
 def _decode_rgba(img_bytes: bytes) -> tuple[Image.Image | None, str | None]:
@@ -445,7 +558,7 @@ class SxsDiffEngine:
     )
     cleaned = re.sub(r' for="mat-input-[0-9N]+"', "", cleaned)
     cleaned = re.sub(
-        r' id="cdk-(describedby-message|overlay|live-announcer)'
+        r' id="cdk-(describedby-message|live-announcer)'
         r'(?:-ng)?-[a-zA-Z0-9_-]+"',
         "",
         cleaned,
@@ -462,6 +575,10 @@ class SxsDiffEngine:
     )
     cleaned = re.sub(
         r' aria-owns="mat-(?:mdc-)?select-[0-9N]+-panel"', "", cleaned
+    )
+    cleaned = _GENERATED_ID_ATTR_RE.sub(
+        lambda m: f"{m.group(1)}={normalize_generated_attr_ids(m.group(2))}",
+        cleaned,
     )
     cleaned = re.sub(
         r"<style\b[^>]*>.*?</style>",
@@ -491,40 +608,6 @@ class SxsDiffEngine:
         r'\s*ng-reflect-[a-zA-Z0-9_-]+(=["\'][^"\']*["\'])?', "", cleaned
     )
     cleaned = re.sub(r'\s*ng-transition=["\'][^"\']*["\']', "", cleaned)
-
-    def _is_unwanted_div(attrs: str) -> bool:
-      is_hidden = bool(
-          re.search(r'\baria-hidden=["\']true["\']', attrs, re.IGNORECASE)
-          and re.search(
-              r'\bstyle=["\'][^"\']*display\s*:\s*none', attrs, re.IGNORECASE
-          )
-      )
-      is_a11y_table = bool(
-          re.search(
-              r'\baria-label=["\']A tabular representation of the data in the'
-              r" chart",
-              attrs,
-              re.IGNORECASE,
-          )
-      )
-      is_cdk_or_chart = bool(
-          re.search(
-              r"\bclass=[\"'][^\"']*\b(?:cdk-(?:live-announcer-element|"
-              r"describedby-message-container|overlay-container|"
-              r"overlay-backdrop)|mat-ripple-element|"
-              r"google-visualization-tooltip)\b",
-              attrs,
-              re.IGNORECASE,
-          )
-          or (
-              re.search(r"\bdisplay\s*:\s*none\b", attrs, re.IGNORECASE)
-              and re.search(
-                  r"\bposition\s*:\s*absolute\b", attrs, re.IGNORECASE
-              )
-          )
-      )
-      return is_hidden or is_a11y_table or is_cdk_or_chart
-
     cleaned = re.sub(
         r"<filter\b[^>]*>(?:(?!</filter>).)*?<feGaussianBlur"
         r"(?:(?!</filter>).)*?</filter>",
@@ -532,12 +615,102 @@ class SxsDiffEngine:
         cleaned,
         flags=re.DOTALL | re.IGNORECASE,
     )
-    cleaned = self._remove_matching_elements(cleaned, "div", _is_unwanted_div)
+    cleaned = self._remove_matching_elements(
+        cleaned, "mat-tooltip-component", lambda _: True
+    )
+    cleaned = self._prune_divs(cleaned)
     cleaned = re.sub(r"\s*mat-form-field-animations-enabled\b", "", cleaned)
     cleaned = self._renumber_renderer_ids(cleaned)
     return "\n".join(
         line.strip() for line in cleaned.splitlines() if line.strip()
     )
+
+  def _should_drop_div(
+      self,
+      attr_map: dict[str, str],
+      classes: frozenset[str],
+      inner_html: str,
+      in_overlay: bool,
+  ) -> bool:
+    """Returns True if a div and its descendants should be removed."""
+    style = attr_map.get("style", "")
+    aria_hidden = attr_map.get("aria-hidden", "").lower() == "true"
+    has_display_none = bool(_DISPLAY_NONE_STYLE_RE.search(style))
+    is_hidden = aria_hidden and has_display_none
+    is_a11y_table = (
+        attr_map.get("aria-label", "")
+        .lower()
+        .startswith("a tabular representation of the data in the chart")
+    )
+    is_cdk_or_chart = bool(
+        (classes & _UNWANTED_DIV_CLASSES)
+        or (has_display_none and _POSITION_ABSOLUTE_STYLE_RE.search(style))
+    )
+    if is_hidden or is_a11y_table or is_cdk_or_chart:
+      return True
+    if not in_overlay:
+      return False
+    if "hidden" in attr_map or has_display_none:
+      return True
+    if "cdk-overlay-pane" in classes:
+      if aria_hidden or _HIDDEN_PANE_STYLE_RE.search(style):
+        return True
+      return not _HTML_COMMENT_RE.sub("", inner_html).strip()
+    if classes & _OVERLAY_WRAPPER_CLASSES or "cdk-overlay-container" in classes:
+      return not _HAS_OVERLAY_PANE_RE.search(inner_html)
+    return False
+
+  def _prune_divs(self, html: str) -> str:
+    """Prunes hidden/transient divs while keeping active CDK overlay panes."""
+    segments: list[list[str]] = [[]]
+    open_tags: list[tuple[str, dict[str, str], frozenset[str], bool]] = []
+    overlay_depth = 0
+    pos = 0
+
+    for match in _DIV_TAG_RE.finditer(html):
+      segments[-1].append(html[pos : match.start()])
+      pos = match.end()
+      tag_text, attrs = match.group(0), match.group(1)
+      if tag_text.startswith("</"):
+        if not open_tags:
+          segments[-1].append(tag_text)
+          continue
+        open_text, attr_map, classes, in_overlay = open_tags.pop()
+        inner_html = "".join(segments.pop())
+        if "cdk-overlay-container" in classes:
+          overlay_depth -= 1
+        if self._should_drop_div(attr_map, classes, inner_html, in_overlay):
+          continue
+        if in_overlay and (classes & _OVERLAY_STYLE_STRIP_CLASSES):
+          open_text = _STYLE_ATTR_RE.sub("", open_text)
+        subtree = f"{open_text}{inner_html}{tag_text}"
+        if "cdk-overlay-container" in classes:
+          subtree = _strip_overlay_focus_classes(subtree)
+        segments[-1].append(subtree)
+      elif tag_text.endswith("/>"):
+        attr_map = _parse_html_attrs(attrs)
+        classes = frozenset(attr_map.get("class", "").split())
+        in_overlay = overlay_depth > 0 or "cdk-overlay-container" in classes
+        if self._should_drop_div(attr_map, classes, "", in_overlay):
+          continue
+        segments[-1].append(tag_text)
+      else:
+        attr_map = _parse_html_attrs(attrs)
+        classes = frozenset(attr_map.get("class", "").split())
+        if "cdk-overlay-container" in classes:
+          overlay_depth += 1
+        in_overlay = overlay_depth > 0
+        open_tags.append((tag_text, attr_map, classes, in_overlay))
+        segments.append([])
+
+    segments[-1].append(html[pos:])
+    while open_tags:
+      open_text, attr_map, classes, in_overlay = open_tags.pop()
+      inner_html = "".join(segments.pop())
+      if self._should_drop_div(attr_map, classes, inner_html, in_overlay):
+        continue
+      segments[-1].append(f"{open_text}{inner_html}")
+    return "".join(segments[0])
 
   def _remove_matching_elements(
       self,

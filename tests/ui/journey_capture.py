@@ -30,6 +30,15 @@ import time
 from typing import Any
 import urllib.parse
 
+# pylint: disable=g-import-not-at-top
+try:
+  from tests.ui import sxs_diff_engine
+except ModuleNotFoundError as sub_err:
+  if not (sub_err.name or "").startswith("tests"):
+    raise
+  import sxs_diff_engine
+# pylint: enable=g-import-not-at-top
+
 sync_api: Any = None
 try:
   sync_api = importlib.import_module("playwright.sync_api")
@@ -238,18 +247,89 @@ class NetworkRecorder:
 #
 # The reordering runs on a detached clone. Rewriting attributes on the live
 # document would invalidate layout and could trigger a chart redraw between the
-# DOM snapshot and the screenshot.
+# DOM snapshot and the screenshot. Active visible `.cdk-overlay-pane` subtrees
+# (such as open Material dialogs or menus) are preserved with ephemeral CDK
+# wrapper positioning styles and focus-origin classes stripped, while empty,
+# hidden, zero-size, or tooltip-only `.cdk-overlay-container` shells are
+# removed so non-dialog waypoints incur zero DOM diff churn.
 _NORMALIZED_HTML_JS = """(maskSelectors) => {
   const clone = document.documentElement.cloneNode(true);
+  const livePanes = document.querySelectorAll(
+      '.cdk-overlay-container .cdk-overlay-pane'
+  );
+  const clonePanes = clone.querySelectorAll(
+      '.cdk-overlay-container .cdk-overlay-pane'
+  );
+  if (livePanes.length === clonePanes.length) {
+    for (let i = 0; i < clonePanes.length; i++) {
+      const livePane = livePanes[i];
+      const cs = window.getComputedStyle(livePane);
+      const rect = livePane.getBoundingClientRect();
+      if (
+          livePane.hidden ||
+          livePane.getAttribute('aria-hidden') === 'true' ||
+          cs.display === 'none' ||
+          cs.visibility === 'hidden' ||
+          parseFloat(cs.opacity) === 0 ||
+          rect.width <= 0 ||
+          rect.height <= 0
+      ) {
+        clonePanes[i].remove();
+      }
+    }
+  }
   for (const s of clone.querySelectorAll('style, link[rel="stylesheet"]')) {
     s.remove();
   }
   for (const el of clone.querySelectorAll(
       '.cdk-live-announcer-element, .cdk-describedby-message-container, ' +
-      '.cdk-overlay-container, div[style*="display: none"], ' +
-      'div[style*="display:none"], [hidden]'
+      '.cdk-overlay-backdrop, .cdk-focus-trap-anchor, .mat-ripple-element, ' +
+      'mat-tooltip-component, .mat-mdc-tooltip-panel, .mat-tooltip-panel, ' +
+      'div[style*="display: none"], div[style*="display:none"], [hidden]'
   )) {
     el.remove();
+  }
+  for (const pane of clone.querySelectorAll(
+      '.cdk-overlay-container .cdk-overlay-pane'
+  )) {
+    if (pane.children.length === 0 && !(pane.textContent || '').trim()) {
+      pane.remove();
+    }
+  }
+  for (const wrapper of clone.querySelectorAll(
+      '.cdk-overlay-container .cdk-overlay-connected-position-bounding-box, ' +
+      '.cdk-overlay-container .cdk-global-overlay-wrapper'
+  )) {
+    if (!wrapper.querySelector('.cdk-overlay-pane')) {
+      wrapper.remove();
+    }
+  }
+  for (const container of clone.querySelectorAll('.cdk-overlay-container')) {
+    if (!container.querySelector('.cdk-overlay-pane')) {
+      container.remove();
+      continue;
+    }
+    for (const wrapper of container.querySelectorAll(
+        '.cdk-overlay-pane, .cdk-overlay-connected-position-bounding-box, ' +
+        '.cdk-global-overlay-wrapper'
+    )) {
+      wrapper.removeAttribute('style');
+    }
+    for (const focused of container.querySelectorAll(
+        '.cdk-focused, .cdk-program-focused, .cdk-mouse-focused, ' +
+        '.cdk-keyboard-focused, .cdk-touch-focused'
+    )) {
+      focused.classList.remove(
+          'cdk-focused',
+          'cdk-program-focused',
+          'cdk-mouse-focused',
+          'cdk-keyboard-focused',
+          'cdk-touch-focused'
+      );
+      if (focused.classList.length === 0) {
+        focused.removeAttribute('class');
+      }
+    }
   }
   if (Array.isArray(maskSelectors) && maskSelectors.length) {
     for (const sel of maskSelectors) {
@@ -266,9 +346,12 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
         .sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
     for (const [name] of attrs) el.removeAttribute(name);
     for (const [name, value] of attrs) {
-      const cleanedVal = value
+      let cleanedVal = value
           .replace(/https?:\\/\\/(?:localhost|127\\.0\\.0\\.1):[0-9]+/g, '')
           .replace(/(?<=\\bsession_path=)[^&"'\\s<>]*/g, '<masked>');
+      if (name === 'class') {
+        cleanedVal = cleanedVal.trim().replace(/\\s+/g, ' ');
+      }
       el.setAttribute(name, cleanedVal);
     }
     // Google Charts and Angular Material number generated elements from
@@ -277,8 +360,8 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
     // two-counter tokens like mat-tab-label-<groupId>-<tabIndex>, normalize
     // only the page-global group counter while preserving the semantic index.
     for (const attr of [
-      'id', 'for', 'aria-labelledby', 'aria-controls', 'aria-owns',
-      'aria-describedby',
+      'id', 'for', 'name', 'aria-labelledby', 'aria-controls', 'aria-owns',
+      'aria-describedby', 'aria-activedescendant',
     ]) {
       const val = el.getAttribute(attr);
       if (!val) continue;
@@ -301,21 +384,7 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
   return clone.outerHTML;
 }"""
 
-_GVIS_ID_RE = re.compile(r"\b(google-visualization-errors(?:-all)?-)[0-9]+\b")
-_MAT_TWO_COUNTER_ID_RE = re.compile(
-    r"\b((?:mat-(?:mdc-)?tab-(?:label|content)|mat-tab-group|cdk-stepper)-)"
-    r"[0-9]+(-(?:(?:label|content)-)?[0-9]+)\b"
-)
-_MAT_SINGLE_COUNTER_ID_RE = re.compile(
-    r"\b((?:mat|cdk)-[a-z0-9-]+?)(?:-[0-9]+)+\b"
-)
-
-
-def normalize_generated_attr_ids(value: str) -> str:
-  """Normalizes page-global counters in Material/CDK and Google Charts IDs."""
-  norm = _GVIS_ID_RE.sub(r"\1N", value)
-  norm = _MAT_TWO_COUNTER_ID_RE.sub(r"\1N\2", norm)
-  return _MAT_SINGLE_COUNTER_ID_RE.sub(r"\1-N", norm)
+normalize_generated_attr_ids = sxs_diff_engine.normalize_generated_attr_ids
 
 
 def _normalized_html(page: Any) -> str:

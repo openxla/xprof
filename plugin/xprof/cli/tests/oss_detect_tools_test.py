@@ -113,9 +113,9 @@ def _unfused_reshape_module() -> Any:
   return hlo
 
 
-def _convert_reduce_module() -> Any:
-  """A bf16 -> f32 -> abs -> reduce(add) -> bf16 fusion."""
-  hlo, module = _new_module("jit_convert_reduce")
+def _convert_reduce_module(name: str = "jit_convert_reduce") -> Any:
+  """A bf16 -> f32 -> abs -> reduce(add) -> bf16 fusion in module `name`."""
+  hlo, module = _new_module(name)
   add_comp = module.computations.add(name="add_comp", id=2)
   _add_instr(add_comp, 20, "x", "parameter", _F32, parameter_number=0)
   _add_instr(add_comp, 21, "y", "parameter", _F32, parameter_number=1)
@@ -208,6 +208,43 @@ def _unfused_chain_module() -> Any:
   _add_instr(main, 3, "add.2", "add", _F32, [16], operand_ids=[2, 2])
   _add_instr(main, 4, "mul.3", "multiply", _F32, [16], operand_ids=[3, 3])
   main.root_id = 4
+  return hlo
+
+
+def _micro_fusions_module(inner_opcodes: Sequence[str]) -> Any:
+  """Two sibling fusions whose fused computations hold `inner_opcodes`."""
+  hlo, module = _new_module("jit_fusions")
+  main = module.computations.add(name="main", id=1)
+  module.entry_computation_id = 1
+  _add_instr(main, 1, "p0", "parameter", _F32, [16], parameter_number=0)
+  for index, comp_id in enumerate((2, 3)):
+    fused = module.computations.add(
+        name=f"fused_computation.{index}", id=comp_id
+    )
+    first_id = comp_id * 10
+    _add_instr(fused, first_id, f"p.{index}", "parameter", _F32, [16])
+    for offset, opcode in enumerate(inner_opcodes, start=1):
+      _add_instr(
+          fused,
+          first_id + offset,
+          f"{opcode}.{index}",
+          opcode,
+          _F32,
+          [16],
+          operand_ids=[first_id + offset - 1],
+      )
+    fused.root_id = first_id + len(inner_opcodes)
+    _add_instr(
+        main,
+        comp_id,
+        f"fusion.{comp_id}",
+        "fusion",
+        _F32,
+        [16],
+        operand_ids=[1],
+        called_computation_ids=[comp_id],
+    )
+  main.root_id = 3
   return hlo
 
 
@@ -331,6 +368,77 @@ class OssDetectToolsTest(parameterized.TestCase):
     )
     for op in result["inefficient_ops"]:
       self.assertEqual(op["unfused_chain"], "add.1 -> add.2 -> mul.3")
+
+  def test_unfused_updates_reports_small_sibling_fusions(self):
+    self._write(_micro_fusions_module(["negate"]))
+
+    result = self._detect(
+        "unfused_updates",
+        [
+            _op("jit_fusions(1)", "fusion.2", "loop fusion"),
+            _op("jit_fusions(1)", "fusion.3", "loop fusion"),
+        ],
+    )
+
+    self.assertTrue(result["bottlenecks_found"], msg=result)
+    self.assertCountEqual(
+        [op["instruction"] for op in result["inefficient_ops"]],
+        ["fusion.2", "fusion.3"],
+    )
+
+  @parameterized.parameters(
+      "all-gather",
+      "all-to-all",
+      "all-gather-start",
+      "async-done",
+      "custom-call",
+      "infeed",
+  )
+  def test_unfused_updates_skips_non_fusible_fusions(self, opcode):
+    # Collectives and opaque calls are wrapped in small fusions, but they are
+    # not small arithmetic kernels that could be fused together.
+    self._write(_micro_fusions_module([opcode]))
+
+    result = self._detect(
+        "unfused_updates",
+        [
+            _op("jit_fusions(1)", "fusion.2", "loop fusion"),
+            _op("jit_fusions(1)", "fusion.3", "loop fusion"),
+        ],
+    )
+
+    self.assertFalse(result["bottlenecks_found"], msg=result)
+    self.assertEmpty(result["inefficient_ops"])
+
+  @parameterized.parameters(
+      "jit_train_step", "jit_value_and_grad", "ComputeGradients", "autograd"
+  )
+  def test_unnecessary_convert_reduce_skips_training_module(self, module):
+    # The same pattern as in `test_unnecessary_convert_reduce_detected`, but in
+    # a training program, where the f32 accumulation is kept.
+    self._write(_convert_reduce_module(module))
+
+    result = self._detect(
+        "unnecessary_convert_reduce",
+        [_op(f"{module}(1)", "fusion.1", "loop fusion")],
+    )
+
+    self.assertFalse(result["bottlenecks_found"], msg=result)
+    self.assertEmpty(result["inefficient_ops"])
+
+  @parameterized.parameters("jit_update_kv_cache", "jit_lossless_compress")
+  def test_unnecessary_convert_reduce_reports_inference_module(self, module):
+    # These names contain a training keyword, but not as a training step.
+    self._write(_convert_reduce_module(module))
+
+    result = self._detect(
+        "unnecessary_convert_reduce",
+        [_op(f"{module}(1)", "fusion.1", "loop fusion")],
+    )
+
+    self.assertTrue(result["bottlenecks_found"], msg=result)
+    (op,) = result["inefficient_ops"]
+    self.assertEqual(op["instruction"], "convert.1")
 
   def test_unnecessary_convert_reduce_detected(self):
     self._write(_convert_reduce_module())

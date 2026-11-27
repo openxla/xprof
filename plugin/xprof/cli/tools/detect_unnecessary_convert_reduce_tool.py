@@ -4,6 +4,7 @@ import collections
 from collections.abc import Callable
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -59,6 +60,27 @@ _ALLOWED_TRACING_OPCODES = frozenset({
 
 
 _REDUCTION_OPCODES = frozenset({"reduce", "all-reduce", "reduce-scatter"})
+
+# Word boundaries inside a CamelCase name (`ApplyAdam`, `HTTPLoss`).
+_CAMEL_CASE_BOUNDARY_RE = re.compile(
+    r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])"
+)
+# Keywords that mark a training program. A keyword only counts at the start of a
+# word (`jit_train_step`, `value_and_grad`, `ApplyAdam`), so that names such as
+# `constrain` or `upgrade` do not match. Common prefixed forms count as well
+# (`pretrain`, `retrain`, `autograd`, `dgrad`, `wgrad`). `pretrained`,
+# `gradual`, `lossless` and `lossy` are other words.
+_TRAINING_NAME_RE = re.compile(
+    r"(?<![a-z])"
+    r"(?:pretrain(?!ed)|retrain|train|(?:auto|[dw])?grad(?!ual)|backward"
+    r"|loss(?!less|y)|optimizer|adam|sgd)"
+)
+# `update` is a weaker keyword: it marks training (`apply_updates`) unless the
+# name is about a cache (`update_kv_cache`), which is a decode-time update.
+_UPDATE_WORD_RE = re.compile(r"(?<![a-z])update")
+# Computations fused from a `dynamic-update-slice` op are named after it; that
+# `update` says nothing about training.
+_DYNAMIC_UPDATE_SLICE_RE = re.compile(r"dynamic[-_.]?update[-_.]?slice")
 
 # These values correspond to the XLA PrimitiveType enum values.
 _F16_TYPE = 10
@@ -485,20 +507,36 @@ class _HloModuleTracer:
     return False
 
 
+def _is_training_name(name: str) -> bool:
+  """Returns whether a module or computation name marks a training program."""
+  # Split CamelCase words before lowercasing, so that a keyword that starts a
+  # word is still at a word start.
+  name_lower = _CAMEL_CASE_BOUNDARY_RE.sub("_", name).lower()
+  # Replace with a space, so that the surrounding parts are not joined.
+  name_lower = _DYNAMIC_UPDATE_SLICE_RE.sub(" ", name_lower)
+  if _TRAINING_NAME_RE.search(name_lower):
+    return True
+  return bool(_UPDATE_WORD_RE.search(name_lower)) and "cache" not in name_lower
+
+
 def _classify_execution_phase(module_proto: Any) -> str:
-  """Classifies execution phase as TRAINING or INFERENCE by computation name."""
-  training_keywords = {
-      "grad",
-      "backward",
-      "loss",
-      "optimizer",
-      "adam",
-      "sgd",
-      "update",
-  }
+  """Classifies execution phase as TRAINING or INFERENCE.
+
+  The module name is checked as well as the computation names, because XLA
+  renames the computations of a compiled module (`main.N`,
+  `fused_computation.N`), which leaves the module name (e.g. `jit_train_step`)
+  as the only trace of the user's function.
+
+  Args:
+    module_proto: The HloModuleProto to classify.
+
+  Returns:
+    "TRAINING" or "INFERENCE".
+  """
+  if _is_training_name(module_proto.name):
+    return "TRAINING"
   for computation in module_proto.computations:
-    comp_name_lower = computation.name.lower()
-    if any(keyword in comp_name_lower for keyword in training_keywords):
+    if _is_training_name(computation.name):
       return "TRAINING"
   return "INFERENCE"
 

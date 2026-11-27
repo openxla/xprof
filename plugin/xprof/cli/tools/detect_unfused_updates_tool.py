@@ -72,6 +72,27 @@ _EXCLUDED_OPCODES = frozenset({
     "parameter",
 })
 
+# A fusion that contains a cross-device collective or an opaque runtime call
+# (e.g. an async all-gather) is not a small arithmetic kernel, and cannot be
+# merged with its neighbors into a loop fusion.
+#
+# Collectives, by base name: the async forms (`all-gather-start`,
+# `all-gather-done`, `async-update`, ...) are matched through their suffix.
+_COLLECTIVE_OPCODES = frozenset({
+    "all-gather",
+    "all-reduce",
+    "all-to-all",
+    "ragged-all-to-all",
+    "reduce-scatter",
+    "collective-permute",
+    "collective-broadcast",
+    "send",
+    "recv",
+    "async",
+})
+_ASYNC_OPCODE_SUFFIXES = ("-start", "-done", "-update")
+_OPAQUE_OPCODES = frozenset({"custom-call", "infeed", "outfeed"})
+
 ZERO_COST_TIME_THRESHOLD_MS = 0.001
 
 _MAX_CONSUMER_HOPS = 1000
@@ -139,6 +160,17 @@ def format_shape_proto(shape: Any) -> Optional[str]:
       dtype_str = str(element_type).lower()
     dims = [str(d) for d in getattr(shape, "dimensions", [])]
     return f"{dtype_str}[{','.join(dims)}]"
+
+
+def _is_non_fusible_opcode(opcode: str) -> bool:
+  """Returns whether `opcode` is a collective or an opaque runtime call."""
+  opcode = opcode.lower()
+  if opcode in _OPAQUE_OPCODES:
+    return True
+  base = opcode
+  for suffix in _ASYNC_OPCODE_SUFFIXES:
+    base = base.removesuffix(suffix)
+  return base in _COLLECTIVE_OPCODES
 
 
 class _HloModuleIndexer:
@@ -365,12 +397,18 @@ def analyze_hlo_module_proto(
       continue
 
     if opcode == "fusion":
-      # Only keep micro fusions (<= 4 instructions in its computation)
+      # Only keep micro fusions: <= 4 instructions in its computation, none of
+      # which is a collective or an opaque call.
       is_micro = True
       for called_id in instr.called_computation_ids:
         called_comp = indexer.computations.get(called_id)
+        if not called_comp:
+          continue
         # instruction count includes parameters, etc.
-        if called_comp and len(called_comp.instructions) > 4:
+        if len(called_comp.instructions) > 4 or any(
+            _is_non_fusible_opcode(inner.opcode)
+            for inner in called_comp.instructions
+        ):
           is_micro = False
           break
       if not is_micro:

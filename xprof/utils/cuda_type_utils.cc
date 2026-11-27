@@ -384,8 +384,13 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
   // cap in the table if the given compute cap is even older than it. Another
   // way is to just report not found and return 0 in GpuFlopCapabilities. Also
   // more fine-grained back off also could be used.
+  // TODO(b/586720829): Add dedicated per-SM FLOP specs for Blackwell 11.x/12.x
+  // GPUs. Until then, avoid falling back through 10.7 (Vera Rubin) and use
+  // baseline Blackwell (10.0) specs instead.
   const int normalized_compute_cap =
-      major_comp_cap * 1000 + minor_comp_cap * 10;
+      (major_comp_cap == 11 || major_comp_cap == 12)
+          ? 10000
+          : major_comp_cap * 1000 + minor_comp_cap * 10;
   auto it = kPerSMFlopCapsTable.lower_bound(normalized_compute_cap);
   if (it == kPerSMFlopCapsTable.end() || it->first > normalized_compute_cap) {
     if (it != kPerSMFlopCapsTable.begin()) it = std::prev(it);
@@ -497,6 +502,9 @@ std::string GpuModelName(const DeviceCapabilities& device_cap) {
       } else {
         return "Nvidia GPU (Rubin)";
       }
+    case 11:
+    case 12:
+      return "Nvidia GPU (Blackwell)";
     default:
       return "Nvidia GPU";
   }

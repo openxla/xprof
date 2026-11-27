@@ -105,6 +105,23 @@ TEST(HardwareTypeUtilsTest, FutureBlackwellPeakComputTFlops) {
   EXPECT_NEAR(peak_tflops, 2218, /*abs_error=*/1.0);
 }
 
+TEST(HardwareTypeUtilsTest, Blackwell11And12FallBackToBlackwell10Specs) {
+  DeviceCapabilities b200_cap;
+  b200_cap.set_clock_rate_in_ghz(1.830);
+  b200_cap.set_num_cores(148);
+  b200_cap.set_device_vendor("Nvidia");
+  b200_cap.mutable_compute_capability()->set_major(10);
+  b200_cap.mutable_compute_capability()->set_minor(0);
+  const double expected = GetFlopMaxThroughputPerCore(b200_cap);
+
+  for (int major : {11, 12}) {
+    DeviceCapabilities blackwell_cap = b200_cap;
+    blackwell_cap.mutable_compute_capability()->set_major(major);
+    blackwell_cap.mutable_compute_capability()->set_minor(0);
+    EXPECT_DOUBLE_EQ(GetFlopMaxThroughputPerCore(blackwell_cap), expected);
+  }
+}
+
 TEST(HardwareTypeUtilsTest, H100PeakComputTFlops) {
   DeviceCapabilities device_cap;
   // For NVIDIA H100 PCIe 80 GB, according to
@@ -306,6 +323,14 @@ TEST(HardwareTypeUtilsTest, GpuModelNameDistinguishesBlackwellAndRubin) {
   device_cap.mutable_compute_capability()->set_minor(7);
   EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Rubin)");
   EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
+
+  device_cap.mutable_compute_capability()->set_major(11);
+  device_cap.mutable_compute_capability()->set_minor(0);
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Blackwell)");
+
+  device_cap.mutable_compute_capability()->set_major(12);
+  device_cap.mutable_compute_capability()->set_minor(0);
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Blackwell)");
 }
 
 TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchFromDeviceName) {

@@ -116,6 +116,20 @@ void CombinePowerMetrics(const RunEnvironment& src, RunEnvironment* dst) {
           std::max(src_metric.max_power(), dst_metric.max_power()));
       dst_metric.set_avg_power(src_metric.avg_power() * src_weight +
                                dst_metric.avg_power() * dst_weight);
+      dst_metric.set_max_moving_avg_power_100us(
+          std::max(src_metric.max_moving_avg_power_100us(),
+                   dst_metric.max_moving_avg_power_100us()));
+      dst_metric.set_max_moving_avg_power_1ms(
+          std::max(src_metric.max_moving_avg_power_1ms(),
+                   dst_metric.max_moving_avg_power_1ms()));
+      dst_metric.set_max_moving_avg_power_10ms(
+          std::max(src_metric.max_moving_avg_power_10ms(),
+                   dst_metric.max_moving_avg_power_10ms()));
+      dst_metric.set_max_moving_avg_power_1s(
+          std::max(src_metric.max_moving_avg_power_1s(),
+                   dst_metric.max_moving_avg_power_1s()));
+      dst_metric.set_sample_count(dst_metric.sample_count() +
+                                  src_metric.sample_count());
     }
   }
 }

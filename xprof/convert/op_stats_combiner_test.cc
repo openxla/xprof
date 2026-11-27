@@ -161,6 +161,11 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironmentPowerMetricsMultipleHost) {
   component_metric_1->set_component_name("HBM");
   component_metric_1->set_max_power(100);
   component_metric_1->set_avg_power(50);
+  component_metric_1->set_max_moving_avg_power_100us(95);
+  component_metric_1->set_max_moving_avg_power_1ms(90);
+  component_metric_1->set_max_moving_avg_power_10ms(80);
+  component_metric_1->set_max_moving_avg_power_1s(70);
+  component_metric_1->set_sample_count(10);
 
   // Source OpStats 2
   RunEnvironment* env_2 = src_op_stats_2.mutable_run_environment();
@@ -172,6 +177,11 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironmentPowerMetricsMultipleHost) {
   component_metric_2->set_component_name("HBM");
   component_metric_2->set_max_power(120);
   component_metric_2->set_avg_power(60);
+  component_metric_2->set_max_moving_avg_power_100us(90);
+  component_metric_2->set_max_moving_avg_power_1ms(110);
+  component_metric_2->set_max_moving_avg_power_10ms(105);
+  component_metric_2->set_max_moving_avg_power_1s(85);
+  component_metric_2->set_sample_count(15);
 
   OpStatsInfo op_stats_info_1(&src_op_stats_1, TPU, 0);
   OpStatsInfo op_stats_info_2(&src_op_stats_2, TPU, 1);
@@ -197,6 +207,18 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironmentPowerMetricsMultipleHost) {
   // Iter 1: dst={} src=op1(50) -> dst=50
   // Iter 2: dst=op1(50) src=op2(60) -> dst = 50 * 1/2 + 60 * 1/2 = 55
   EXPECT_EQ(55, dst_power_metrics.power_component_metrics(0).avg_power());
+  EXPECT_EQ(95, dst_power_metrics.power_component_metrics(0)
+                    .max_moving_avg_power_100us());
+  EXPECT_EQ(
+      110,
+      dst_power_metrics.power_component_metrics(0).max_moving_avg_power_1ms());
+  EXPECT_EQ(
+      105,
+      dst_power_metrics.power_component_metrics(0).max_moving_avg_power_10ms());
+  EXPECT_EQ(
+      85,
+      dst_power_metrics.power_component_metrics(0).max_moving_avg_power_1s());
+  EXPECT_EQ(25, dst_power_metrics.power_component_metrics(0).sample_count());
 }
 
 TEST(CombineAllOpStatsTest, CombineDisaggregatedServingStats) {

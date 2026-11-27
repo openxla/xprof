@@ -200,6 +200,22 @@ const NON_TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   },
 ];
 
+function parsePowerMetrics(
+  props: GeneralProps | google.visualization.DataObjectCell[],
+  key: string,
+): string[] {
+  if (Array.isArray(props)) return [];
+  return props[key]?.split('##').filter(Boolean) ?? [];
+}
+
+const NON_TPU_GENERAL_SUMMARY_INFO: SummaryInfoConfig[] = [
+  {
+    title: 'Power Metrics',
+    tooltip: 'Avg/Max power consumption monitored on the device.',
+    getChildValues: (props) => parsePowerMetrics(props, 'power_metrics'),
+  },
+];
+
 const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   {
     title: 'FLOPS Utilization',
@@ -243,8 +259,7 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
     title: 'Firmware Power Metrics (Power/Timescale)',
     tooltip:
       'Max power consumption of different components/rails with different timescale.',
-    getChildValues: (props) =>
-      (props as GeneralProps)['fw_power_metrics']?.split('##') || [],
+    getChildValues: (props) => parsePowerMetrics(props, 'fw_power_metrics'),
   },
   {
     title: 'SPI Sampler Power Metrics',
@@ -252,8 +267,7 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
       'Avg/Max power consumption of different components/rails, including max of moving average of window size of 100us/1ms/10ms/1s.',
     description:
       'HBM: HBM SPI Sampler Power Meter; Core: VDD Core SPI Sampler Power Meter',
-    getChildValues: (props) =>
-      (props as GeneralProps)['spi_power_metrics']?.split('##') || [],
+    getChildValues: (props) => parsePowerMetrics(props, 'spi_power_metrics'),
   },
 ];
 
@@ -391,6 +405,15 @@ export class PerformanceSummary implements OnChanges, OnInit {
         {
           level: 1,
           baselineProps: this.baselineInputPipelineProps,
+        },
+      );
+      this.parseDataFromConfig(
+        NON_TPU_GENERAL_SUMMARY_INFO,
+        this.generalProps,
+        this.summaryInfoCombined,
+        {
+          level: 1,
+          baselineProps: this.baselineGeneralProps,
         },
       );
     }

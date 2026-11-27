@@ -306,6 +306,14 @@ TEST(HardwareTypeUtilsTest, GpuModelNameDistinguishesBlackwellAndRubin) {
   device_cap.mutable_compute_capability()->set_minor(7);
   EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Rubin)");
   EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
+
+  device_cap.mutable_compute_capability()->set_major(11);
+  device_cap.mutable_compute_capability()->set_minor(0);
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Blackwell)");
+
+  device_cap.mutable_compute_capability()->set_major(12);
+  device_cap.mutable_compute_capability()->set_minor(0);
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Blackwell)");
 }
 
 TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchFromDeviceName) {

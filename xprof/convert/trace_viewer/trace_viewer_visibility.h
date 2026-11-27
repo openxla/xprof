@@ -15,7 +15,6 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_TRACE_VIEWER_VISIBILITY_H_
 #define THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_TRACE_VIEWER_VISIBILITY_H_
 
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -25,11 +24,9 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/log/log.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
-#include "xprof/convert/trace_viewer/trace_utils.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 
 namespace tensorflow {
@@ -43,14 +40,114 @@ namespace profiler {
 // events is fully enabled.
 class TraceViewerVisibility {
  public:
-  // Create with visible timespan and resolution (in picoseconds).
-  // The visible timespan must have non-zero duration.
-  // If resolution is zero, no events are downsampled.
+  // Immutable time window with four explicit states (`kUnconstrained`,
+  // `kEmpty`, `kBounded`, `kOpenEnded`) so callers cannot misinterpret a
+  // zero-duration `Timespan`.
+  class Window {
+   public:
+    // Creates an unconstrained window matching all events.
+    static Window Unconstrained() {
+      return Window(Kind::kUnconstrained, tsl::profiler::Timespan(0, 0));
+    }
+
+    // Creates an empty window matching no events.
+    static Window Empty() {
+      return Window(Kind::kEmpty, tsl::profiler::Timespan(0, 0));
+    }
+
+    // Creates a closed window `[start_ps, *end_ps]` when `end_ps` is provided
+    // (or `Empty()` if `start_ps > *end_ps`), `Unconstrained()` when `end_ps`
+    // is `std::nullopt` and `start_ps == 0`, or an open-ended window
+    // `[start_ps, +inf)` when `end_ps` is `std::nullopt` and `start_ps > 0`.
+    static Window FromEndPoints(uint64_t start_ps,
+                                std::optional<uint64_t> end_ps) {
+      if (end_ps.has_value()) {
+        if (start_ps > *end_ps) {
+          return Empty();
+        }
+        return Window(Kind::kBounded, tsl::profiler::Timespan::FromEndPoints(
+                                          start_ps, *end_ps));
+      }
+      if (start_ps == 0) {
+        return Unconstrained();
+      }
+      return Window(Kind::kOpenEnded, tsl::profiler::Timespan(start_ps, 0));
+    }
+
+    // Interprets a legacy `Timespan`: zero-duration spans become open-ended
+    // `[begin_ps(), +inf)` (`Unconstrained()` when `begin_ps() == 0`), while
+    // non-zero spans become closed `[begin_ps(), end_ps()]`.
+    static Window FromLegacySpan(tsl::profiler::Timespan span) {
+      if (span.Instant()) {
+        return FromEndPoints(span.begin_ps(), std::nullopt);
+      }
+      return Window(Kind::kBounded, span);
+    }
+
+    // Returns true if this window matches no events.
+    bool IsEmpty() const { return kind_ == Kind::kEmpty; }
+
+    // Returns true if this window disables time-window filtering.
+    bool IsUnconstrained() const { return kind_ == Kind::kUnconstrained; }
+
+    // Returns the lower timestamp bound in picoseconds (0 when unconstrained or
+    // empty).
+    uint64_t BeginPs() const { return span_.begin_ps(); }
+
+    // Returns the inclusive upper timestamp bound in picoseconds when bounded,
+    // or `std::nullopt` for unconstrained, open-ended, or empty windows.
+    std::optional<uint64_t> EndPs() const {
+      if (kind_ != Kind::kBounded) return std::nullopt;
+      return span_.end_ps();
+    }
+
+    // Returns true if `span` overlaps this window.
+    bool Overlaps(tsl::profiler::Timespan span) const {
+      switch (kind_) {
+        case Kind::kEmpty:
+          return false;
+        case Kind::kUnconstrained:
+          return true;
+        case Kind::kOpenEnded:
+          return span.end_ps() >= span_.begin_ps();
+        case Kind::kBounded:
+          return span_.Overlaps(span);
+      }
+    }
+
+    // Clamps this window against any `min_timestamp_ps` / `max_timestamp_ps`
+    // bounds present on `trace`, returning `Empty()` if clamping yields an
+    // inverted interval.
+    Window ClampToTrace(const Trace& trace) const;
+
+   private:
+    enum class Kind {
+      kUnconstrained,
+      kEmpty,
+      kBounded,
+      kOpenEnded,
+    };
+
+    Window(Kind kind, tsl::profiler::Timespan span)
+        : kind_(kind), span_(span) {}
+
+    Kind kind_;
+    tsl::profiler::Timespan span_;
+  };
+
+  // Creates a visibility filter over `window` at `resolution_ps` (in
+  // picoseconds). When `window.IsEmpty()`, `resolution_ps` is normalized to
+  // `0`. If `resolution_ps` is zero, no events are downsampled.
+  explicit TraceViewerVisibility(Window window, uint64_t resolution_ps = 0);
+
+  // Creates a visibility filter from a legacy `Timespan` interpreted via
+  // `Window::FromLegacySpan(visible_span)`. If `resolution_ps` is zero, no
+  // events are downsampled.
   explicit TraceViewerVisibility(tsl::profiler::Timespan visible_span,
                                  uint64_t resolution_ps = 0);
 
-  // Returns true if the event overlaps the visible span and is distinguishable
-  // at resolution_ps.
+  // Returns true if the event overlaps the visible window and is
+  // distinguishable at resolution_ps.
   bool Visible(const TraceEvent& event);
 
   // Returns true if the event is distinguishable at resolution_ps.
@@ -59,7 +156,9 @@ class TraceViewerVisibility {
   // Records that event is distinguishable at resolution_ps.
   void SetVisibleAtResolution(const TraceEvent& event);
 
-  tsl::profiler::Timespan VisibleSpan() const { return visible_span_; }
+  // Returns the active visibility window.
+  const Window& VisibleWindow() const { return window_; }
+
   // TODO(tf-profiler) Rename ResolutionPs and resolution_ps to be more
   // self-explanatory (eg. MinDurationPs)
   uint64_t ResolutionPs() const { return resolution_ps_; }
@@ -113,7 +212,7 @@ class TraceViewerVisibility {
   };
 
   // Constructor arguments.
-  tsl::profiler::Timespan visible_span_;
+  Window window_;
   uint64_t resolution_ps_;
 
   // Visibility data for all rows.
@@ -128,80 +227,51 @@ class TraceViewerVisibility {
 
 class TraceVisibilityFilter : public TraceEventsFilterInterface {
  public:
-  // If visible_span.Instant(), all events are visible.
-  // If resolution is 0.0, events aren't downsampled.
-  TraceVisibilityFilter(tsl::profiler::Timespan visible_span, double resolution)
-      : resolution_(resolution),
-        visibility_(visible_span, ResolutionPs(visible_span.duration_ps())) {}
+  // Creates a visibility filter over `window` at `resolution`, using `options`
+  // to configure trace filtering (such as `full_dma`). If `resolution` is
+  // <= 0.0 or non-finite, events are not downsampled.
+  explicit TraceVisibilityFilter(TraceViewerVisibility::Window window,
+                                 double resolution,
+                                 const TraceOptions& options = TraceOptions());
 
-  tsl::profiler::Timespan VisibleSpan() const {
-    return visibility_.VisibleSpan();
-  }
+  // Creates a visibility filter over `visible_span` (interpreted via
+  // `TraceViewerVisibility::Window::FromLegacySpan`) at `resolution`.
+  // If `visible_span.Empty()`, all events are visible before `SetUp()`.
+  // If `visible_span.Instant()` with non-zero `begin_ps()`, treats the upper
+  // bound as open-ended `[begin_ps(), +inf)` until `SetUp()` clamps to trace
+  // bounds. If `resolution` is <= 0.0 or non-finite, events are not
+  // downsampled.
+  TraceVisibilityFilter(tsl::profiler::Timespan visible_span,
+                        double resolution);
+
+  // Same as above, using `options` to configure trace filtering (such as
+  // `full_dma`).
   explicit TraceVisibilityFilter(tsl::profiler::Timespan visible_span,
-                                 double resolution, const TraceOptions& options)
-      : options_(options),
-        resolution_(resolution),
-        visibility_(visible_span, ResolutionPs(visible_span.duration_ps())) {}
+                                 double resolution,
+                                 const TraceOptions& options);
+
+  // Returns the active visibility window.
+  const TraceViewerVisibility::Window& VisibleWindow() const {
+    return visibility_.VisibleWindow();
+  }
 
   uint64_t ResolutionPs() const { return visibility_.ResolutionPs(); }
 
-  void SetUp(const Trace& trace) override {
-    // Update visible_span with trace bounds and recompute the resolution in
-    // picoseconds.
-    tsl::profiler::Timespan visible_span = VisibleSpan();
-    uint64_t start_time_ps = visible_span.begin_ps();
-    uint64_t end_time_ps = visible_span.end_ps();
-    if (trace.has_min_timestamp_ps() &&
-        start_time_ps < trace.min_timestamp_ps()) {
-      VLOG(1) << "Adjusting start_time_ps from " << start_time_ps << " to "
-              << trace.min_timestamp_ps();
-      start_time_ps = trace.min_timestamp_ps();
-    }
-    if (trace.has_max_timestamp_ps() &&
-        (end_time_ps == 0 || end_time_ps > trace.max_timestamp_ps())) {
-      VLOG(1) << "Adjusting end_time_ps from " << end_time_ps << " to "
-              << trace.max_timestamp_ps();
-      end_time_ps = trace.max_timestamp_ps();
-    }
-    visible_span =
-        tsl::profiler::Timespan::FromEndPoints(start_time_ps, end_time_ps);
-    visibility_ = TraceViewerVisibility(
-        visible_span, ResolutionPs(visible_span.duration_ps()));
-    for (const auto& [device_id, device] : trace.devices()) {
-      if (IsTpuCoreDeviceName(device.name())) {
-        tpu_core_devices_.insert(device_id);
-      } else if (MaybeTpuNonCoreDeviceName(device.name())) {
-        tpu_noncore_devices_.insert(device_id);
-      }
-    }
-  }
+  void SetUp(const Trace& trace) override;
 
   // Updates the visibility based on `resolution`.
-  void UpdateVisibility(double resolution) {
-    resolution_ = resolution;
-    visibility_ = TraceViewerVisibility(
-        visibility_.VisibleSpan(),
-        ResolutionPs(visibility_.VisibleSpan().duration_ps()));
-  }
+  void UpdateVisibility(double resolution);
 
-  bool Filter(const TraceEvent& event) override {
-    // Filter intermediate DMA flow events unless "Full DMA" is checked.
-    if (IsFlowMid(event) &&
-        (tpu_core_devices_.contains(event.device_id()) ||
-         tpu_noncore_devices_.contains(event.device_id()))) {
-      return !options_.full_dma;
-    }
-    return !visibility_.Visible(event);
-  }
+  bool Filter(const TraceEvent& event) override;
 
  private:
-  const TraceOptions options_;
   // Returns the minimum duration in picoseconds that an event must have in
-  // order to be visible.
-  uint64_t ResolutionPs(uint64_t duration_ps) {
-    return (resolution_ == 0.0) ? 0 : std::llround(duration_ps / resolution_);
-  }
+  // order to be visible within `window`, or `0` when downsampling is disabled
+  // or `window` has no upper bound.
+  uint64_t ResolutionPs(const TraceViewerVisibility::Window& window) const;
 
+  const TraceOptions options_;
+  const TraceViewerVisibility::Window configured_window_;
   double resolution_;  // number of visible events per row
   TraceViewerVisibility visibility_;
   absl::flat_hash_set<uint32_t /*device_id*/> tpu_noncore_devices_;

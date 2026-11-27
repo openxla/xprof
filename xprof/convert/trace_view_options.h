@@ -17,8 +17,10 @@ limitations under the License.
 #define THIRD_PARTY_XPROF_CONVERT_TRACE_VIEW_OPTIONS_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_trace_container.h"
@@ -30,7 +32,10 @@ namespace profiler {
 struct TraceViewOption {
   uint64_t resolution = 0;
   double start_time_ms = 0.0;
-  double end_time_ms = 0.0;
+  // Optional upper time bound in milliseconds. `std::nullopt` leaves the upper
+  // bound open-ended (clamped to the trace end), whereas an explicit `0.0`
+  // represents a closed upper bound at `0.0` ms.
+  std::optional<double> end_time_ms = std::nullopt;
   std::string event_name;
   std::string search_prefix;
   double duration_ms = 0.0;
@@ -40,14 +45,27 @@ struct TraceViewOption {
 };
 
 // Parses the `ToolOptions` (typically from an HTTP request) into a structured
-// `TraceViewOption`. Returns an error status if the options are invalid.
+// `TraceViewOption`. Returns an `InvalidArgumentError` if provided numeric
+// options are malformed, if `start_time_ms`, `end_time_ms`, or `duration_ms`
+// is negative, non-finite, or overflows `uint64_t` picoseconds, if `resolution`
+// is negative, non-finite, or overflows `uint64_t`, if `unique_id` is not an
+// exact non-negative integer within `uint64_t`, or (when `event_name` is
+// non-empty) if `start_time_ms` or `duration_ms` overflows non-negative
+// `int64_t` picoseconds or `unique_id` exceeds `int64_t::max()`.
 absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options);
 
 struct TraceEventsLevelDbFilePaths;
 struct TraceOptions;
 
 // Loads trace events from LevelDB tables into the provided `trace_container`
-// based on the parameters in `trace_option`.
+// based on the parameters in `trace_option`. When `event_name` is non-empty,
+// returns an `InvalidArgumentError` if `start_time_ms` or `duration_ms` is
+// negative, non-finite, or overflows non-negative `int64_t` picoseconds, or if
+// `unique_id` exceeds `int64_t::max()`. When loading a time window, returns an
+// `InvalidArgumentError` if `start_time_ms` or `end_time_ms` is negative,
+// non-finite, or overflows `uint64_t` picoseconds; valid inverted bounds
+// (`start_time_ms > *end_time_ms`) are normalized to an empty window and return
+// `OkStatus()` with zero loaded events.
 absl::Status LoadTraceEventsContainer(
     const TraceEventsLevelDbFilePaths& file_paths,
     const TraceViewOption& trace_option,

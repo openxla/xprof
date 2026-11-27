@@ -235,7 +235,8 @@ absl::Status DoLoadFromLevelDbTable(
 
   if (filter) filter->SetUp(trace);
 
-  tsl::profiler::Timespan visible_span;
+  uint64_t visible_start_ps = 0;
+  std::optional<uint64_t> visible_end_ps;
   uint64_t container_resolution_ps = 0;
 
   filter_by_visibility = filter_by_visibility_threshold == -1LL ||
@@ -247,10 +248,22 @@ absl::Status DoLoadFromLevelDbTable(
       visibility_filter->UpdateVisibility(0);
     }
     visibility_filter->SetUp(trace);
-    visible_span = visibility_filter->VisibleSpan();
+    const TraceViewerVisibility::Window& visible_window =
+        visibility_filter->VisibleWindow();
+    if (visible_window.IsEmpty()) {
+      LOG(INFO) << "Skipping LevelDb scan for empty visible window: "
+                << filename;
+      return absl::OkStatus();
+    }
+    visible_start_ps = visible_window.BeginPs();
+    visible_end_ps = visible_window.EndPs();
     container_resolution_ps = visibility_filter->ResolutionPs();
   } else {
-    visible_span = TraceSpan(trace);
+    const tsl::profiler::Timespan trace_span = TraceSpan(trace);
+    visible_start_ps = trace_span.begin_ps();
+    if (trace.has_max_timestamp_ps()) {
+      visible_end_ps = trace_span.end_ps();
+    }
   }
 
   // Read events at the different zoom levels.
@@ -267,8 +280,8 @@ absl::Status DoLoadFromLevelDbTable(
     // Seek to the first element that might be in range. For the initial zoom
     // level, we don't know any bounds as events might be arbitrarily large.
     uint64_t min_timestamp_ps = 0;
-    if (i > 0 && visible_span.begin_ps() > LayerResolutionPs(i - 1)) {
-      min_timestamp_ps = visible_span.begin_ps() - LayerResolutionPs(i - 1);
+    if (i > 0 && visible_start_ps > LayerResolutionPs(i - 1)) {
+      min_timestamp_ps = visible_start_ps - LayerResolutionPs(i - 1);
     }
     iterator->Seek(LevelDbTableKey(i, i == 0 ? 0 : min_timestamp_ps, 0));
     if (metadata_iterator && iterator->Valid()) {
@@ -282,7 +295,8 @@ absl::Status DoLoadFromLevelDbTable(
       }
       uint64_t timestamp = TimestampFromLevelDbTableKey(iterator->key());
       event.set_timestamp_ps(timestamp);
-      if (event.timestamp_ps() > visible_span.end_ps()) {
+      if (visible_end_ps.has_value() &&
+          event.timestamp_ps() > *visible_end_ps) {
         // This (and all following) events are outside of our window.
         break;
       }

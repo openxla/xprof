@@ -277,21 +277,38 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "trace_events_test_utils",
+    testonly = True,
+    hdrs = ["trace_events_test_utils.h"],
+    deps = [
+        ":trace_events",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@xla//xla/tsl/platform:env",
+    ],
+)
+
 cc_test(
     name = "trace_events_test",
     srcs = ["trace_events_test.cc"],
     deps = [
         ":trace_events",
+        ":trace_events_filter_interface",
+        ":trace_events_test_utils",
+        ":trace_viewer_visibility",
         "//net/proto2/contrib/parse_proto:parse_text_proto",
         "//plugin/xprof/protobuf:trace_events_proto_cc",
         "//plugin/xprof/protobuf:trace_events_raw_proto_cc",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@com_google_protobuf//:protobuf",
-        "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )

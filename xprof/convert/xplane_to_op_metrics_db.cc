@@ -60,7 +60,7 @@ struct HLOTracker {
   uint64_t duration = 0;
   double vdd_energy_j = 0.0;
   uint64_t program_id = 0;
-  uint64_t group_id = 0;
+  std::optional<int64_t> group_id;
   bool is_eager;
   const HloInstructionWrapper* hlo_instruction = nullptr;
   std::string hlo_op_name;
@@ -69,7 +69,8 @@ struct HLOTracker {
   uint64_t occurrences = 0;
 
   void Reset() {
-    duration = program_id = group_id = 0;
+    duration = program_id = 0;
+    group_id = std::nullopt;
     vdd_energy_j = 0.0;
     hlo_op_name.clear();
     hlo_instruction = nullptr;
@@ -311,8 +312,10 @@ OpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
       [&](const ParentReference& parent) {
         OpMetrics op_metrics = FromXEvent(parent.event);
         op_metrics.set_time_ps(parent.device_timespan.duration_ps());
-        op_metrics.set_self_time_ps(op_metrics.time_ps() -
-                                    parent.children_duration_ps);
+        op_metrics.set_self_time_ps(
+            op_metrics.time_ps() > parent.children_duration_ps
+                ? op_metrics.time_ps() - parent.children_duration_ps
+                : 0);
         std::optional<tsl::profiler::XStatVisitor> time_scale_multiplier_stat =
             parent.event.GetStat(StatType::kTimeScaleMultiplier);
         double factor = time_scale_multiplier_stat.has_value()
@@ -366,7 +369,9 @@ OpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
     event_stack.Flush();
   });
 
-  return builder.Finalize(last_op_timestamp_ps - first_op_timestamp_ps);
+  return builder.Finalize(last_op_timestamp_ps > first_op_timestamp_ps
+                              ? last_op_timestamp_ps - first_op_timestamp_ps
+                              : 0);
 }
 
 void ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(
@@ -391,8 +396,10 @@ void ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(
               [builder = builder](const ParentReference& parent) {
                 OpMetrics op_metrics = FromXEvent(parent.event);
                 op_metrics.set_time_ps(parent.device_timespan.duration_ps());
-                op_metrics.set_self_time_ps(op_metrics.time_ps() -
-                                            parent.children_duration_ps);
+                op_metrics.set_self_time_ps(
+                    op_metrics.time_ps() > parent.children_duration_ps
+                        ? op_metrics.time_ps() - parent.children_duration_ps
+                        : 0);
                 op_metrics.set_core_type(OpMetrics_TpuCoreType_SPARSE_CORE);
                 XEventsOpMetricsDbBuilder::OpKey key =
                     GetOpKeyFromXEvent(parent.event);
@@ -541,9 +548,7 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
             current.hlo_instruction = hlo_instruction;
             current.hlo_op_name = stats.hlo_op_names.back();
             current.program_id = *stats.program_id;
-            if (stats.group_id.has_value()) {
-              current.group_id = *stats.group_id;
-            }
+            current.group_id = stats.group_id;
             current.is_eager = stats.is_eager;
           }
           current.occurrences++;

@@ -41,16 +41,16 @@ bool IsCustomCallEventOffDuty(const tsl::profiler::XEventVisitor& event) {
     return false;
   }
 
-  int64_t flops =
-      event.GetEventOrMetadataStat(tsl::profiler::StatType::kFlops, 0);
+  int64_t flops = event.GetEventOrMetadataStat(tsl::profiler::StatType::kFlops,
+                                               int64_t{0});
   if (flops > 0) return false;
 
-  int64_t model_flops =
-      event.GetEventOrMetadataStat(tsl::profiler::StatType::kModelFlops, 0);
+  int64_t model_flops = event.GetEventOrMetadataStat(
+      tsl::profiler::StatType::kModelFlops, int64_t{0});
   if (model_flops > 0) return false;
 
-  bool has_ici =
-      event.GetEventOrMetadataStat(tsl::profiler::StatType::kUsesIci, 0) > 0;
+  bool has_ici = event.GetEventOrMetadataStat(tsl::profiler::StatType::kUsesIci,
+                                              int64_t{0}) > 0;
   if (has_ici) return false;
 
   return IsCustomCallOffDuty(flops, model_flops, /*flops_v2=*/0.0,

@@ -78,8 +78,10 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
                 FlatOpMetrics op_metrics =
                     XEventsFlatOpMetricsDbBuilder::FromXEvent(parent.event);
                 op_metrics.set_time_ps(parent.device_timespan.duration_ps());
-                op_metrics.set_self_time_ps(op_metrics.time_ps() -
-                                            parent.children_duration_ps);
+                op_metrics.set_self_time_ps(
+                    op_metrics.time_ps() > parent.children_duration_ps
+                        ? op_metrics.time_ps() - parent.children_duration_ps
+                        : 0);
                 op_metrics.set_core_type(FlatOpMetrics_TpuCoreType_SPARSE_CORE);
                 op_metrics.set_op_id(parent.op_id);
                 op_metrics.set_parent_op_id(parent.parent_op_id);
@@ -217,8 +219,10 @@ FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
         FlatOpMetrics op_metrics =
             XEventsFlatOpMetricsDbBuilder::FromXEvent(parent.event);
         op_metrics.set_time_ps(parent.device_timespan.duration_ps());
-        op_metrics.set_self_time_ps(op_metrics.time_ps() -
-                                    parent.children_duration_ps);
+        op_metrics.set_self_time_ps(
+            op_metrics.time_ps() > parent.children_duration_ps
+                ? op_metrics.time_ps() - parent.children_duration_ps
+                : 0);
         op_metrics.set_op_id(parent.op_id);
         op_metrics.set_parent_op_id(parent.parent_op_id);
         std::optional<tsl::profiler::XStatVisitor> time_scale_multiplier_stat =

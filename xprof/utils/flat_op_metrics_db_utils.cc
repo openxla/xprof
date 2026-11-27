@@ -20,6 +20,7 @@ limitations under the License.
 #include "xprof/utils/flat_op_metrics_db_utils.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <queue>
@@ -245,14 +246,15 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
         duration_ps * time_scale_multiplier_stat->DoubleValue();
   }
 
+  const int64_t num_occurrences =
+      std::max(kSingleOccurrence, hlo_event.NumOccurrences());
   // If this is the first occurrence, we initialize the metrics.
   if (flat_op_metrics->occurrences() == 0) {
     // Fill Names & Categories.
     SetOpMetadataFromHloEventMetadata(hlo_event.Metadata(), flat_op_metrics);
 
     // Fill Performance Metrics.
-    flat_op_metrics->set_occurrences(
-        std::max(kSingleOccurrence, hlo_event.NumOccurrences()));
+    flat_op_metrics->set_occurrences(num_occurrences);
 
     // Fill Execution Context & Target.
     flat_op_metrics->set_num_cores(1);
@@ -271,7 +273,7 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
 
     // Update Performance Metrics.
     flat_op_metrics->set_occurrences(flat_op_metrics->occurrences() +
-                                     hlo_event.NumOccurrences());
+                                     num_occurrences);
 
     // Update Time Metrics (in picoseconds).
     flat_op_metrics->set_time_ps(flat_op_metrics->time_ps() + duration_ps);
@@ -412,8 +414,13 @@ XEventsFlatOpMetricsDbBuilder::GetFlatOpKeyFromXEvent(
 // It extracts the key and aggregates the metrics.
 void XEventsFlatOpMetricsDbBuilder::AddOpMetric(
     const tsl::profiler::XEventVisitor& event) {
-  AddOpMetric(XEventsFlatOpMetricsDbBuilder::FromXEvent(event),
-              GetFlatOpKeyFromXEvent(event));
+  const OpKey key = GetFlatOpKeyFromXEvent(event);
+  if (!key.program_id.has_value() || !key.symbol_id.has_value() ||
+      key.symbol_id == kRootSymbolId) {
+    return;
+  }
+  SetOpMetricsFromHloEvent(
+      event, &flat_op_metric_[*key.program_id][*key.symbol_id]);
 }
 
 // Adds a FlatOpMetrics message with a specific OpKey to the builder.
@@ -473,59 +480,64 @@ FlatOpMetricsDb XEventsFlatOpMetricsDbBuilder::FinalizeSorted() {
   uint64_t total_op_time_ps = 0;
   uint64_t normalized_total_op_time_ps = 0;
 
-  absl::flat_hash_map<uint64_t, FlatOpMetrics> metrics_map;
-  absl::flat_hash_map<uint64_t, std::vector<uint64_t>> children_map;
-  std::queue<uint64_t> roots_queue;
+  // Store nodes in a dense vector indexed by position so ops without an
+  // explicit op_id (or with colliding names) cannot overwrite each other.
+  std::vector<FlatOpMetrics> nodes;
+  absl::flat_hash_map<uint64_t, std::vector<size_t>> children_map;
+  std::queue<size_t> roots_queue;
 
   for (auto& [program_id, op_metric_by_symbol] : flat_op_metric_) {
     for (auto& [symbol_id, op_metrics] : op_metric_by_symbol) {
       AdjustFlopsAndBytesAccessed(op_metrics);
-
-      uint64_t op_id = op_metrics.op_id();
-      uint64_t parent_id = op_metrics.parent_op_id();
-
-      metrics_map[op_id] = std::move(op_metrics);
+      const size_t idx = nodes.size();
+      const uint64_t parent_id = op_metrics.parent_op_id();
+      nodes.push_back(std::move(op_metrics));
 
       if (parent_id == 0) {
-        roots_queue.push(op_id);
+        roots_queue.push(idx);
       } else {
-        children_map[parent_id].push_back(op_id);
+        children_map[parent_id].push_back(idx);
       }
     }
   }
-  db.mutable_op_instances()->Reserve(metrics_map.size());
+  flat_op_metric_.clear();
+  db.mutable_op_instances()->Reserve(nodes.size());
+  std::vector<bool> emitted(nodes.size(), false);
 
   while (!roots_queue.empty()) {
-    uint64_t curr_id = roots_queue.front();
+    const size_t idx = roots_queue.front();
     roots_queue.pop();
+    if (emitted[idx]) continue;
+    emitted[idx] = true;
 
-    auto it = metrics_map.find(curr_id);
-    if (it != metrics_map.end()) {
-      FlatOpMetrics& op_metrics = it->second;
-
-      total_op_time_ps += op_metrics.self_time_ps();
-      normalized_total_op_time_ps +=
-          op_metrics.self_time_ps() *
-          tsl::profiler::SafeDivide(op_metrics.normalized_time_ps() * 1.0,
-                                    op_metrics.time_ps());
-
-      *db.add_op_instances() = std::move(op_metrics);
-      metrics_map.erase(it);
-
-      for (uint64_t child_id : children_map[curr_id]) {
-        roots_queue.push(child_id);
-      }
-    }
-  }
-
-  // Preserve orphan nodes (nodes whose parent_op_id was missing/filtered out).
-  for (const auto& [op_id, op_metrics] : metrics_map) {
+    FlatOpMetrics& op_metrics = nodes[idx];
+    const uint64_t curr_op_id = op_metrics.op_id();
     total_op_time_ps += op_metrics.self_time_ps();
     normalized_total_op_time_ps +=
         op_metrics.self_time_ps() *
         tsl::profiler::SafeDivide(op_metrics.normalized_time_ps() * 1.0,
                                   op_metrics.time_ps());
-    *db.add_op_instances() = op_metrics;
+    *db.add_op_instances() = std::move(op_metrics);
+
+    if (curr_op_id != 0) {
+      if (auto it = children_map.find(curr_op_id); it != children_map.end()) {
+        for (size_t child_idx : it->second) {
+          roots_queue.push(child_idx);
+        }
+      }
+    }
+  }
+
+  // Preserve orphan nodes (nodes whose parent_op_id was missing/filtered out).
+  for (size_t idx = 0; idx < nodes.size(); ++idx) {
+    if (emitted[idx]) continue;
+    FlatOpMetrics& op_metrics = nodes[idx];
+    total_op_time_ps += op_metrics.self_time_ps();
+    normalized_total_op_time_ps +=
+        op_metrics.self_time_ps() *
+        tsl::profiler::SafeDivide(op_metrics.normalized_time_ps() * 1.0,
+                                  op_metrics.time_ps());
+    *db.add_op_instances() = std::move(op_metrics);
   }
 
   db.set_total_op_time_ps(total_op_time_ps);

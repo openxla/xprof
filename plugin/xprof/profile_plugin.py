@@ -1203,6 +1203,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       mimetype = 'application/javascript'
     elif extension == '.wasm':
       mimetype = 'application/wasm'
+    elif extension == '.woff2':
+      mimetype = 'font/woff2'
     else:
       mimetype = 'application/octet-stream'
     try:

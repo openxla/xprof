@@ -1,5 +1,7 @@
+import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
-import {OpTableEntryModule} from 'org_xprof/frontend/app/components/op_profile/op_table_entry/op_table_entry_module';
+import {MatIconModule} from '@angular/material/icon';
+import {MatTableModule} from '@angular/material/table';
 import {MatTooltipModule} from '@angular/material/tooltip';
 
 import {OpTable} from './op_table';
@@ -7,8 +9,7 @@ import {OpTable} from './op_table';
 /** An op table view module. */
 @NgModule({
   declarations: [OpTable],
-  imports: [OpTableEntryModule, MatTooltipModule],
-  exports: [OpTable]
+  imports: [CommonModule, MatIconModule, MatTableModule, MatTooltipModule],
+  exports: [OpTable],
 })
-export class OpTableModule {
-}
+export class OpTableModule {}

@@ -199,11 +199,12 @@ export const reducer: ActionReducer<AppState, Action> = createReducer(
         actions.updateRunToolsMapAction,
         (state: AppState, action: ActionCreatorAny) => {
           const {run, tools} = action;
-          const updatedRunToolsMap = state.runToolsMap;
-          updatedRunToolsMap[run] = tools;
           return {
             ...state,
-            runToolsMap: updatedRunToolsMap,
+            runToolsMap: {
+              ...state.runToolsMap,
+              [run]: tools,
+            },
           };
         },
         ),

@@ -40,6 +40,7 @@ import {Params, RouterLink, UrlTree} from '@angular/router';
  */
 export interface NavigationGroupContext {
   readonly expanded: Signal<boolean>;
+  readonly isEmpty: Signal<boolean>;
 }
 
 /**
@@ -47,6 +48,7 @@ export interface NavigationGroupContext {
  */
 export interface NavigationDrawerContext {
   readonly collapsed: Signal<boolean>;
+  readonly firstVisibleGroup: Signal<NavigationGroupContext | undefined>;
 }
 
 /**

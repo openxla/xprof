@@ -50,7 +50,7 @@
     Hosts ({{selectedHostsInternal.length}})
   </div>
   <mat-form-field class="full-width" appearance="outline">
-    <mat-select #multiSelectHost="matSelect" panelClass="multi-host-select-panel" [value]="selectedHostsPending" [disabled]="!hosts.length" (selectionChange)="onHostsSelectionChange($event.value)" multiple>
+    <mat-select #multiSelectHost="matSelect" panelClass="multi-host-select-panel" [value]="selectedHostsPending" [disabled]="!hosts.length" (selectionChange)="onHostsSelectionChange($event.value)" (openedChange)="onMultiHostSelectOpenedChange($event)" multiple>
       <div class="sticky-header" (click)="$event.stopPropagation()">
         <mat-checkbox class="select-all-checkbox"
                       [checked]="allHostsSelected"
@@ -62,7 +62,7 @@
         {{host}}
       </mat-option>
       <div class="sticky-footer" (click)="$event.stopPropagation()">
-        <button mat-flat-button color="primary" class="full-width" (click)="onSubmitHosts(); multiSelectHost.close()">
+        <button mat-flat-button color="primary" class="full-width" [disabled]="selectedHostsPending.length === 0" (click)="onSubmitHosts(); multiSelectHost.close()">
           Apply Host Selection
         </button>
       </div>

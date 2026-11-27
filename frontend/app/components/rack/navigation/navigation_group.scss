@@ -130,8 +130,8 @@
   margin: 8px 16px !important;
 }
 
-:host(.drawer-collapsed:first-of-type) .group-divider,
-:host([drawer-collapsed]:first-of-type) .group-divider {
+:host(.drawer-collapsed.first-visible) .group-divider,
+:host([drawer-collapsed][first-visible]) .group-divider {
   display: none !important;
 }
 

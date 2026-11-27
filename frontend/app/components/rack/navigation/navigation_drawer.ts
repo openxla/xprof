@@ -19,11 +19,13 @@ import {
   booleanAttribute,
   ChangeDetectionStrategy,
   Component,
+  computed,
+  contentChildren,
   forwardRef,
   input,
   model,
 } from '@angular/core';
-import {NAV_DRAWER_CONTEXT} from './navigation_item';
+import {NAV_DRAWER_CONTEXT, NAV_GROUP_CONTEXT} from './navigation_item';
 
 /**
  * Navigation drawer component.
@@ -59,4 +61,8 @@ export class RackNavigationDrawer {
   readonly classic = input<boolean, unknown>(false, {
     transform: booleanAttribute,
   });
+  readonly groups = contentChildren(NAV_GROUP_CONTEXT, {descendants: true});
+  readonly firstVisibleGroup = computed(() =>
+    this.groups().find((group) => !group.isEmpty()),
+  );
 }

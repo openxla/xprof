@@ -74,8 +74,15 @@ VISUALIZATION_SELECTOR = (
 )
 
 
-def _read_bounding_box(locator: sync_api.Locator) -> dict[str, float] | None:
+def read_bounding_box(locator: sync_api.Locator) -> dict[str, float] | None:
   """Reads `locator.bounding_box()`, retrying across transient DOM swaps.
+
+  `bounding_box()` resolves the locator and then measures the element in a
+  second step. If the page replaces the element between the two steps (for
+  example, when Angular re-renders an `*ngFor` row or Google Charts redraws a
+  chart into a new `<svg>`), the measured element is detached and
+  `bounding_box()` returns None. A wait for visibility alone cannot prevent
+  this, because both the old and the new element are visible.
 
   Args:
     locator: Playwright locator to measure.
@@ -104,7 +111,7 @@ def assert_component_geometry(
   """Asserts that a component and its visualization have positive geometry."""
   ctx = f" at {context}" if context else ""
   comp = page.locator(f":is({selector}):visible").first
-  bbox = _read_bounding_box(comp)
+  bbox = read_bounding_box(comp)
   assert (
       bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
   ), f"Component {selector!r} collapsed{ctx}: {bbox}"
@@ -114,7 +121,7 @@ def assert_component_geometry(
       f":is({selector}) :is({VISUALIZATION_SELECTOR}):visible"
   )
   child = page.locator(vis_selector).first
-  child_bbox = _read_bounding_box(child)
+  child_bbox = read_bounding_box(child)
   assert (
       child_bbox is not None
       and child_bbox["width"] > 0

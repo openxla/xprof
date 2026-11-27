@@ -27,7 +27,6 @@ from playwright.sync_api import Locator
 from playwright.sync_api import Page
 from playwright.sync_api import Route
 import pytest
-
 from tests.ui.conftest import BrowserErrors
 from tests.ui.invariants import check_no_horizontal_overflow
 from tests.ui.ui_helpers import assert_component_geometry
@@ -37,6 +36,7 @@ from tests.ui.ui_helpers import enabling_run_tool
 from tests.ui.ui_helpers import ensure_inference_serving_run
 from tests.ui.ui_helpers import ensure_sidenav_open
 from tests.ui.ui_helpers import expand_op_profile_row
+from tests.ui.ui_helpers import read_bounding_box
 from tests.ui.ui_helpers import select_category_filter
 from tests.ui.ui_helpers import select_memory_id
 from tests.ui.ui_helpers import select_module
@@ -815,8 +815,9 @@ def test_memory_profile_interactive_memory_id_and_timeline(
   timeline = mem_comp.locator("memory-timeline-graph").first
   expect(timeline).to_be_visible(timeout=15000)
   timeline_chart = timeline.locator("chart, svg, canvas").first
-  expect(timeline_chart).to_be_visible(timeout=15000)
-  bbox = timeline_chart.bounding_box()
+  # Google Charts replaces the <svg> on each redraw, so read the box through
+  # the helper that retries when the measured element is detached.
+  bbox = read_bounding_box(timeline_chart)
   assert bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
 
   # 3. Interactive non-default memory ID dropdown selection

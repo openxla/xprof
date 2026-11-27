@@ -152,5 +152,46 @@ TEST_F(UnifiedHloStatsProcessorTest, ProtoOutputWhenTqxIsOutPb) {
   EXPECT_EQ(hlo_stats_db.hlo_stats_record(0).core_type(), "TensorCore");
 }
 
+TEST_F(UnifiedHloStatsProcessorTest,
+       ScalesDmaStallToPercentAndHandlesEmptyHloExpression) {
+  auto processor = UnifiedProfileProcessorFactory::GetInstance().Create(
+      "hlo_stats", options_);
+  ASSERT_NE(processor, nullptr);
+  auto* hlo_processor = dynamic_cast<BaseOpStatsProcessor*>(processor.get());
+  ASSERT_NE(hlo_processor, nullptr);
+
+  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
+
+  tensorflow::profiler::OpStats combined_op_stats;
+  combined_op_stats.mutable_run_environment()->set_device_type("TPU");
+  auto& db = *(combined_op_stats.mutable_device_op_metrics_db());
+  db.set_total_time_ps(2000);
+  auto& dma_metric = *db.add_metrics_db();
+  dma_metric.set_name("dma-op");
+  dma_metric.set_long_name("%dma-op = f32[] add()");
+  dma_metric.set_occurrences(1);
+  dma_metric.set_time_ps(1000);
+  dma_metric.set_self_time_ps(1000);
+  dma_metric.set_dma_stall_ps(250);
+  auto& empty_metric = *db.add_metrics_db();
+  empty_metric.set_occurrences(1);
+  empty_metric.set_time_ps(500);
+  empty_metric.set_self_time_ps(500);
+
+  ASSERT_OK(hlo_processor->ProcessCombinedOpStats(session_snapshot,
+                                                  combined_op_stats, options_));
+  Json::Value json;
+  Json::Reader reader;
+  ASSERT_TRUE(reader.parse(processor->GetData(), json));
+  ASSERT_EQ(json["rows"].size(), 2);
+  EXPECT_EQ(json["rows"][0]["c"][3]["v"].asString(), "dma-op");
+  EXPECT_DOUBLE_EQ(json["rows"][0]["c"][13]["v"].asDouble(), 25.0);
+  EXPECT_EQ(json["rows"][1]["c"][3]["v"].asString(), "");
+}
+
 }  // namespace
 }  // namespace xprof

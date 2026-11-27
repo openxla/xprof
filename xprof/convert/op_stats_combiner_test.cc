@@ -359,6 +359,33 @@ TEST(PerformanceCounterResultTest, ParsesBytesWrittenWithOldSchema) {
       0.0);
 }
 
+TEST(CombineAllOpStatsTest, CombinePowerMetricsZeroHostnamesDoesNotProduceNaN) {
+  OpStats dst_op_stats, src_op_stats_1, src_op_stats_2;
+  auto* m1 = src_op_stats_1.mutable_run_environment()
+                 ->mutable_power_metrics()
+                 ->add_power_component_metrics();
+  m1->set_component_name("HBM");
+  m1->set_max_power(100);
+  m1->set_avg_power(50);
+  auto* m2 = src_op_stats_2.mutable_run_environment()
+                 ->mutable_power_metrics()
+                 ->add_power_component_metrics();
+  m2->set_component_name("HBM");
+  m2->set_max_power(120);
+  m2->set_avg_power(60);
+
+  StepDatabaseResult dummy_step_db_result;
+  absl::flat_hash_map<uint32_t, const StepDatabaseResult*> result = {
+      {0, &dummy_step_db_result}, {1, &dummy_step_db_result}};
+  CombineAllOpStats({OpStatsInfo(&src_op_stats_1, TPU, 0),
+                     OpStatsInfo(&src_op_stats_2, TPU, 1)},
+                    StepIntersection(1, result), &dst_op_stats);
+  const auto& pm = dst_op_stats.run_environment().power_metrics();
+  ASSERT_EQ(pm.power_component_metrics_size(), 1);
+  EXPECT_EQ(pm.power_component_metrics(0).max_power(), 120);
+  EXPECT_EQ(pm.power_component_metrics(0).avg_power(), 50);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

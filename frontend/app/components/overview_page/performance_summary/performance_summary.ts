@@ -200,6 +200,27 @@ const NON_TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   },
 ];
 
+const NON_TPU_GENERAL_SUMMARY_INFO: SummaryInfoConfig[] = [
+  {
+    title: 'Firmware Power Metrics (Power/Timescale)',
+    tooltip:
+      'Max power consumption of different components/rails with different timescale.',
+    getChildValues: (props) =>
+      (props as GeneralProps)['fw_power_metrics']
+        ?.split('##')
+        .filter(Boolean) || [],
+  },
+  {
+    title: 'SPI Sampler Power Metrics',
+    tooltip:
+      'Avg/Max power consumption of different components/rails, including max of moving average of window size of 100us/1ms/10ms/1s.',
+    getChildValues: (props) =>
+      (props as GeneralProps)['spi_power_metrics']
+        ?.split('##')
+        .filter(Boolean) || [],
+  },
+];
+
 const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   {
     title: 'FLOPS Utilization',
@@ -391,6 +412,15 @@ export class PerformanceSummary implements OnChanges, OnInit {
         {
           level: 1,
           baselineProps: this.baselineInputPipelineProps,
+        },
+      );
+      this.parseDataFromConfig(
+        NON_TPU_GENERAL_SUMMARY_INFO,
+        this.generalProps,
+        this.summaryInfoCombined,
+        {
+          level: 1,
+          baselineProps: this.baselineGeneralProps,
         },
       );
     }

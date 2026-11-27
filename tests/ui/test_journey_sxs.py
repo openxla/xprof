@@ -47,6 +47,7 @@ import pytest
 
 from tests.ui.conftest import BrowserErrors
 from tests.ui.conftest import dump_failure_artifacts_for_page
+from tests.ui.journey_capture import block_external_fonts
 from tests.ui.journey_capture import capture_waypoint
 from tests.ui.journey_capture import NetworkRecorder
 from tests.ui.journey_capture import settled_tool_url_pattern
@@ -198,11 +199,9 @@ def _walk_journey(
   context = browser.new_context(viewport=_VIEWPORT)
   # External webfonts resolve asynchronously and depend on external network
   # egress, introducing font metric differences that cause chart width flapping.
-  # Abort external font requests so rendering uses deterministic local fonts.
-  context.route(
-      re.compile(r"https://fonts\.(?:googleapis|gstatic)\.com/.*"),
-      lambda route: route.abort(),
-  )
+  # Fulfill external font requests locally with an empty 200 CSS response so
+  # rendering uses deterministic local fonts without console errors.
+  block_external_fonts(context)
   # Disable transitions/animations and stabilize scrollbars so container layout
   # is instantaneous and deterministic, eliminating width flapping.
   context.add_init_script(
@@ -236,36 +235,34 @@ def _walk_journey(
     recorder = NetworkRecorder(page)
     captures: list[WaypointCapture] = []
 
-    # Font requests aborted above fail with net::ERR_FAILED console errors.
-    with tracker.ignoring("net::ERR_FAILED", url_pattern="fonts.g"):
-      session_path = os.path.join(logdir, scenario.fixture)
-      url = build_tool_url(
-          server_url, session_path, scenario.fixture, scenario.initial_tool
-      )
-      page.goto(url, wait_until="domcontentloaded")
-      expect(page).to_have_url(
-          settled_tool_url_pattern(scenario.initial_tool),
-          timeout=URL_SETTLE_TIMEOUT_MS,
-      )
-      init_name = names[0]
-      captures.append(capture_waypoint(page, recorder, init_name))
-      print(f"  [{scenario.id}] Captured {init_name}", flush=True)
+    session_path = os.path.join(logdir, scenario.fixture)
+    url = build_tool_url(
+        server_url, session_path, scenario.fixture, scenario.initial_tool
+    )
+    page.goto(url, wait_until="domcontentloaded")
+    expect(page).to_have_url(
+        settled_tool_url_pattern(scenario.initial_tool),
+        timeout=URL_SETTLE_TIMEOUT_MS,
+    )
+    init_name = names[0]
+    captures.append(capture_waypoint(page, recorder, init_name))
+    print(f"  [{scenario.id}] Captured {init_name}", flush=True)
 
-      for idx, step in enumerate(scenario.steps, start=1):
-        dispatch_action(page, server_url, logdir, step)
-        if step.expected_url_substring:
-          expect(page).to_have_url(
-              re.compile(re.escape(step.expected_url_substring)),
-              timeout=URL_SETTLE_TIMEOUT_MS,
-          )
-        # Without this the capture can fire while the component is still
-        # mounting, so the same waypoint renders differently on each walk.
-        expect(
-            page.locator(f":is({step.expected_selector}):visible").first
-        ).to_be_visible(timeout=20000)
-        step_name = names[idx]
-        captures.append(capture_waypoint(page, recorder, step_name))
-        print(f"  [{scenario.id}] Captured {step_name}", flush=True)
+    for idx, step in enumerate(scenario.steps, start=1):
+      dispatch_action(page, server_url, logdir, step)
+      if step.expected_url_substring:
+        expect(page).to_have_url(
+            re.compile(re.escape(step.expected_url_substring)),
+            timeout=URL_SETTLE_TIMEOUT_MS,
+        )
+      # Without this the capture can fire while the component is still
+      # mounting, so the same waypoint renders differently on each walk.
+      expect(
+          page.locator(f":is({step.expected_selector}):visible").first
+      ).to_be_visible(timeout=20000)
+      step_name = names[idx]
+      captures.append(capture_waypoint(page, recorder, step_name))
+      print(f"  [{scenario.id}] Captured {step_name}", flush=True)
 
     if assert_browser_clean:
       tracker.assert_clean(f"{scenario.id} ({artifact_label})")

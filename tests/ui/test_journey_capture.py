@@ -57,6 +57,7 @@ class _FakePage:
     self._evaluate_results = list(evaluate_results or [])
     self._default_result = default_result
     self.waits: list[int] = []
+    self.evaluate_calls: list[tuple[str, object]] = []
 
   def on(self, event: str, handler: object) -> None:
     self.handlers.setdefault(event, []).append(handler)
@@ -67,7 +68,7 @@ class _FakePage:
         handler(payload)
 
   def evaluate(self, script: str, arg: object = None) -> object:
-    del script, arg
+    self.evaluate_calls.append((script, arg))
     if not self._evaluate_results:
       if self._default_result == "drift":
         return f"<html>drift-{len(self.waits)}</html>"
@@ -137,7 +138,6 @@ class JourneyCaptureTest(unittest.TestCase):
   def test_wait_for_dom_quiescence_reports_settled_and_timeout(self):
     """Verifies (html, True) on matching polls and (html, False) on drift."""
     settled_page = _FakePage([
-        "ready",
         journey_capture._PlaywrightError("Execution context destroyed"),
         "<html>A</html>",
         journey_capture._PlaywrightError("Frame navigated mid-poll"),
@@ -149,7 +149,7 @@ class JourneyCaptureTest(unittest.TestCase):
     self.assertTrue(settled)
     self.assertEqual(html, "<html>B</html>")
 
-    drifting_samples = ["ready"] + [f"<html>{i}</html>" for i in range(100)]
+    drifting_samples = [f"<html>{i}</html>" for i in range(100)]
     drifting_page = _FakePage(drifting_samples)
     orig_timeout = journey_capture._QUIESCENCE_TIMEOUT_MS
     journey_capture._QUIESCENCE_TIMEOUT_MS = 10
@@ -642,7 +642,7 @@ class JourneyCaptureTest(unittest.TestCase):
                 [0, True],  # chart loader
                 [1, 0],  # charts render
                 None,  # raf SVG settle
-                "ready",  # fonts.ready
+                True,  # fonts.ready
                 "<html>settled</html>",
                 "<html>settled</html>",
                 "<html>settled</html>",  # dom quiescence
@@ -675,6 +675,205 @@ class JourneyCaptureTest(unittest.TestCase):
     self.assertNotIn("mask_color", screenshot_calls[0])
     self.assertTrue(wp.stabilized)
     self.assertEqual(wp.mask_boxes, ((10, 20, 110, 44), (0, 860, 120, 890)))
+
+  def test_wait_for_fonts_ready_handles_settle_timeout_and_errors(self):
+    """Verifies bounded document.fonts.ready settle, timeout, and retry."""
+    self.assertIn("document.fonts.ready", journey_capture._FONTS_READY_JS)
+    self.assertIn("setTimeout", journey_capture._FONTS_READY_JS)
+    self.assertIn("clearTimeout", journey_capture._FONTS_READY_JS)
+
+    settled_page = _FakePage([True])
+    self.assertTrue(
+        journey_capture._wait_for_fonts_ready(settled_page, timeout_ms=2500)
+    )
+    self.assertEqual(len(settled_page.evaluate_calls), 1)
+    script, arg = settled_page.evaluate_calls[0]
+    self.assertEqual(script, journey_capture._FONTS_READY_JS)
+    self.assertIsInstance(arg, int)
+    self.assertGreater(arg, 0)
+    self.assertLessEqual(arg, 2500)
+
+    timed_out_page = _FakePage([False])
+    with self.assertLogs(level="WARNING") as timeout_logs:
+      self.assertFalse(
+          journey_capture._wait_for_fonts_ready(timed_out_page, timeout_ms=1500)
+      )
+    self.assertEqual(len(timed_out_page.evaluate_calls), 1)
+    self.assertIn(
+        "document.fonts.ready did not settle within 1500ms",
+        "\n".join(timeout_logs.output),
+    )
+
+    retry_page = _FakePage([
+        journey_capture._PlaywrightError("Execution context destroyed"),
+        True,
+    ])
+    self.assertTrue(journey_capture._wait_for_fonts_ready(retry_page))
+    self.assertEqual(len(retry_page.evaluate_calls), 2)
+    self.assertEqual(retry_page.waits, [journey_capture._FONTS_READY_POLL_MS])
+
+    pw_timeout_page = _FakePage([
+        journey_capture._PlaywrightTimeoutError("evaluate timed out"),
+    ])
+    with self.assertLogs(level="WARNING") as pw_timeout_logs:
+      self.assertFalse(journey_capture._wait_for_fonts_ready(pw_timeout_page))
+    self.assertEqual(pw_timeout_page.waits, [])
+    self.assertIn("evaluate timed out", "\n".join(pw_timeout_logs.output))
+
+    always_failing_page = _FakePage(
+        [journey_capture._PlaywrightError("context closed")] * 20
+    )
+    with (
+        mock.patch.object(
+            journey_capture.time,
+            "monotonic",
+            lambda: sum(always_failing_page.waits) / 1000,
+        ),
+        mock.patch.object(journey_capture, "_FONTS_READY_POLL_MS", 100),
+        self.assertLogs(level="WARNING") as failing_logs,
+    ):
+      self.assertFalse(
+          journey_capture._wait_for_fonts_ready(
+              always_failing_page, timeout_ms=300
+          )
+      )
+    self.assertEqual(always_failing_page.waits, [100, 100, 100])
+    self.assertIn("context closed", "\n".join(failing_logs.output))
+
+  def test_capture_waypoint_awaits_fonts_ready_before_screenshot(self):
+    """Verifies capture_waypoint awaits fonts before screenshot and logs cap."""
+
+    class _OrderedCapturePage(_FakePage):
+      """Page double recording relative order of font wait and capture."""
+
+      def __init__(self, fonts_result: bool):
+        super().__init__(
+            evaluate_results=[
+                None,  # blur
+                True,
+                True,  # angular stable
+                [0, True],
+                [0, True],
+                [0, True],  # chart loader
+                [1, 0],  # charts render
+                None,  # raf SVG settle
+                fonts_result,  # fonts.ready
+                "<html>settled</html>",
+                "<html>settled</html>",
+                "<html>settled</html>",  # dom quiescence
+                [],  # mask_boxes
+            ],
+            default_result="<html>settled</html>",
+        )
+        self.mouse = mock.MagicMock()
+        self.events: list[str] = []
+
+      def evaluate(self, script: str, arg: object = None) -> object:
+        if script == journey_capture._FONTS_READY_JS:
+          self.events.append("fonts_ready")
+        return super().evaluate(script, arg)
+
+      def wait_for_load_state(self, state: str, timeout: int) -> None:
+        del state, timeout
+
+      def locator(self, selector: str) -> object:
+        del selector
+        loc = mock.MagicMock()
+        loc.all.return_value = []
+        return loc
+
+      def screenshot(self, **kwargs: object) -> bytes:
+        del kwargs
+        self.events.append("screenshot")
+        return b"\x89PNG\r\n\x1a\nfake"
+
+    for fonts_ready_result, expected_stabilized, expected_reasons in (
+        (True, True, ()),
+        (False, False, ("fonts_ready_timeout",)),
+    ):
+      with self.subTest(fonts_ready_result=fonts_ready_result):
+        page = _OrderedCapturePage(fonts_ready_result)
+        recorder = journey_capture.NetworkRecorder(page)
+        with mock.patch.object(journey_capture, "sync_api", None):
+          if not fonts_ready_result:
+            with self.assertLogs(level="WARNING"):
+              wp = journey_capture.capture_waypoint(
+                  page, recorder, "00_overview_page"
+              )
+          else:
+            wp = journey_capture.capture_waypoint(
+                page, recorder, "00_overview_page"
+            )
+
+        self.assertEqual(page.events, ["fonts_ready", "screenshot"])
+        self.assertEqual(wp.stabilized, expected_stabilized)
+        self.assertEqual(wp.unsettled_reasons, expected_reasons)
+
+  def test_block_external_fonts_matches_google_fonts_and_fulfills_cleanly(self):
+    """Verifies external Google Fonts URLs are fulfilled with empty 200 CSS."""
+    matched_urls = (
+        "https://fonts.googleapis.com/css2?family=Roboto",
+        "http://fonts.googleapis.com/icon?family=Material+Icons",
+        "https://fonts.gstatic.com/s/roboto/v30/font.woff2",
+        "http://fonts.gstatic.com/s/googlesans/v1/font.woff2",
+        "HTTPS://FONTS.GOOGLEAPIS.COM:443/css?family=Roboto",
+        "https://fonts.googleapis.com",
+    )
+    unmatched_urls = (
+        "https://www.gstatic.com/charts/loader.js",
+        "http://127.0.0.1:8000/data/plugin/profile/index.html",
+        "https://fonts.googleapis.com.example.com/css2?family=Roboto",
+        "http://127.0.0.1:8000/api?next=https://fonts.googleapis.com/css2",
+    )
+    for url in matched_urls:
+      with self.subTest(matched_url=url):
+        self.assertIsNotNone(
+            journey_capture.EXTERNAL_FONTS_ROUTE_RE.search(url)
+        )
+    for url in unmatched_urls:
+      with self.subTest(unmatched_url=url):
+        self.assertIsNone(journey_capture.EXTERNAL_FONTS_ROUTE_RE.search(url))
+
+    class _FakeRouteTarget:
+      """Minimal Playwright context/page double recording route calls."""
+
+      def __init__(self):
+        self.routes: list[tuple[object, object]] = []
+
+      def route(self, pattern: object, handler: object) -> None:
+        self.routes.append((pattern, handler))
+
+    class _FakeRoute:
+      """Minimal Playwright Route double recording fulfill/abort calls."""
+
+      def __init__(self):
+        self.fulfilled: list[dict[str, object]] = []
+        self.aborted = False
+
+      def fulfill(self, **kwargs: object) -> None:
+        self.fulfilled.append(kwargs)
+
+      def abort(self) -> None:
+        self.aborted = True
+
+    target = _FakeRouteTarget()
+    handler = journey_capture.block_external_fonts(target)
+    self.assertEqual(
+        target.routes, [(journey_capture.EXTERNAL_FONTS_ROUTE_RE, handler)]
+    )
+
+    fake_route = _FakeRoute()
+    handler(fake_route)
+    self.assertFalse(fake_route.aborted)
+    self.assertEqual(
+        fake_route.fulfilled,
+        [{
+            "status": 200,
+            "content_type": "text/css; charset=utf-8",
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": "",
+        }],
+    )
 
 
 if __name__ == "__main__":

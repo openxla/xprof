@@ -65,6 +65,10 @@ def upload_trace(
         ' without path separators or traversal components.'
     )
 
+  if not isinstance(client.logdir, pathlib.Path):
+    raise ValueError(
+        f'upload_trace requires a local logdir, got: {client.logdir}'
+    )
   base_dir = (client.logdir / 'plugins' / 'profile').resolve()
   dest_dir = (base_dir / run_name).resolve()
   if not dest_dir.is_relative_to(base_dir) or dest_dir == base_dir:

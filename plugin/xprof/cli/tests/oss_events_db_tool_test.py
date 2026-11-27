@@ -611,6 +611,12 @@ class OssQueryEventsDbToolTest(parameterized.TestCase):
     self.assertFalse(self._exfil_file.exists())
     self.assertEqual(self._single_db_path.read_bytes(), _parquet_bytes())
 
+  def test_create_events_db_rejects_gcs_path(self) -> None:
+    with self.assertRaisesRegex(ValueError, "gs:// paths is not supported"):
+      events_db_tool.create_events_db(
+          session_id="gs://my-bucket/run1/host0.xplane.pb"
+      )
+
 
 if __name__ == "__main__":
   absltest.main()

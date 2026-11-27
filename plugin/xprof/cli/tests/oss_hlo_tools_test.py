@@ -458,6 +458,15 @@ class OssFetchDebugInfoTest(absltest.TestCase):
         hlo_proto_class.DESCRIPTOR.file.pool, descriptor_pool.Default()
     )
 
+  def test_generate_hlo_protos_rejects_gcs_run_dir(self):
+    mock_client = mock.MagicMock()
+    mock_client.get_run_dir.return_value = "gs://my-bucket/run1"
+    with mock.patch.object(
+        xprof_client, "get_client", return_value=mock_client
+    ):
+      with self.assertRaisesRegex(ValueError, "gs:// paths is not supported"):
+        hlo_tools.generate_hlo_protos("gs://my-bucket/run1")
+
 
 if __name__ == "__main__":
   absltest.main()

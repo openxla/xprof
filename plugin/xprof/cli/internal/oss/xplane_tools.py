@@ -123,7 +123,7 @@ def iter_planes(source: Any) -> Iterator[Any]:
   # Handle string inputs.
   if isinstance(source, str):
     # If it's a local path (file or directory).
-    if (
+    if not source.startswith("gs://") and (
         os.path.exists(source)
         or source.startswith("/")
         or source.endswith((".xplane.pb", ".xspace.pb"))
@@ -133,22 +133,25 @@ def iter_planes(source: Any) -> Iterator[Any]:
       if os.path.isdir(source):
         xplane_paths = xprof_client.get_client().get_xspace_paths(source)
         for path in xplane_paths:
-          with open(path, "rb") as f:
-            pd = profiler.ProfileData.from_serialized_xspace(f.read())
+          pd = profiler.ProfileData.from_serialized_xspace(
+              xprof_client.read_trace_bytes(path)
+          )
           yield from pd.planes
       elif os.path.isfile(source):
-        with open(source, "rb") as f:
-          pd = profiler.ProfileData.from_serialized_xspace(f.read())
+        pd = profiler.ProfileData.from_serialized_xspace(
+            xprof_client.read_trace_bytes(source)
+        )
         yield from pd.planes
       return
 
-    # Otherwise, treat as session_id and fetch from XProf server.
+    # Otherwise, treat as session_id or gs:// URI and resolve via client.
     client = xprof_client.get_client()
     xspace_paths = client.get_xspace_paths(source)
 
     for path in xspace_paths:
-      with open(path, "rb") as f:
-        pd = profiler.ProfileData.from_serialized_xspace(f.read())
+      pd = profiler.ProfileData.from_serialized_xspace(
+          xprof_client.read_trace_bytes(path)
+      )
       yield from pd.planes
     return
 

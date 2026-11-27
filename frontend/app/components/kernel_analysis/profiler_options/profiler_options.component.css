@@ -113,3 +113,19 @@
   margin-left: var(--spacing-3);
   color: var(--mat-sys-on-surface-variant);
 }
+
+md-dialog.counter-selection-dialog {
+  --md-dialog-container-color: var(--mat-sys-surface, #ffffff);
+  width: 1150px;
+  max-width: calc(100vw - 48px);
+  height: 650px;
+  max-height: calc(100vh - 48px);
+}
+
+md-dialog.counter-selection-dialog app-counter-selection[slot='content'] {
+  position: absolute;
+  inset: 0;
+  padding: 0 !important;
+  height: 100%;
+  width: 100%;
+}

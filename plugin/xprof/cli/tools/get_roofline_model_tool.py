@@ -446,6 +446,8 @@ def get_roofline_model(
     op_records = []
     for r in rows[1:]:
       r_dict = row_to_dict(r.get("c", []))
+      if r_dict.get("is_sparse_core"):
+        continue
       self_time_us = _safe_float(r_dict.get("total_self_time"))
       if self_time_us <= 0:
         continue

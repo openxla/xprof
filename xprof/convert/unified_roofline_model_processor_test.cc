@@ -27,6 +27,7 @@ limitations under the License.
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
+#include "xprof/convert/op_stats_to_roofline_model.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor.h"
@@ -35,6 +36,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/roofline_model.pb.h"
 
 namespace xprof {
 namespace {
@@ -146,6 +148,54 @@ TEST(UnifiedRooflineModelProcessorTest,
   ASSERT_OK(
       processor.ProcessCombinedOpStats(session_snapshot, op_stats, options));
   EXPECT_THAT(processor.GetData(), HasSubstr("fusion.123"));
+}
+
+TEST(UnifiedRooflineModelProcessorTest,
+     RooflineModelOptionsPerfEnvOverrideAppliesToDbAndRecords) {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_hardware_type(
+      tensorflow::profiler::TPU);
+  op_stats.mutable_run_environment()->set_device_type("TPU v4");
+  // Set low flop peak in op_stats.perf_env(); the override will raise it.
+  op_stats.mutable_perf_env()->set_peak_tera_flops_per_second(1.0);
+  op_stats.mutable_perf_env()->add_peak_bws_giga_bytes_per_second(1000.0);
+
+  OpMetricsDb* device_op_metrics_db = op_stats.mutable_device_op_metrics_db();
+  device_op_metrics_db->set_total_time_ps(1000000);
+  device_op_metrics_db->set_total_op_time_ps(1000000);
+  OpMetrics* op = device_op_metrics_db->add_metrics_db();
+  op->set_name("fusion.1");
+  op->set_category("convolution");
+  op->set_occurrences(1);
+  op->set_time_ps(1000000);
+  op->set_self_time_ps(1000000);
+  op->set_flops(10000000);
+  op->set_flops_v2(10000000);
+  op->set_bytes_accessed(100000);
+  auto* hbm_read = op->add_memory_accessed_breakdown();
+  hbm_read->set_operation_type(OpMetrics::MemoryAccessed::READ);
+  hbm_read->set_memory_space(1);
+  hbm_read->set_bytes_accessed(100000);
+
+  tensorflow::profiler::PerfEnv override_perf_env;
+  override_perf_env.set_peak_tera_flops_per_second(275.0);
+  override_perf_env.add_peak_bws_giga_bytes_per_second(1200.0);
+  override_perf_env.set_has_merged_vmem(true);
+  while (override_perf_env.peak_bws_giga_bytes_per_second_size() <= 6) {
+    override_perf_env.add_peak_bws_giga_bytes_per_second(0.0);
+  }
+  override_perf_env.set_peak_bws_giga_bytes_per_second(5, 20000.0);
+
+  tensorflow::profiler::RooflineModelOptions options;
+  options.perf_env = &override_perf_env;
+  tensorflow::profiler::roofline_model::RooflineModelDatabase db =
+      tensorflow::profiler::ConvertOpStatsToRooflineModel(op_stats, options);
+
+  EXPECT_DOUBLE_EQ(db.peak_flop_rate(), 275000.0);
+  EXPECT_TRUE(db.has_merged_vmem());
+  EXPECT_GT(db.peak_vmem_read_bw(), 0.0);
+  ASSERT_GE(db.roofline_model_record_size(), 2);
+  EXPECT_EQ(db.roofline_model_record(1).bound_by(), "HBM");
 }
 
 }  // namespace

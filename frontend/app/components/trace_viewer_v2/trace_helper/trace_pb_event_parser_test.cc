@@ -1421,6 +1421,50 @@ TEST(
   }
 }
 
+TEST(TracePbEventParserIncrementalTest,
+     DispatchResponseDetailsSetsMpmdAndIgnoresOtherKeys) {
+  IncrementalCacheCleanup cache_cleanup;
+  xprof::TraceDataResponse mpmd_response;
+  xprof::DetailItem* full_dma_detail = mpmd_response.add_details();
+  full_dma_detail->set_name("full_dma");
+  full_dma_detail->set_value(true);
+  xprof::DetailItem* single_device_detail = mpmd_response.add_details();
+  single_device_detail->set_name("mpmd_single_device_per_stage");
+  single_device_detail->set_value(true);
+  xprof::DetailItem* mpmd_detail = mpmd_response.add_details();
+  mpmd_detail->set_name("mpmd_pipeline_view");
+  mpmd_detail->set_value(true);
+
+  const absl::StatusOr<std::string> compressed_mpmd =
+      CompressTraceDataResponse(mpmd_response);
+  ASSERT_TRUE(compressed_mpmd.ok()) << compressed_mpmd.status();
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline mpmd_timeline(palette);
+  DataProvider mpmd_data_provider;
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed_mpmd->data()),
+      compressed_mpmd->size(), std::nullopt, mpmd_data_provider, mpmd_timeline);
+  EXPECT_TRUE(mpmd_timeline.mpmd_pipeline_view_enabled());
+
+  xprof::TraceDataResponse non_mpmd_response;
+  xprof::DetailItem* non_mpmd_full_dma = non_mpmd_response.add_details();
+  non_mpmd_full_dma->set_name("full_dma");
+  non_mpmd_full_dma->set_value(true);
+
+  const absl::StatusOr<std::string> compressed_non_mpmd =
+      CompressTraceDataResponse(non_mpmd_response);
+  ASSERT_TRUE(compressed_non_mpmd.ok()) << compressed_non_mpmd.status();
+
+  Timeline non_mpmd_timeline(palette);
+  DataProvider non_mpmd_data_provider;
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed_non_mpmd->data()),
+      compressed_non_mpmd->size(), std::nullopt, non_mpmd_data_provider,
+      non_mpmd_timeline);
+  EXPECT_FALSE(non_mpmd_timeline.mpmd_pipeline_view_enabled());
+}
+
 #ifdef __EMSCRIPTEN__
 class TracePbEventParserTest : public ::testing::Test {
  protected:
@@ -1518,6 +1562,88 @@ TEST_F(TracePbEventParserTest, ValidTraceDataWithDetailsAndTimespan) {
   ASSERT_TRUE(results["received"].as<bool>());
   const emscripten::val details_map = results["details"];
   EXPECT_TRUE(details_map.call<bool>("get", emscripten::val("full_dma")));
+}
+
+TEST_F(TracePbEventParserTest, DetailsReceivedDispatchesOnlyFullDma) {
+  xprof::TraceDataResponse response;
+  xprof::DetailItem* mpmd_detail = response.add_details();
+  mpmd_detail->set_name("mpmd_pipeline_view");
+  mpmd_detail->set_value(true);
+  xprof::DetailItem* single_device_detail = response.add_details();
+  single_device_detail->set_name("mpmd_single_device_per_stage");
+  single_device_detail->set_value(true);
+  xprof::DetailItem* full_dma_detail = response.add_details();
+  full_dma_detail->set_name("full_dma");
+  full_dma_detail->set_value(false);
+
+  const absl::StatusOr<std::string> compressed_buffer =
+      CompressTraceDataResponse(response);
+  ASSERT_TRUE(compressed_buffer.ok()) << compressed_buffer.status();
+
+  const emscripten::val visible_range = emscripten::val::undefined();
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed_buffer->data()),
+      compressed_buffer->size(), visible_range, data_provider_, timeline_);
+
+  EXPECT_TRUE(timeline_.mpmd_pipeline_view_enabled());
+  const emscripten::val results =
+      emscripten::val::global("window")["testResults"]["details_received"];
+  ASSERT_FALSE(results.isUndefined());
+  ASSERT_TRUE(results["received"].as<bool>());
+  const emscripten::val details_map = results["details"];
+  EXPECT_EQ(details_map["size"].as<int>(), 1);
+  EXPECT_TRUE(details_map.call<bool>("has", emscripten::val("full_dma")));
+  EXPECT_FALSE(details_map.call<bool>("get", emscripten::val("full_dma")));
+  EXPECT_FALSE(
+      details_map.call<bool>("has", emscripten::val("mpmd_pipeline_view")));
+  EXPECT_FALSE(details_map.call<bool>(
+      "has", emscripten::val("mpmd_single_device_per_stage")));
+}
+
+TEST_F(TracePbEventParserTest,
+       InternalOnlyDetailsDoNotDispatchDetailsReceived) {
+  xprof::TraceDataResponse response;
+  xprof::DetailItem* mpmd_detail = response.add_details();
+  mpmd_detail->set_name("mpmd_pipeline_view");
+  mpmd_detail->set_value(true);
+  xprof::DetailItem* single_device_detail = response.add_details();
+  single_device_detail->set_name("mpmd_single_device_per_stage");
+  single_device_detail->set_value(true);
+
+  const absl::StatusOr<std::string> compressed_buffer =
+      CompressTraceDataResponse(response);
+  ASSERT_TRUE(compressed_buffer.ok()) << compressed_buffer.status();
+
+  const emscripten::val visible_range = emscripten::val::undefined();
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed_buffer->data()),
+      compressed_buffer->size(), visible_range, data_provider_, timeline_);
+
+  EXPECT_TRUE(timeline_.mpmd_pipeline_view_enabled());
+  EXPECT_TRUE(
+      emscripten::val::global("window")["testResults"]["details_received"]
+          .isUndefined());
+
+  // Also verify the incremental XChunk streaming path suppresses host dispatch
+  // while still enabling MPMD pipeline view on the timeline.
+  Timeline streaming_timeline{palette_};
+  DataProvider streaming_data_provider;
+  std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
+  AppendFramedBytes(xchn_payload, *compressed_buffer);
+
+  BeginIncrementalTraceEvents(visible_range, streaming_data_provider,
+                              streaming_timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(xchn_payload.data()), xchn_payload.size());
+  while (StepIncrementalTraceEvents(1, streaming_data_provider,
+                                    streaming_timeline)) {
+  }
+  FinishIncrementalTraceEvents(streaming_data_provider, streaming_timeline);
+
+  EXPECT_TRUE(streaming_timeline.mpmd_pipeline_view_enabled());
+  EXPECT_TRUE(
+      emscripten::val::global("window")["testResults"]["details_received"]
+          .isUndefined());
 }
 
 TEST_F(TracePbEventParserTest, ValidTraceDataWithInvalidTimespan) {

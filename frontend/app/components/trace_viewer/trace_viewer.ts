@@ -57,6 +57,7 @@ import {
 import {
   DETAILS_RECEIVED_EVENT_NAME,
   isDetailsReceivedEvent,
+  isLoadingStatusUpdateEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
   TraceData as MainTraceData,
   SearchEventsEventDetail,
@@ -314,6 +315,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     {key: 'full_dma', label: 'Full DMA'},
   ];
   traceDetails: TraceDetails = new Map();
+  private currentJsonUrl = '';
 
   @ViewChild(TraceViewerContainer, {static: false})
   container?: TraceViewerContainer;
@@ -631,6 +633,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       DETAILS_RECEIVED_EVENT_NAME,
       this.detailsReceivedEventListener,
     );
+    window.addEventListener(
+      LOADING_STATUS_UPDATE_EVENT_NAME,
+      this.loadingStatusUpdateEventListener,
+    );
 
     const sourceCodeService = this.injector.get(
       SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
@@ -722,7 +728,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.isInitializing = true;
     try {
-      this.traceViewerModule = await traceViewerV2Main();
+      this.traceViewerModule = await traceViewerV2Main({
+        onFileUploadedToXprof: () => {
+          this.currentJsonUrl = '';
+        },
+      });
       if (this.isDestroyed) {
         if (this.traceViewerModule !== null) {
           shutdownTraceViewerV2();
@@ -759,6 +769,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.allFlowCategories = this.traceViewerModule.getAllFlowCategories();
         this.selectAllFlowCategories();
       }
+      this.currentJsonUrl = '';
       this.update(this.navigationEvent);
       this.setupColorOnboarding();
     } finally {
@@ -767,8 +778,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   update(event: NavigationEvent): void {
-    const loadToken = this.advanceDatasetGeneration();
-    this.resetPerDatasetState();
     if (event.run) {
       this.sessionId = event.run;
     } else if ((event as Record<string, string>)['sessionId']) {
@@ -781,6 +790,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.clearStaleHostSearchParams({currentHost, hostsString});
 
     if (isEmptyHostFilter) {
+      this.advanceDatasetGeneration();
+      this.resetPerDatasetState();
       this.clearActiveViewer();
       return;
     }
@@ -818,20 +829,39 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (this.useTraceViewerV2) {
       if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
-        void this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
-          if (this.isDestroyed || loadToken !== this.traceLoadToken) {
-            return;
-          }
-          this.updateFlowCategories();
-          this.updateWasmFlowCategories();
-          this.updateWasmProcessMappings();
-          this.container?.updateSearchResultCountText();
-        });
+        if (this.currentJsonUrl === traceDataUrl) {
+          return;
+        }
+        const loadToken = this.advanceDatasetGeneration();
+        this.resetPerDatasetState();
+        this.currentJsonUrl = traceDataUrl;
+        void this.traceViewerModule.loadTraceData(traceDataUrl).then(
+          () => {
+            if (this.isDestroyed || loadToken !== this.traceLoadToken) {
+              return;
+            }
+            this.updateFlowCategories();
+            this.updateWasmFlowCategories();
+            this.updateWasmProcessMappings();
+            this.container?.updateSearchResultCountText();
+          },
+          () => {
+            if (loadToken === this.traceLoadToken) {
+              this.currentJsonUrl = '';
+            }
+          },
+        );
         // loadTraceData() synchronously clears WASM search state before
         // yielding, so refresh the badge immediately while the new trace loads.
         this.container?.updateSearchResultCountText();
+      } else {
+        this.advanceDatasetGeneration();
+        this.resetPerDatasetState();
       }
     } else {
+      this.advanceDatasetGeneration();
+      this.resetPerDatasetState();
+      this.currentJsonUrl = '';
       this.url = `${this.pathPrefix}${API_PREFIX}${
         PLUGIN_NAME
       }/trace_viewer_index.html?is_streaming=${
@@ -995,6 +1025,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private clearActiveViewer(): void {
+    this.currentJsonUrl = '';
     this.traceViewerModule?.resetDataset?.();
     this.container?.updateSearchResultCountText();
     this.selectedFlowCategoryIds.clear();
@@ -1022,8 +1053,21 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         DETAILS_RECEIVED_EVENT_NAME,
         this.detailsReceivedEventListener,
       );
+      window.removeEventListener(
+        LOADING_STATUS_UPDATE_EVENT_NAME,
+        this.loadingStatusUpdateEventListener,
+      );
     }
   }
+
+  private readonly loadingStatusUpdateEventListener = (event: Event) => {
+    if (
+      isLoadingStatusUpdateEvent(event) &&
+      event.detail.status === TraceViewerV2LoadingStatus.ERROR
+    ) {
+      this.currentJsonUrl = '';
+    }
+  };
 
   private readonly detailsReceivedEventListener = (event: Event) => {
     if (!isDetailsReceivedEvent(event)) {

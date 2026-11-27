@@ -334,5 +334,90 @@ TEST(TimeRangeTest, ContainsWithTolerance_ZeroBoundary) {
   EXPECT_FALSE(outer.Contains(inner_bad));
 }
 
+TEST(TimeRangeTest, AnimatedTimeRangeDoesNotSnapNarrowWindowAtLargeTimestamp) {
+  Animation::ClearAll();
+  const TimeRange start(2824783.0, 2825083.0);
+  const TimeRange target(2824833.0, 2825133.0);
+  Animated<TimeRange> animated(start, target);
+
+  Animation::UpdateAll(1.0f / 60.0f);
+
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+  EXPECT_GT(animated->start(), start.start());
+  EXPECT_LT(animated->start(), target.start());
+  EXPECT_NE(*animated, target);
+}
+
+TEST(TimeRangeTest, AnimatedTimeRangeConvergesRelativeToDuration) {
+  Animation::ClearAll();
+  const TimeRange start(2824833.0, 2829733.0);
+  const TimeRange target = start + 400.0;
+  Animated<TimeRange> animated(start, target);
+
+  // Verify the first frame interpolates smoothly rather than snapping across
+  // the 400 us pan (which previously fell inside the ~565 us origin tolerance).
+  Animation::UpdateAll(1.0f / 60.0f);
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+  EXPECT_GT(animated->start(), start.start());
+  EXPECT_LT(animated->start(), target.start());
+
+  int frames = 1;
+  while (Animation::HasActiveAnimations() && frames < 200) {
+    Animation::UpdateAll(1.0f / 60.0f);
+    ++frames;
+  }
+
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+  EXPECT_LT(frames, 100);
+  EXPECT_EQ(*animated, target);
+}
+
+TEST(TimeRangeTest, AnimatedTimeRangeFinishesWhenPrecisionStalls) {
+  Animation::ClearAll();
+  // At t = 1e7 us, 1 ULP (~1.86e-9 us) exceeds the 1e-10 us duration-relative
+  // tolerance for a 1 ps (1e-6 us) window.
+  const double base = 1e7;
+  const TimeRange start(base, base + 1e-6);
+  const TimeRange target(base + 1e-6, base + 2e-6);
+  Animated<TimeRange> animated(start, target);
+
+  int frames = 0;
+  while (Animation::HasActiveAnimations() && frames < 200) {
+    Animation::UpdateAll(1.0f / 60.0f);
+    ++frames;
+  }
+
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+  EXPECT_LT(frames, 100);
+  EXPECT_EQ(*animated, target);
+}
+
+TEST(TimeRangeTest, AnimatedTimeRangeFullStepAvoidsCancellationAndInversion) {
+  Animation::ClearAll();
+  // Exact factor == 1.0f (delta_time = 1 / 12.5) on a large-ratio zoom would
+  // suffer catastrophic cancellation under `current + (target - current) * 1`.
+  const TimeRange target_narrow(1e6, 1e6 + 1e-6);
+  Animated<TimeRange> animated_narrow(TimeRange(0.0, 1e8), target_narrow);
+  Animation::UpdateAll(1.0f / 12.5f);
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+  EXPECT_EQ(*animated_narrow, target_narrow);
+
+  // Even wider ratio where cancellation would invert start > end without
+  // short-circuiting factor >= 1.0f.
+  const TimeRange target_extreme(100.00005, 100.000051);
+  Animated<TimeRange> animated_extreme(TimeRange(0.0, 1e12), target_extreme);
+  Animation::UpdateAll(1.0f / 12.5f);
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+  EXPECT_EQ(*animated_extreme, target_extreme);
+}
+
+TEST(TimeRangeTest, AnimationConvergenceToleranceScalesByDurationWithFloor) {
+  EXPECT_DOUBLE_EQ(AnimationConvergenceTolerance(TimeRange(1e6, 1e6)), 1e-10);
+  EXPECT_DOUBLE_EQ(AnimationConvergenceTolerance(TimeRange(1e6, 1e6 + 1e-7)),
+                   1e-10);
+  EXPECT_DOUBLE_EQ(AnimationConvergenceTolerance(TimeRange(1e6, 1e6 + 10.0)),
+                   10.0 * kAnimationRelativeTolerance);
+}
+
 }  // namespace
 }  // namespace traceviewer

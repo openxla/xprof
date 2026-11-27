@@ -151,10 +151,13 @@ class TimeRange {
   static constexpr Microseconds kAbsoluteTolerance = 1e-4;
 };
 
-// Returns the magnitude of a TimeRange from origin, used by
-// Animated<T>::Converged() to compute relative tolerance thresholds.
-inline Microseconds abs(const TimeRange& range) {
-  return std::fabs(range.start()) + std::fabs(range.end());
+// Returns the convergence tolerance for animating to `target`, scaled by target
+// duration rather than distance from the timestamp origin. The 1e-10
+// microsecond floor (1e-4 of kMinDurationMicros) handles zero-duration targets,
+// while floating-point ULP stalls at large timestamps are handled by
+// Animated<T>::Update().
+inline double AnimationConvergenceTolerance(const TimeRange& target) {
+  return std::max(target.duration() * kAnimationRelativeTolerance, 1e-10);
 }
 
 }  // namespace traceviewer

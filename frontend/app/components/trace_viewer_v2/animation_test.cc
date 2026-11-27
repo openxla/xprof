@@ -1,6 +1,7 @@
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 
 #include <cmath>
+#include <limits>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -141,6 +142,84 @@ TEST_F(AnimationTest, NoDoubleRegistration) {
 
   EXPECT_THAT(*anim, Ne(1.0f));
   EXPECT_TRUE(IsAnimating(anim));
+}
+
+TEST_F(AnimationTest, ZeroDeltaTimeDoesNotSnapOrStall) {
+  Animated<float> anim(0.0f, 1.0f);
+
+  Animation::UpdateAll(0.0f);
+
+  EXPECT_THAT(*anim, FloatEq(0.0f));
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+}
+
+TEST_F(AnimationTest, NegativeDeltaTimeDoesNotOvershootOrStall) {
+  Animated<float> anim(0.0f, 1.0f);
+
+  Animation::UpdateAll(-0.016f);
+
+  EXPECT_THAT(*anim, FloatEq(0.0f));
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+}
+
+TEST_F(AnimationTest, SnapsWhenFloatingPointPrecisionStalls) {
+  // At 1e7f, float ULP is 1.0f. A step of 2.0f * (12.5f * 1e-4f) = 2.5e-3f
+  // rounds back to current_ (1e7f), triggering the stall guard.
+  const float start = 1e7f;
+  const float target = start + 2.0f;
+  bool finished = false;
+  Animated<float> anim(start, target, [&](float) { finished = true; });
+
+  Animation::UpdateAll(1e-4f);
+
+  EXPECT_THAT(*anim, FloatEq(target));
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+  EXPECT_TRUE(finished);
+}
+
+TEST_F(AnimationTest,
+       IgnoresNonPositiveAndNanDeltaTimeEvenWhenWithinTolerance) {
+  // Start within kAnimationAbsoluteTolerance (1e-4) of target so a missing
+  // delta_time guard would erroneously converge and fire on_finished.
+  bool finished = false;
+  Animated<float> anim(0.0f, 1e-5f, [&](float) { finished = true; });
+
+  Animation::UpdateAll(0.0f);
+  EXPECT_THAT(*anim, FloatEq(0.0f));
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+  EXPECT_FALSE(finished);
+
+  Animation::UpdateAll(-0.016f);
+  EXPECT_THAT(*anim, FloatEq(0.0f));
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+  EXPECT_FALSE(finished);
+
+  Animation::UpdateAll(std::numeric_limits<float>::quiet_NaN());
+  EXPECT_FALSE(std::isnan(*anim));
+  EXPECT_THAT(*anim, FloatEq(0.0f));
+  EXPECT_TRUE(Animation::HasActiveAnimations());
+  EXPECT_FALSE(finished);
+}
+
+TEST_F(AnimationTest, CompletesAtExactTargetWhenFactorIsAtLeastOne) {
+  bool finished = false;
+  Animated<float> anim(0.0f, 100.0f, [&](float) { finished = true; });
+
+  // delta_time = 0.1f produces factor = 1.25f > 1.0f; must clamp to exact
+  // target without overshooting.
+  Animation::UpdateAll(0.1f);
+
+  EXPECT_THAT(*anim, FloatEq(100.0f));
+  EXPECT_FALSE(Animation::HasActiveAnimations());
+  EXPECT_TRUE(finished);
+}
+
+TEST_F(AnimationTest,
+       AnimationConvergenceToleranceUsesRelativeAndAbsoluteFloor) {
+  EXPECT_DOUBLE_EQ(AnimationConvergenceTolerance(100.0f),
+                   100.0 * kAnimationRelativeTolerance);
+  EXPECT_DOUBLE_EQ(AnimationConvergenceTolerance(0.0f),
+                   kAnimationAbsoluteTolerance);
 }
 
 }  // namespace

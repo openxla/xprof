@@ -47,7 +47,6 @@ import {
   type SourceLineStats,
   type SourceLocation,
   splitPath,
-  stripMarkup,
   toDepotPath,
 } from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_source_model';
 import {
@@ -1434,12 +1433,12 @@ export class KernelSourcePanel {
     const address = new Address(toDepotPath(path), 1, 0, MAX_FILE_LINES);
     const subscription = service.loadContent(sessionId, address).subscribe({
       next: (content) => {
-        const html = [...content.lines];
-        this.setContent(path, {
-          state: 'ready',
-          html,
-          text: html.map(stripMarkup),
-        });
+        this.setContent(
+          path,
+          this.highlightLines(
+            [...content.lines],
+          ),
+        );
       },
       error: (error: unknown) => {
         this.setContent(path, {
@@ -1453,6 +1452,13 @@ export class KernelSourcePanel {
     this.subscriptions.set(path, subscription);
   }
 
+  private highlightLines(
+    lines: readonly string[],
+  ): FileContent {
+    const html = lines.map(escapeHtml);
+    return {state: 'ready', html, text: lines};
+  }
+
   private highlightText(
     text: string,
   ): FileContent {
@@ -1461,8 +1467,9 @@ export class KernelSourcePanel {
     if (lines[lines.length - 1] === '') {
       lines.pop();
     }
-    const html = lines.map(escapeHtml);
-    return {state: 'ready', html, text: lines};
+    return this.highlightLines(
+      lines,
+    );
   }
 
   private updateCodeSearchLink(
@@ -1472,9 +1479,9 @@ export class KernelSourcePanel {
   ): void {
     this.linkSubscription?.unsubscribe();
     this.linkSubscription = undefined;
+    this.codeSearchUrl.set(undefined);
     const service = this.sourceCodeService;
     if (!service || !sessionId || !path) {
-      this.codeSearchUrl.set(undefined);
       return;
     }
     this.linkSubscription = service

@@ -26,6 +26,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
       inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN);
   private readonly destroy$ = new Subject<void>();
   private readonly reload$ = new Subject<void>();
+  private readonly linkReload$ = new Subject<void>();
   private sessionId: string|undefined = undefined;
   frame: Content|undefined = undefined;
   failure: string|undefined = undefined;
@@ -56,6 +57,8 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+    this.reload$.complete();
+    this.linkReload$.complete();
   }
 
   ngOnChanges(changes: SimpleChanges) {
@@ -63,6 +66,14 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
             changes['sourceCodeSnippetAddress']?.previousValue,
             changes['sourceCodeSnippetAddress']?.currentValue)) {
       this.reload();
+      return;
+    }
+    if (
+      changes['srcPathPrefix'] &&
+      changes['srcPathPrefix'].previousValue !==
+        changes['srcPathPrefix'].currentValue
+    ) {
+      this.reloadCodeSearchLink();
     }
   }
 
@@ -129,22 +140,41 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
             }
           });
     }
+    this.reloadCodeSearchLink();
+  }
+
+  private reloadCodeSearchLink() {
+    this.linkReload$.next();
+    this.codeSearchLink = undefined;
+    if (!this.isCodeFetchEnabled) {
+      this.codeSearchLinkTooltip = undefined;
+    }
+    if (!this.sessionId || !this.sourceCodeSnippetAddress) {
+      return;
+    }
     this.sourceCodeService
-        .codeSearchLink(
-            this.sessionId, this.sourceCodeSnippetAddress.fileName,
-            this.sourceCodeSnippetAddress.lineNumber, this.srcPathPrefix)
-        .pipe(takeUntil(this.reload$), takeUntil(this.destroy$))
-        .subscribe({
-          next: (link) => {
-            this.codeSearchLink = link;
-            if (!this.isCodeFetchEnabled && link) {
-              this.codeSearchLinkTooltip = 'Open in Code Search';
-            }
-          },
-          error: (err) => {
-            console.error('Failed to get code search link', err);
+      .codeSearchLink(
+        this.sessionId,
+        this.sourceCodeSnippetAddress.fileName,
+        this.sourceCodeSnippetAddress.lineNumber,
+        this.srcPathPrefix,
+      )
+      .pipe(
+        takeUntil(this.linkReload$),
+        takeUntil(this.reload$),
+        takeUntil(this.destroy$),
+      )
+      .subscribe({
+        next: (link) => {
+          this.codeSearchLink = link;
+          if (!this.isCodeFetchEnabled && link) {
+            this.codeSearchLinkTooltip = 'Open in Code Search';
           }
-        });
+        },
+        error: (err) => {
+          console.error('Failed to get code search link', err);
+        },
+      });
   }
 
   percent = utils.percent;

@@ -244,12 +244,11 @@ export class BufferAllocationTimeline
         }
       }
 
+      const logicalBufferId = proto.logicalBufferId ?? 0;
+      const isContainer =
+        logicalBufferId === -1 || category.startsWith('Allocation');
       this.layoutBlocks.push({
-        id: String(
-          proto.logicalBufferId !== undefined && proto.logicalBufferId !== -1
-            ? proto.logicalBufferId
-            : `${category}_${offset}`,
-        ),
+        id: isContainer ? `${category}_${offset}` : String(logicalBufferId),
         x: centerX,
         y: centerY,
         width,
@@ -259,14 +258,8 @@ export class BufferAllocationTimeline
         color,
         label: proto.name || '',
         fontsize: 10,
-        isContainer:
-          proto.logicalBufferId === undefined ||
-          proto.logicalBufferId === -1 ||
-          category.startsWith('Allocation'),
-        logicalBufferId:
-          proto.logicalBufferId !== undefined && proto.logicalBufferId !== -1
-            ? proto.logicalBufferId
-            : undefined,
+        isContainer,
+        logicalBufferId: isContainer ? undefined : logicalBufferId,
         instructionName: proto.name,
         size,
         unpaddedSize: proto.unpaddedSize,

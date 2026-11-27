@@ -14,6 +14,7 @@ export interface TreeNode {
   paddingValue: number; // Stored padding size in MiB
   children: TreeNode[];
   buffer?: MemoryAnalysisBuffer; // Reference to original buffer if leaf
+  buffers?: MemoryAnalysisBuffer[]; // All underlying buffers aggregated into this leaf
   path: string; // Full hierarchical path (e.g., 'transformer/layer_0' or 'Temporary/Activation')
   isLeaf: boolean;
   depth: number;

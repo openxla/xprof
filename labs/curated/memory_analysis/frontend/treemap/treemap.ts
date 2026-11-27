@@ -259,8 +259,7 @@ export class MemoryTreemap {
           if (rootNode !== this.lastRootNode) {
             this.lastRootNode = rootNode;
             this.lastSelectedNode = selectedNode;
-            const activePath =
-              this.currentRoot()?.path ?? selectedNode?.path ?? '';
+            const activePath = selectedNode?.path ?? '';
             if (activePath) {
               this.reconstructZoomStackForPath(activePath);
             } else {

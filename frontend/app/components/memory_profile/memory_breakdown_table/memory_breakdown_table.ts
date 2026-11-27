@@ -165,21 +165,20 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     return dataView;
   }
 
-  getFilteredDataTable(): google.visualization.DataTable|null {
+  getFilteredDataTable(): google.visualization.DataTable | null {
     if (!this.dataTable) {
       return null;
     }
 
-    /* tslint:disable no-any */
-    const filters = [];
+    const filters: google.visualization.DataTableCellFilter[] = [];
     if (this.filterOperation.trim()) {
       const filter = this.filterOperation.trim().toLowerCase();
       filters.push({
-        'column': DATA_TABLE_OPERATION_INDEX,
-        'test': (value: string) => value.toLowerCase().indexOf(filter) >= 0,
-      } as any);
+        column: DATA_TABLE_OPERATION_INDEX,
+        test: (value: unknown) =>
+          value != null && String(value).toLowerCase().includes(filter),
+      });
     }
-    /* tslint:enable */
 
     if (filters.length > 0) {
       const dataView = new google.visualization.DataView(this.dataTable);

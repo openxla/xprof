@@ -10,7 +10,7 @@ import {
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {combineLatest, Observable, of} from 'rxjs';
+import {combineLatest, Observable, of, Subscription} from 'rxjs';
 import {catchError, map, switchMap, tap} from 'rxjs/operators';
 
 import {
@@ -140,21 +140,29 @@ function findNodeInTree(options: {
   return null;
 }
 
+function getNodeBuffers(
+  node: Readonly<TreeNode>,
+): readonly MemoryAnalysisBuffer[] {
+  if (node.buffers) {
+    return node.buffers;
+  }
+  return node.buffer ? [node.buffer] : [];
+}
+
 /**
- * Returns leaf buffers under `node`; `allBuffers` must be scoped to the tree's
- * memory space.
+ * Returns leaf buffers under `node` that belong to `activeBuffers`.
  */
 function getLeafBuffers(options: {
   readonly node: Readonly<TreeNode>;
-  readonly allBuffers: Readonly<MemoryAnalysisBuffer[]>;
+  readonly activeBuffers: ReadonlySet<MemoryAnalysisBuffer>;
 }): MemoryAnalysisBuffer[] {
-  const {node, allBuffers} = options;
+  const {node, activeBuffers} = options;
   if (node.isLeaf) {
-    return allBuffers.filter((b) => b['path'] === node.path);
+    return getNodeBuffers(node).filter((b) => activeBuffers.has(b));
   }
-  let leaves: MemoryAnalysisBuffer[] = [];
+  const leaves: MemoryAnalysisBuffer[] = [];
   for (const childNode of node.children) {
-    leaves = [...leaves, ...getLeafBuffers({node: childNode, allBuffers})];
+    leaves.push(...getLeafBuffers({node: childNode, activeBuffers}));
   }
   return leaves;
 }
@@ -164,7 +172,7 @@ function findTreeNodeForBuffer(options: {
   readonly buffer: MemoryAnalysisBuffer;
 }): TreeNode | null {
   const {node, buffer} = options;
-  if (node.isLeaf && node.path === buffer['path']) {
+  if (node.isLeaf && getNodeBuffers(node).includes(buffer)) {
     // Cast Readonly<TreeNode> back to TreeNode for return type
     return node as TreeNode;
   }
@@ -176,23 +184,24 @@ function findTreeNodeForBuffer(options: {
 }
 
 /**
- * Populates `set` with buffers under `node`; `allBuffers` must be scoped to the
- * tree's memory space.
+ * Populates `set` with buffers under `node` that belong to `activeBuffers`.
  */
 function populateHoveredBuffersSet(options: {
   readonly node: Readonly<TreeNode>;
   readonly set: Set<MemoryAnalysisBuffer>;
-  readonly allBuffers: Readonly<MemoryAnalysisBuffer[]>;
+  readonly activeBuffers: ReadonlySet<MemoryAnalysisBuffer>;
 }): void {
-  const {node, set, allBuffers} = options;
+  const {node, set, activeBuffers} = options;
   if (node.isLeaf) {
-    for (const b of allBuffers.filter((b) => b['path'] === node.path)) {
-      set.add(b);
+    for (const b of getNodeBuffers(node)) {
+      if (activeBuffers.has(b)) {
+        set.add(b);
+      }
     }
     return;
   }
   for (const childNode of node.children) {
-    populateHoveredBuffersSet({node: childNode, set, allBuffers});
+    populateHoveredBuffersSet({node: childNode, set, activeBuffers});
   }
 }
 
@@ -281,6 +290,9 @@ export class MemoryAnalysis {
 
   private sessionId = '';
   private host = '';
+  private loadedSessionId = '';
+  private loadedHost = '';
+  private moduleDataSubscription?: Subscription;
 
   // Displayed table columns.
   displayedColumns: string[] = [
@@ -301,6 +313,7 @@ export class MemoryAnalysis {
   private fullBuffers: MemoryAnalysisBuffer[] = [];
   // Cached buffers of the currently selected memory space.
   private spaceBuffers: MemoryAnalysisBuffer[] = [];
+  private spaceBufferSet = new Set<MemoryAnalysisBuffer>();
 
   constructor() {
     this.store.dispatch(
@@ -309,8 +322,19 @@ export class MemoryAnalysis {
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(
         tap(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] ?? this.sessionId;
-          this.host = queryParams['host'] ?? '';
+          this.moduleDataSubscription?.unsubscribe();
+          const nextSessionId = params['sessionId'] ?? this.sessionId;
+          const nextHost = queryParams['host'] ?? '';
+          const contextChanged =
+            nextSessionId !== this.loadedSessionId ||
+            nextHost !== this.loadedHost;
+          this.sessionId = nextSessionId;
+          this.host = nextHost;
+          if (contextChanged) {
+            this.moduleList = [];
+            this.selectedModule = '';
+          }
+          this.errorMessage = '';
           this.loading.set(true);
           this.store.dispatch(
             setLoadingStateAction({
@@ -319,48 +343,80 @@ export class MemoryAnalysis {
           );
         }),
         switchMap(([, queryParams]) => {
+          const requestSessionId = this.sessionId;
+          const requestHost = this.host;
           const initialModule =
             queryParams['moduleName'] ?? queryParams['module_name'];
-          const moduleList$ =
-            this.moduleList.length === 0
-              ? this.dataService.getMemoryAnalysisModuleList(
-                  this.sessionId,
-                  this.host,
-                )
-              : of(this.moduleList.join(','));
+          const shouldFetchModuleList = this.moduleList.length === 0;
+          const moduleList$ = shouldFetchModuleList
+            ? this.dataService.getMemoryAnalysisModuleList(
+                requestSessionId,
+                requestHost,
+              )
+            : of(this.moduleList.join(','));
 
           return moduleList$.pipe(
             switchMap((moduleListStr) => {
               if (moduleListStr) {
                 const moduleList = moduleListStr.split(',').filter(Boolean);
-                // Logical OR (||) is required here because initialModule can be an empty string ('') from URL query parameters, which should fall back to the first module in the list.
                 const selectedModule =
-                  initialModule || (moduleList.length > 0 ? moduleList[0] : '');
+                  initialModule && moduleList.includes(initialModule)
+                    ? initialModule
+                    : (moduleList[0] ?? '');
                 if (!selectedModule) {
-                  return of({moduleList, selectedModule, data: null});
+                  return of({
+                    sessionId: requestSessionId,
+                    host: requestHost,
+                    moduleList,
+                    selectedModule,
+                    data: null,
+                  });
                 }
                 return this.dataService
                   .getDataByModuleNameAndMemorySpace(
                     'memory_analysis',
-                    this.sessionId,
-                    this.host,
+                    requestSessionId,
+                    requestHost,
                     selectedModule,
                     0,
                   )
-                  .pipe(map((data) => ({moduleList, selectedModule, data})));
+                  .pipe(
+                    map((data) => ({
+                      sessionId: requestSessionId,
+                      host: requestHost,
+                      moduleList,
+                      selectedModule,
+                      data,
+                    })),
+                  );
               } else {
-                return of({moduleList: [], selectedModule: '', data: null});
+                return of({
+                  sessionId: requestSessionId,
+                  host: requestHost,
+                  moduleList: [],
+                  selectedModule: '',
+                  data: null,
+                });
               }
             }),
             catchError((error) => {
-              this.errorMessage = error.message;
-              return of({moduleList: [], selectedModule: '', data: null});
+              this.errorMessage =
+                error instanceof Error ? error.message : String(error);
+              return of({
+                sessionId: requestSessionId,
+                host: requestHost,
+                moduleList: [],
+                selectedModule: '',
+                data: null,
+              });
             }),
           );
         }),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe(({moduleList, selectedModule, data}) => {
+      .subscribe(({sessionId, host, moduleList, selectedModule, data}) => {
+        this.loadedSessionId = sessionId;
+        this.loadedHost = host;
         this.moduleList = moduleList;
         this.selectedModule = selectedModule;
         this.handleModuleData(data);
@@ -384,10 +440,13 @@ export class MemoryAnalysis {
   }
 
   private loadModuleData(): void {
-    this.loadModuleDataObservable()
+    this.moduleDataSubscription?.unsubscribe();
+    this.errorMessage = '';
+    this.moduleDataSubscription = this.loadModuleDataObservable()
       .pipe(
         catchError((error) => {
-          this.errorMessage = error.message;
+          this.errorMessage =
+            error instanceof Error ? error.message : String(error);
           return of(null);
         }),
         takeUntilDestroyed(this.destroyRef),
@@ -442,6 +501,7 @@ export class MemoryAnalysis {
     this.spaceBuffers = this.fullBuffers.filter(
       (b) => b.memorySpace === this.selectedSpace,
     );
+    this.spaceBufferSet = new Set(this.spaceBuffers);
     this.selectedDtype = 'all';
     this.hoveredVisualNode = null;
     this.hoveredBuffersSet.set(new Set());
@@ -529,7 +589,7 @@ export class MemoryAnalysis {
       populateHoveredBuffersSet({
         node,
         set: newSet,
-        allBuffers: this.spaceBuffers,
+        activeBuffers: this.spaceBufferSet,
       });
     }
     this.hoveredBuffersSet.set(newSet);
@@ -618,7 +678,7 @@ export class MemoryAnalysis {
     if (this.selectedVisualNode && this.selectedVisualNode !== this.rootNode) {
       buffers = getLeafBuffers({
         node: this.selectedVisualNode,
-        allBuffers: this.spaceBuffers,
+        activeBuffers: this.spaceBufferSet,
       });
     }
 
@@ -648,6 +708,7 @@ export class MemoryAnalysis {
     if (!row) {
       this.hoveredVisualNode = null;
       this.hoveredBuffersSet.set(new Set());
+      this.changeDetectorRef.markForCheck();
       return;
     }
 
@@ -656,8 +717,8 @@ export class MemoryAnalysis {
     const matchNode = findTreeNodeForBuffer({node: this.rootNode, buffer: row});
     if (matchNode) {
       this.hoveredVisualNode = matchNode;
-      const allMatches = this.spaceBuffers.filter(
-        (b) => b['path'] === matchNode.path,
+      const allMatches = getNodeBuffers(matchNode).filter((b) =>
+        this.spaceBufferSet.has(b),
       );
       this.hoveredBuffersSet.set(new Set(allMatches));
     }

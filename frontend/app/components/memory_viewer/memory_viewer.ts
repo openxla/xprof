@@ -9,14 +9,20 @@ import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  createSessionIdResolver,
+  getSessionIdFromParams,
+  resolveHostFromParams,
+  setLoadingState,
+  syncParentUrlParams,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject, Subscription} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A memory viewer component. */
@@ -37,6 +43,9 @@ export class MemoryViewer implements OnDestroy {
   private readonly communicationService = inject(CommunicationService);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private moduleListSubscription?: Subscription;
+  private moduleDataSubscription?: Subscription;
+  private initialLoadPending = false;
   sessionId = '';
   private loadedSessionId = '';
   host = '';
@@ -56,12 +65,24 @@ export class MemoryViewer implements OnDestroy {
 
   constructor() {
     // TODO - b/552140753: Deprecate matrix params in route.params in favor of route.queryParams.
+    const resolveSessionId = createSessionIdResolver();
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
-        const merged = {...params, ...queryParams};
-        this.sessionId = merged['sessionId'] || this.sessionId;
-        this.processQuery(merged);
+        const prevSessionId = this.sessionId;
+        this.sessionId = resolveSessionId(params, queryParams, this.sessionId);
+        const merged: Params = {...queryParams};
+        for (const [key, value] of Object.entries(params)) {
+          if (
+            !(key in merged) &&
+            key !== 'sessionId' &&
+            key !== 'run' &&
+            key !== 'session_id'
+          ) {
+            merged[key] = value;
+          }
+        }
+        this.processQuery(merged, prevSessionId);
         this.load();
       });
     this.store.dispatch(
@@ -69,10 +90,15 @@ export class MemoryViewer implements OnDestroy {
     );
   }
 
-  processQuery(params: Params) {
-    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+  processQuery(params: Params, prevSessionId = this.sessionId) {
+    this.sessionId = getSessionIdFromParams(undefined, params, this.sessionId);
     this.tool = params['tag'] || params['tool'] || this.tool;
-    this.host = params['host'] || this.host;
+    this.host = resolveHostFromParams(
+      params,
+      prevSessionId,
+      this.sessionId,
+      this.host,
+    );
     this.selectedModule =
       params['moduleName'] || params['module_name'] || this.selectedModule;
     const memorySpace =
@@ -102,12 +128,23 @@ export class MemoryViewer implements OnDestroy {
     }
   }
 
+  private finishInitialLoad(force = false) {
+    if (force || this.initialLoadPending) {
+      this.initialLoadPending = false;
+      this.throbber.stop();
+      setLoadingState(false, this.store);
+    }
+  }
+
   load() {
     // Note that there could be 1-2 api calls depend on the session id
     // the latency measurement will cover all period
     // as measurement and loading stops only if:
     // 1. getModuleList returned empty results, no need for further operation
     // 2. loadModule is done
+    this.moduleListSubscription?.unsubscribe();
+    this.moduleDataSubscription?.unsubscribe();
+    this.initialLoadPending = true;
     setLoadingState(true, this.store, 'Loading memory viewer data');
     this.throbber.start();
     if (this.sessionId !== this.loadedSessionId) {
@@ -128,51 +165,39 @@ export class MemoryViewer implements OnDestroy {
       this.resolveSelectedModuleAndMemorySpace();
       this.loadModule(this.selectedModule, this.selectedMemorySpaceColor, true);
     } else {
-      this.dataService
+      this.moduleListSubscription = this.dataService
         .getModuleList(this.sessionId)
         .pipe(takeUntil(this.destroyed))
-        .subscribe((moduleList: string) => {
-          if (moduleList) {
-            // `getModuleList` has more than one server-side implementation and
-            // not all of them sort, so order the list before defaulting to [0].
-            this.moduleList = moduleList.split(',').sort();
-            // No need to regenerate modules.
-            this.dataService.disableCacheRegeneration();
-            this.resolveSelectedModuleAndMemorySpace();
-            this.loadModule(
-              this.selectedModule,
-              this.selectedMemorySpaceColor,
-              true,
-            );
-          } else {
-            this.throbber.stop();
-            setLoadingState(false, this.store);
-          }
+        .subscribe({
+          next: (moduleList: string) => {
+            if (moduleList) {
+              // `getModuleList` has more than one server-side implementation and
+              // not all of them sort, so order the list before defaulting to [0].
+              this.moduleList = moduleList.split(',').sort();
+              // No need to regenerate modules.
+              this.dataService.disableCacheRegeneration();
+              this.resolveSelectedModuleAndMemorySpace();
+              this.loadModule(
+                this.selectedModule,
+                this.selectedMemorySpaceColor,
+                true,
+              );
+            } else {
+              this.finishInitialLoad();
+              this.loading = false;
+              this.moduleList = [];
+              this.selectedModule = '';
+              this.memoryViewerPreprocessResult = null;
+            }
+          },
+          error: () => {
+            this.finishInitialLoad();
+            this.loading = false;
+            this.moduleList = [];
+            this.selectedModule = '';
+            this.memoryViewerPreprocessResult = null;
+          },
         });
-    }
-  }
-
-  /**
-   * Synchronizes navigation query parameters with the parent window URL
-   * history.
-   */
-  private syncUrlParams(params: {[key: string]: string}) {
-    try {
-      const searchParams = new URLSearchParams(
-        window.parent?.location?.search ?? '',
-      );
-      for (const [key, value] of Object.entries(params)) {
-        if (value) {
-          searchParams.set(key, value);
-        }
-      }
-      const pathname = window.parent?.location?.pathname ?? '';
-      const queryString = searchParams.toString();
-      const url = `${pathname}${queryString ? `?${queryString}` : ''}`;
-      window.parent?.history?.pushState({}, '', url);
-    } catch (error) {
-      // In case window.parent access is blocked by cross-origin iframe security.
-      console.error('Failed to sync URL parameters:', error);
     }
   }
 
@@ -208,7 +233,7 @@ export class MemoryViewer implements OnDestroy {
     }
 
     if (Object.keys(urlUpdates).length > 0) {
-      this.syncUrlParams(urlUpdates);
+      syncParentUrlParams(urlUpdates);
       this.communicationService.onToolQueryParamsChange(urlUpdates);
     }
 
@@ -216,10 +241,11 @@ export class MemoryViewer implements OnDestroy {
   }
 
   loadModule(module: string, memorySpaceColor: string, initialLoad = false) {
+    this.moduleDataSubscription?.unsubscribe();
     this.loading = true;
     this.selectedModule = module;
     this.selectedMemorySpaceColor = memorySpaceColor;
-    this.dataService
+    this.moduleDataSubscription = this.dataService
       .getDataByModuleNameAndMemorySpace(
         'memory_viewer',
         this.sessionId,
@@ -228,32 +254,40 @@ export class MemoryViewer implements OnDestroy {
         Number(memorySpaceColor),
       )
       .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
-        // Page start latency  = initial load of module list + module data
-        if (initialLoad) {
-          this.throbber.stop();
-          setLoadingState(false, this.store);
-        }
-        this.loading = false;
+      .subscribe({
+        next: (data) => {
+          // Page start latency  = initial load of module list + module data
+          this.finishInitialLoad(initialLoad);
+          this.loading = false;
 
-        this.memoryViewerPreprocessResult =
-          data as MemoryViewerPreprocessResult;
+          this.memoryViewerPreprocessResult =
+            (data as MemoryViewerPreprocessResult | null) ?? null;
 
-        // If the caller of loadModule does not provide the module name (like
-        // in xsymbol use case), parse and set selectedModule and moduleList
-        // using the data from backend.
-        if (module === '') {
-          if (this.memoryViewerPreprocessResult) {
-            this.selectedModule =
-              this.memoryViewerPreprocessResult.moduleName || '';
+          // If the caller of loadModule does not provide the module name (like
+          // in xsymbol use case), parse and set selectedModule and moduleList
+          // using the data from backend.
+          if (module === '') {
+            if (this.memoryViewerPreprocessResult) {
+              this.selectedModule =
+                this.memoryViewerPreprocessResult.moduleName || '';
+              this.moduleList = [this.selectedModule];
+            } else {
+              this.selectedModule = '';
+              this.moduleList = [];
+            }
           }
-          this.moduleList = [this.selectedModule];
-        }
+        },
+        error: () => {
+          this.finishInitialLoad(initialLoad);
+          this.loading = false;
+          this.memoryViewerPreprocessResult = null;
+        },
       });
   }
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
+    this.initialLoadPending = false;
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

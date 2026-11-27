@@ -40,9 +40,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let module of hloModules; let i = index"
-              (click)="selectHloModule(module, i)"
-              [class.selected]="i === selectedRowIndex">
+            <tr *ngFor="let module of hloModules"
+              (click)="selectHloModule(module)"
+              [class.selected]="module === selectedHloModule">
               <td>{{module.id}}</td>
               <td>{{module.name}}</td>
               <td>{{module.planeName}}</td>

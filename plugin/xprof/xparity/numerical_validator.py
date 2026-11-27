@@ -10,6 +10,9 @@ Public API:
   CONTRACT_ROW_REL_L2: `contract` that gates on whole-output and per-row
     relative L2 error (see `rel_l2`) instead of ULP distance, for kernels
     whose arithmetic is intentionally lossy, such as FP8/FP4 dequantization.
+  CONTRACT_SQNR: `contract` that gates on the signal-to-quantization-noise
+    ratio and its anti-cheat checks (see `sqnr`). Every other contract also
+    reports the SQNR metrics of each floating-point output.
   make_fwd_bwd: Wrap a JAX function so its output also carries its VJP, which
     puts the backward pass under validation.
   chunk_callable: Wrap an oracle to execute in slices along one axis, for
@@ -24,6 +27,7 @@ import functools
 import importlib
 import inspect
 import logging
+import math
 import os
 import re
 import sys
@@ -34,6 +38,7 @@ import numpy as np
 
 from xprof.xparity import numerical_generator
 from xprof.xparity import rel_l2
+from xprof.xparity import sqnr
 from xprof.xparity import ulp
 
 
@@ -61,10 +66,14 @@ class OracleAudit:
   an explicit float64 callable detects it unconditionally. See
   `validate_kernels` for the difference.
 
-  Distances are measured in `dtype_str` units, like every other ULP figure in
-  this module: the oracle result is rounded to the output dtype first, so
-  `reference_max_ulp_from_oracle == 0` means the reference is the correctly
-  rounded result in that dtype.
+  Distances use the same units as the other ULP figures of the run. These are
+  usually `dtype_str` units: the oracle result is rounded to the output dtype
+  first, so `reference_max_ulp_from_oracle == 0` means the reference is the
+  correctly rounded result in that dtype. Under `CONTRACT_SQNR`, the float
+  outputs of an integer or bool run use the output dtype instead. So do the
+  outputs of a float run whose dtype has no ULP support. If the output dtype
+  has no ULP support, the distances are in float32 units (see
+  `_sqnr_ulp_view`).
   """
 
   oracle_executed_in_float64: bool
@@ -181,6 +190,10 @@ class BatchValidationResult:
   oracle_tolerance_ratio: float | None = None
   # Whole-output and per-row relative L2 check under CONTRACT_ROW_REL_L2.
   row_rel_l2: rel_l2.RowRelL2Comparison | None = None
+  # SQNR report of this output, from `sqnr.SqnrLeafReport.to_dict()`. Filled
+  # for floating-point outputs under every contract. Gates only under
+  # CONTRACT_SQNR. None for discrete outputs and shape mismatches.
+  sqnr: dict[str, Any] | None = None
 
   @property
   def max_ulp(self) -> int:
@@ -222,6 +235,11 @@ class KernelValidationReport:
   # Worst whole-output and per-row relative L2 error across batches and
   # leaves, filled when any output is gated by CONTRACT_ROW_REL_L2.
   rel_l2_summary: dict[str, Any] = dataclasses.field(default_factory=dict)
+  # Worst SQNR metrics across batches and leaves (`sqnr.merge_reports`), plus
+  # the config that produced them. When an output uses CONTRACT_SQNR, only the
+  # leaves under CONTRACT_SQNR are merged. Otherwise every report is merged.
+  # Empty when no merged output has a report.
+  sqnr_summary: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -249,6 +267,11 @@ class _BatchExecutionResult:
   max_ulp: int
   passed: bool
   oracle_ran: bool = False
+  # True if an oracle output fed the verdict (always True when `oracle_ran`).
+  # Without `oracle_ran`, only an explicit oracle callable counts: in an integer
+  # run ORACLE_AUTO re-runs `kernel_ref` on the same inputs, and nothing audits
+  # the precision of an ORACLE_AUTO output that has NaN or Inf.
+  oracle_checked: bool = False
   oracle_in_float64: bool = True
   oracle_output_dtype: str = ""
   ref_oracle_max_ulp: int = 0
@@ -274,6 +297,9 @@ _get_finfo = ulp.get_finfo
 _is_discrete_dtype = ulp.is_discrete_dtype
 _INTEGER_DTYPES = ulp.INTEGER_DTYPES
 _DTYPE_TOLERANCES = ulp.DTYPE_TOLERANCES
+# The float dtypes that `compute_ulp_distance` measures. They are the float
+# dtypes with tolerances, and a test checks that the two sets agree.
+_ULP_FLOAT_DTYPES = frozenset(ulp.DTYPE_TOLERANCES)
 # Used throughout this module; lives in `ulp` so inline harnesses can report it.
 _tolerance_ratio = ulp.tolerance_ratio
 
@@ -338,10 +364,15 @@ def _relative_diff(abs_diff: float, ref_value: float, canonical: str) -> float:
 # requires every output element to have the same bit pattern as the reference.
 # CONTRACT_ROW_REL_L2 gates on whole-output relative L2 error <= rel_l2_tol and
 # every row (last dimension) within row_factor * rel_l2_tol; see `rel_l2`.
+# CONTRACT_SQNR gates on the SQNR floor, the oracle rule and, when the config
+# is strict, the anti-cheat checks of `sqnr.audit_leaf`.
 CONTRACT_ULP = "ulp"
 CONTRACT_BITWISE = "bitwise"
 CONTRACT_ROW_REL_L2 = "row_rel_l2"
-_CONTRACTS = frozenset({CONTRACT_ULP, CONTRACT_BITWISE, CONTRACT_ROW_REL_L2})
+CONTRACT_SQNR = "sqnr"
+_CONTRACTS = frozenset(
+    {CONTRACT_ULP, CONTRACT_BITWISE, CONTRACT_ROW_REL_L2, CONTRACT_SQNR}
+)
 
 # Tiers that run only the 'normal' regime by default and the other regimes as
 # triage after a failure. Every other tier gates on the full suite.
@@ -461,17 +492,27 @@ def _compare_bitwise_host(
 
 ORACLE_AUTO = "auto"
 
-_ML_FLOAT_DTYPES = (
-    ml_dtypes.bfloat16,
-    ml_dtypes.float8_e4m3fn,
-    ml_dtypes.float8_e5m2,
-    ml_dtypes.float4_e2m1fn,
-)
-
 
 def _is_float_array(arr: np.ndarray) -> bool:
-  """True for IEEE floats and for the ml_dtypes extension floats."""
-  return np.issubdtype(arr.dtype, np.floating) or arr.dtype in _ML_FLOAT_DTYPES
+  """True for real floating-point arrays, every ml_dtypes float included.
+
+  `ml_dtypes.finfo` knows each ml_dtypes float format (float8_e8m0fnu,
+  float8_e4m3fnuz, float6_e2m3fn, ...), whose scalar types do not derive from
+  `np.floating`. For a complex dtype it describes the component dtype, so the
+  type check below excludes complex arrays.
+
+  Args:
+    arr: The array to check.
+
+  Returns:
+    True if `arr` has a real floating-point dtype.
+  """
+  if np.issubdtype(arr.dtype, np.floating):
+    return True
+  try:
+    return ml_dtypes.finfo(arr.dtype).dtype.type is arr.dtype.type
+  except (TypeError, ValueError):
+    return False
 
 
 def _promote_args_to_dtype(
@@ -1146,6 +1187,387 @@ def _primary_leaf_view(
   return view
 
 
+def _has_float_values(arr: np.ndarray) -> bool:
+  """True for real float arrays (ml_dtypes included) and NumPy complex arrays.
+
+  The ml_dtypes complex32 and bcomplex32 types are not counted, because the
+  SQNR math does not support them. When both outputs have that dtype, under
+  CONTRACT_SQNR the output gets no SQNR report and passes only on an exact
+  match, so the check fails closed.
+
+  Args:
+    arr: The array to check.
+
+  Returns:
+    True if `arr` is a real float array (ml_dtypes included) or a NumPy complex
+    array.
+  """
+  return np.iscomplexobj(arr) or _is_float_array(arr)
+
+
+def _same_dtype(
+    out_ref: np.ndarray,
+    out_cand: np.ndarray,
+    ref_dtype_name: str,
+    cand_dtype_name: str,
+) -> bool:
+  """True if both outputs have the same host dtype and original dtype name."""
+  return out_ref.dtype == out_cand.dtype and ref_dtype_name == cand_dtype_name
+
+
+def _sqnr_applies(out_ref: np.ndarray, out_cand: np.ndarray) -> bool:
+  """True if an output pair has SQNR: at least one side has float values.
+
+  The output arrays decide this, not the run-level dtype, so an integer run
+  with a float output (for example a dequantize kernel) still gets SQNR.
+
+  Args:
+    out_ref: The reference as a host array.
+    out_cand: The candidate as a host array.
+
+  Returns:
+    True if the reference or the candidate has float values.
+  """
+  return _has_float_values(out_ref) or _has_float_values(out_cand)
+
+
+def _complex_parts(arr: np.ndarray) -> np.ndarray:
+  """Returns `arr` as (real, imag) pairs along a new trailing axis of size 2."""
+  return np.stack([np.real(arr), np.imag(arr)], axis=-1)
+
+
+def _sqnr_ulp_view(
+    contract: str,
+    canonical_dtype: str,
+    is_discrete: bool,
+    out_ref: np.ndarray,
+    out_cand: np.ndarray,
+    ref_dtype_name: str,
+) -> tuple[str, bool] | None:
+  """Returns how to measure the diagnostics of a CONTRACT_SQNR float output.
+
+  The run dtype names the inputs. Under CONTRACT_SQNR, an integer or boolean
+  run can return float outputs, and any run can return complex outputs. The
+  NaN and Inf counts and the ULP figures of such an output then use the
+  output's own float dtype, and complex values are read as (real, imag)
+  pairs. The NaN and Inf counts of a complex output count each part, so
+  complex(nan, nan) counts as 2. If `compute_ulp_distance` does not support
+  the output dtype (for example float8_e8m0fnu or float8_e4m3fnuz), the ULP
+  figures are in float32 units, which hold every such value exactly. The NaN
+  and Inf scan still reads the output values. A float run whose dtype
+  `compute_ulp_distance` does not support (for example float8_e8m0fnu) also
+  uses the output dtype and the same float32 rule. Other contracts, and the
+  real float outputs of a run whose float dtype has ULP support, keep the run
+  dtype.
+
+  Args:
+    contract: The comparison contract of the output.
+    canonical_dtype: The canonical run dtype.
+    is_discrete: True if the run dtype or the candidate output is discrete.
+    out_ref: The reference as a host array.
+    out_cand: The candidate as a host array.
+    ref_dtype_name: The original dtype name of the reference.
+
+  Returns:
+    None if the run dtype applies. Otherwise (ulp_dtype, split): the dtype
+    in whose units the ULP figures are measured, and True if complex values
+    are split into (real, imag) pairs.
+  """
+  if contract != CONTRACT_SQNR:
+    return None
+  if not (_has_float_values(out_ref) and _has_float_values(out_cand)):
+    return None
+  split = np.iscomplexobj(out_ref) or np.iscomplexobj(out_cand)
+  # True for every run dtype outside _ULP_FLOAT_DTYPES: integer, bool, complex,
+  # and float formats that compute_ulp_distance does not support.
+  unsupported_run = canonical_dtype not in _ULP_FLOAT_DTYPES
+  if not (is_discrete or split or unsupported_run):
+    return None
+  if not (is_discrete or unsupported_run):
+    ulp_dtype = canonical_dtype
+  elif np.iscomplexobj(out_ref):
+    # np.finfo gives the dtype of one part of a complex dtype.
+    ulp_dtype = str(np.finfo(out_ref.dtype).dtype)
+  else:
+    ulp_dtype = ref_dtype_name
+  if resolve_canonical_dtype(ulp_dtype) not in _ULP_FLOAT_DTYPES:
+    ulp_dtype = "float32"
+  return ulp_dtype, split
+
+
+def _effective_sqnr_config(
+    config: sqnr.SqnrConfig | None, contract: str
+) -> sqnr.SqnrConfig:
+  """Returns the SQNR policy that one output uses under `contract`.
+
+  An explicit config is used as given. Without one, CONTRACT_SQNR runs the
+  strict checks, and every other contract gets a report-only SQNR with the
+  global and oracle metrics only, so that the report stays cheap on large
+  outputs.
+
+  Args:
+    config: The caller's SQNR policy, or None.
+    contract: The comparison contract of the output.
+  """
+  if config is not None:
+    return config
+  if contract == CONTRACT_SQNR:
+    return sqnr.SqnrConfig()
+  return sqnr.SqnrConfig(strict=False)
+
+
+def _precision_spec(
+    ref_dtype_name: str, cand_dtype_name: str
+) -> sqnr.PrecisionSpec:
+  """Returns the PrecisionSpec of an output from its dtypes.
+
+  The candidate dtype sets the output rounding source of an AUTO threshold,
+  because the candidate is the side whose rounding noise is measured. The
+  inputs are not rounding sources here: the reference gets the same inputs.
+
+  Args:
+    ref_dtype_name: The reference's original dtype name.
+    cand_dtype_name: The candidate's original dtype name.
+
+  Raises:
+    TypeError: If a dtype is not valid.
+  """
+  return sqnr.precision_from_dtypes(
+      reference_dtype=ref_dtype_name, candidate_dtype=cand_dtype_name
+  )
+
+
+def _restore_narrow_dtype(arr: np.ndarray, dtype_name: str) -> np.ndarray:
+  """Returns `arr` in its original float dtype if `as_host_array` widened it.
+
+  `rel_l2.as_host_array` widens PyTorch bfloat16 and float8 tensors to float32.
+  The SQNR checks read the rounding resolution from the array dtype, so they
+  need the original dtype. The cast back is exact, because every value came
+  from that dtype. Arrays that were not widened are returned unchanged.
+
+  Args:
+    arr: A host array from `rel_l2.as_host_array`.
+    dtype_name: The original dtype name that `as_host_array` returned.
+  """
+  if str(arr.dtype) == dtype_name or not _has_float_values(arr):
+    return arr
+  try:
+    dtype = np.dtype(dtype_name)
+    ml_dtypes.finfo(dtype)
+  except (TypeError, ValueError):
+    return arr
+  return arr.astype(dtype)
+
+
+def _sqnr_report(
+    out_ref: np.ndarray,
+    out_cand: np.ndarray,
+    ref_dtype_name: str,
+    cand_dtype_name: str,
+    *,
+    contract: str,
+    oracle: np.ndarray | None,
+    config: sqnr.SqnrConfig | None,
+    path: str,
+    input_views: collections.abc.Sequence[collections.abc.Sequence[Any]] = (),
+) -> dict[str, Any] | None:
+  """Returns the SQNR report of one output as a dict, or None if discrete.
+
+  The result is None only when both outputs have the same dtype and that dtype
+  is discrete (integer or boolean). The output arrays decide this, not the
+  run-level dtype, so a float output of an integer run still gets a report. A
+  dtype mismatch goes through `sqnr.audit_leaf`, which reports
+  `sqnr.STATUS_DTYPE_MISMATCH`.
+
+  This function does not raise. An error in the SQNR computation gives a
+  report with status `sqnr.STATUS_ERROR` and `passed` False. Only
+  CONTRACT_SQNR gates on that report, so the error does not change the verdict
+  of the other contracts.
+
+  The report gets no absolute tolerance. A finite reference that is all zero
+  thus passes only a candidate that is zero there. The report-only `atol` of
+  `validate_kernels` does not change this verdict.
+
+  Args:
+    out_ref: The reference as a host array.
+    out_cand: The candidate as a host array, with the reference shape.
+    ref_dtype_name: The reference's original dtype name.
+    cand_dtype_name: The candidate's original dtype name.
+    contract: The comparison contract of the output. See
+      `_effective_sqnr_config`.
+    oracle: The oracle output, when an oracle ran.
+    config: The caller's SQNR policy, or None for the contract default.
+    path: Output leaf name for messages.
+    input_views: Kernel inputs for the input-delta check of a strict config, as
+      `_sqnr_input_views` returns them. Empty skips that check.
+  """
+  if _same_dtype(
+      out_ref, out_cand, ref_dtype_name, cand_dtype_name
+  ) and not _sqnr_applies(out_ref, out_cand):
+    return None
+  config = _effective_sqnr_config(config, contract)
+  try:
+    report = sqnr.audit_leaf(
+        [(
+            _restore_narrow_dtype(out_ref, ref_dtype_name),
+            _restore_narrow_dtype(out_cand, cand_dtype_name),
+        )],
+        config=config,
+        precision=_precision_spec(ref_dtype_name, cand_dtype_name),
+        input_views=input_views,
+        oracle_pairs=None if oracle is None else [oracle],
+        path=path,
+    )
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.exception("SQNR report failed for output %r.", path or "output")
+    report = sqnr.SqnrLeafReport(
+        path=path,
+        dtype=ref_dtype_name,
+        status=sqnr.STATUS_ERROR,
+        passed=False,
+        threshold_db=None,
+        threshold_source="",
+        gate_math=config.gate_math,
+        failed_reasons=(
+            f"{path or 'output'}: sqnr error: {type(e).__name__}: {e}",
+        ),
+    )
+  return report.to_dict()
+
+
+def _sqnr_passed(
+    report: dict[str, Any] | None,
+    out_cand: np.ndarray,
+    out_ref: np.ndarray,
+) -> bool:
+  """Returns the CONTRACT_SQNR verdict: the SQNR report, or exact equality.
+
+  Without a report, the candidate must have the reference dtype and equal
+  values. `np.array_equal` alone converts dtypes, so int32 [0, 1] would equal
+  float32 [0.0, 1.0].
+
+  Args:
+    report: The SQNR report of the output, or None for a discrete output.
+    out_cand: The candidate as a host array.
+    out_ref: The reference as a host array.
+  """
+  if report is None:
+    return bool(
+        out_cand.dtype == out_ref.dtype and np.array_equal(out_cand, out_ref)
+    )
+  return bool(report["passed"])
+
+
+class _SqnrInputs:
+  """The kernel inputs of one batch call, copied to the host on demand.
+
+  The SQNR input-delta check of every strict output leaf reads the inputs
+  through one instance, so each input is copied to the host at most once per
+  batch call, and not at all when no leaf is strict. Nested inputs (tuples,
+  lists, dicts and registered pytree nodes) are flattened to their leaves.
+
+  The conversion fails soft: an input that cannot be copied to the host (for
+  example a deleted or donated JAX buffer, an array that spans devices this
+  process cannot address, or a packed PyTorch dtype) is skipped, with one log
+  message per batch call.
+  """
+
+  def __init__(
+      self,
+      args: collections.abc.Sequence[Any],
+      kwargs: collections.abc.Mapping[str, Any],
+  ):
+    self._args = tuple(args)
+    self._kwargs = dict(kwargs)
+    self._leaves: list[Any] | None = None
+    self._host: dict[int, np.ndarray | None] = {}
+    self._logged = False
+
+  def arrays(self, size: int) -> list[np.ndarray]:
+    """Returns the host copies of the array inputs with `size` elements.
+
+    Inputs with another element count are not copied.
+
+    Args:
+      size: The element count of the output leaf.
+    """
+    if self._leaves is None:
+      try:
+        flat = _flatten_output((self._args, self._kwargs))
+      except (TypeError, ValueError) as e:
+        # For example a dict input whose keys cannot be sorted.
+        logging.warning("SQNR input-delta check skipped the inputs: %s", e)
+        flat = []
+      self._leaves = [leaf for _, leaf in flat]
+    out = []
+    for index, value in enumerate(self._leaves):
+      if not (hasattr(value, "shape") and hasattr(value, "dtype")):
+        continue
+      if index not in self._host:
+        try:
+          if math.prod(tuple(value.shape)) != size:
+            continue
+          self._host[index], _ = rel_l2.as_host_array(value)
+        except (TypeError, ValueError, RuntimeError) as e:
+          self._host[index] = None
+          if not self._logged:
+            self._logged = True
+            logging.warning(
+                "SQNR input-delta check skipped input %d: %s: %s",
+                index,
+                type(e).__name__,
+                e,
+            )
+      raw = self._host.get(index)
+      if raw is not None and raw.size == size:
+        out.append(raw)
+    return out
+
+
+def _sqnr_input_views(
+    inputs: _SqnrInputs,
+    out_ref: np.ndarray,
+) -> list[list[np.ndarray]]:
+  """Returns the kernel inputs as views for the SQNR input-delta check.
+
+  The check catches a candidate that returns an input (or nearly so) when the
+  reference adds a small update to it. Only array inputs with the element
+  count and complexness of the output are kept. Boolean inputs, and integer
+  inputs of a one-element output, are skipped. An input of another shape is
+  given in its swapped (last two axes) and reshaped forms. `sqnr.audit_leaf`
+  adds the transpose of a square same-shape view itself.
+
+  Args:
+    inputs: The kernel inputs of the batch call.
+    out_ref: The reference output as a host array.
+
+  Returns:
+    One single-shard view per kept input form.
+  """
+  shape = out_ref.shape
+  is_complex = np.iscomplexobj(out_ref)
+  views: list[list[np.ndarray]] = []
+  for raw in inputs.arrays(out_ref.size):
+    if np.iscomplexobj(raw) != is_complex or raw.dtype == np.bool_:
+      continue
+    if raw.dtype.kind in "iu" and raw.size <= 1:
+      continue
+    if raw.shape == shape:
+      views.append([raw])
+      continue
+    swapped = np.swapaxes(raw, -2, -1) if raw.ndim >= 2 else None
+    if swapped is not None and swapped.shape == shape:
+      views.append([swapped])
+    reshaped = raw.reshape(shape)
+    if (
+        swapped is None
+        or swapped.shape != shape
+        or not np.array_equal(reshaped, swapped)
+    ):
+      views.append([reshaped])
+  return views
+
+
 def _execute_pytree_batch(
     batch: dict[str, Any],
     ref_leaves: list[tuple[str, Any]],
@@ -1177,6 +1599,8 @@ def _execute_pytree_batch(
 
   args = batch.get("args", (batch.get("tensor"),))
   kwargs = batch.get("kwargs", {})
+  # One host copy of the inputs serves every strict leaf.
+  sqnr_inputs = _SqnrInputs(args, kwargs)
   subs: list[_BatchExecutionResult] = []
   for index, (path, ref_leaf) in enumerate(ref_leaves):
     leaf_oracle = kernel_oracle
@@ -1190,6 +1614,8 @@ def _execute_pytree_batch(
         ),
         kernel_oracle=leaf_oracle,
         contract=contract_by_leaf.get(path, contract),
+        leaf_path=path,
+        sqnr_inputs=sqnr_inputs,
         **gate_kwargs,
     )
     subs.append(sub)
@@ -1221,6 +1647,7 @@ def _execute_pytree_batch(
       max_ulp=max(sub.max_ulp for sub in subs),
       passed=passed,
       oracle_ran=bool(oracle_subs),
+      oracle_checked=any(sub.oracle_checked for sub in subs),
       oracle_in_float64=all(sub.oracle_in_float64 for sub in oracle_subs),
       oracle_output_dtype=(
           oracle_subs[0].oracle_output_dtype if oracle_subs else ""
@@ -1263,6 +1690,9 @@ def _execute_single_batch(
     contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
     user_tolerance: tuple[float, float] | None = None,
     row_l2_gate: tuple[float, float, float] | None = None,
+    sqnr_config: sqnr.SqnrConfig | None = None,
+    leaf_path: str = "",
+    sqnr_inputs: _SqnrInputs | None = None,
 ) -> _BatchExecutionResult:
   """Executes and validates a single batch between reference and candidate.
 
@@ -1281,6 +1711,11 @@ def _execute_single_batch(
     user_tolerance: Optional report-only (atol, rtol).
     row_l2_gate: (rel_l2_tol, row_factor, row_norm_floor), required when this
       output is gated by CONTRACT_ROW_REL_L2.
+    sqnr_config: SQNR policy. None uses the contract default (see
+      `_effective_sqnr_config`).
+    leaf_path: Name of this output leaf in SQNR messages.
+    sqnr_inputs: The host copies of the batch inputs, shared by the leaves of a
+      pytree output. None makes one for this call.
 
   Returns:
     The batch verdict together with the oracle and output data that
@@ -1310,6 +1745,7 @@ def _execute_single_batch(
         recommended_ulp=recommended_ulp,
         user_tolerance=user_tolerance,
         row_l2_gate=row_l2_gate,
+        sqnr_config=sqnr_config,
     )
 
   # `as_host_array` also accepts PyTorch tensors on any device.
@@ -1332,6 +1768,18 @@ def _execute_single_batch(
       or np.issubdtype(out_cand.dtype, np.integer)
       or out_cand.dtype == np.bool_
   )
+  # The NaN and Inf counts and the ULP figures read `diag_ref` and
+  # `diag_cand` in units of `ulp_dtype`. These are the outputs and the run
+  # dtype, except for the CONTRACT_SQNR outputs that `_sqnr_ulp_view`
+  # describes. The oracle statistics still follow the run-level
+  # `is_discrete`.
+  ulp_view = _sqnr_ulp_view(
+      contract, canonical_dtype, is_discrete, out_ref, out_cand, ref_dtype_name
+  )
+  ulp_dtype, split = ulp_view or (dtype_str, False)
+  diag_ref = _complex_parts(out_ref) if split else out_ref
+  diag_cand = _complex_parts(out_cand) if split else out_cand
+  diag_discrete = is_discrete and ulp_view is None
 
   narrow_warning = None
   if not is_discrete:
@@ -1354,9 +1802,9 @@ def _execute_single_batch(
   first_non_finite_index: tuple[int, ...] | None = None
   finite_max_ulp: int | None = None
 
-  if not is_discrete:
-    out_cand_f32 = out_cand.astype(np.float32)
-    out_ref_f32 = out_ref.astype(np.float32)
+  if not diag_discrete:
+    out_cand_f32 = diag_cand.astype(np.float32)
+    out_ref_f32 = diag_ref.astype(np.float32)
     cand_nan = np.isnan(out_cand_f32)
     ref_nan = np.isnan(out_ref_f32)
     cand_inf = np.isinf(out_cand_f32)
@@ -1372,13 +1820,14 @@ def _execute_single_batch(
       finite_mask = ~non_finite_mask
       if np.any(finite_mask):
         finite_ulp_arr = compute_ulp_distance(
-            out_cand[finite_mask], out_ref[finite_mask], dtype_str
+            diag_cand[finite_mask], diag_ref[finite_mask], ulp_dtype
         )
         finite_max_ulp = int(np.max(finite_ulp_arr))
   else:
     has_nan_or_inf = False
 
   oracle_ran = False
+  out_oracle: np.ndarray | None = None
   oracle_in_float64 = True
   oracle_output_dtype = ""
   batch_ref_oracle_ulp = None
@@ -1391,7 +1840,17 @@ def _execute_single_batch(
   cand_oracle_max_abs = 0.0
   oracle_tolerance_ratio: float | None = None
 
-  if kernel_oracle is not None and not is_discrete and not has_nan_or_inf:
+  # The ULP and max-abs oracle statistics need finite outputs of a float run.
+  # Under CONTRACT_SQNR, the oracle also runs for every output with float
+  # values, because the SQNR oracle checks gate the verdict: they catch NaN or
+  # Inf that the reference and candidate share but the oracle does not have,
+  # and they judge float outputs of an integer run. Other contracts keep their
+  # oracle calls as before.
+  oracle_stats = not is_discrete and not has_nan_or_inf
+  if kernel_oracle is not None and (
+      oracle_stats
+      or (contract == CONTRACT_SQNR and _sqnr_applies(out_ref, out_cand))
+  ):
     try:
       if isinstance(kernel_oracle, str):
         oracle_args, oracle_kwargs = _promote_args_to_dtype(
@@ -1438,13 +1897,15 @@ def _execute_single_batch(
           f" {out_oracle.shape} != reference shape {out_ref.shape}"
       )
 
+  if out_oracle is not None and oracle_stats:
     oracle_ran = True
     oracle_output_dtype = str(out_oracle.dtype)
-    if out_oracle.dtype != np.float64:
+    diag_oracle = _complex_parts(out_oracle) if split else out_oracle
+    if diag_oracle.dtype != np.float64:
       oracle_in_float64 = False
 
-    ref_oracle_arr = compute_ulp_distance(out_ref, out_oracle, dtype_str)
-    cand_oracle_arr = compute_ulp_distance(out_cand, out_oracle, dtype_str)
+    ref_oracle_arr = compute_ulp_distance(diag_ref, diag_oracle, ulp_dtype)
+    cand_oracle_arr = compute_ulp_distance(diag_cand, diag_oracle, ulp_dtype)
     batch_ref_oracle_ulp = int(np.max(ref_oracle_arr))
     batch_cand_oracle_ulp = int(np.max(cand_oracle_arr))
     ref_oracle_max_ulp = batch_ref_oracle_ulp
@@ -1452,14 +1913,14 @@ def _execute_single_batch(
     ref_oracle_p99_9 = float(np.percentile(ref_oracle_arr, 99.9))
     cand_oracle_p99_9 = float(np.percentile(cand_oracle_arr, 99.9))
 
-    out_oracle_f64 = out_oracle.astype(np.float64)
-    out_ref_f64 = out_ref.astype(np.float64)
-    out_cand_f64 = out_cand.astype(np.float64)
+    out_oracle_f64 = diag_oracle.astype(np.float64)
+    out_ref_f64 = diag_ref.astype(np.float64)
+    out_cand_f64 = diag_cand.astype(np.float64)
     ref_oracle_max_abs = float(np.max(np.abs(out_ref_f64 - out_oracle_f64)))
     cand_oracle_max_abs = float(np.max(np.abs(out_cand_f64 - out_oracle_f64)))
     if user_tolerance is not None:
       oracle_tolerance_ratio = _tolerance_ratio(
-          out_cand, out_oracle, *user_tolerance
+          diag_cand, diag_oracle, *user_tolerance
       )
 
   worst_offender: WorstOffender | None = None
@@ -1467,7 +1928,7 @@ def _execute_single_batch(
     max_ulp = 999999
     p99_9 = 999999.0
     mean_ulp = 999999.0
-    hist = {"<=1_ulp": 0, "<=2_ulp": 0, ">2_ulp": out_cand.size}
+    hist = {"<=1_ulp": 0, "<=2_ulp": 0, ">2_ulp": diag_cand.size}
     allclose_passed = False
     passed = False
     context_obj = UlpContext(
@@ -1480,10 +1941,10 @@ def _execute_single_batch(
     )
     if first_non_finite_index is not None:
       ref_v = float(
-          np.asarray(out_ref, dtype=np.float64)[first_non_finite_index]
+          np.asarray(diag_ref, dtype=np.float64)[first_non_finite_index]
       )
       cand_v = float(
-          np.asarray(out_cand, dtype=np.float64)[first_non_finite_index]
+          np.asarray(diag_cand, dtype=np.float64)[first_non_finite_index]
       )
       non_finite_total = nan_count + inf_count
       worst_offender = WorstOffender(
@@ -1494,13 +1955,13 @@ def _execute_single_batch(
           rel_diff=float("nan"),
           mismatch_count=non_finite_total,
           mismatch_ratio=(
-              float(non_finite_total) / float(out_cand.size)
-              if out_cand.size > 0
+              float(non_finite_total) / float(diag_cand.size)
+              if diag_cand.size > 0
               else 0.0
           ),
       )
   else:
-    ulp_arr = compute_ulp_distance(out_cand, out_ref, dtype_str)
+    ulp_arr = compute_ulp_distance(diag_cand, diag_ref, ulp_dtype)
     max_ulp = int(np.max(ulp_arr))
     finite_max_ulp = max_ulp
     p99_9 = float(np.percentile(ulp_arr, 99.9))
@@ -1514,28 +1975,33 @@ def _execute_single_batch(
     }
     effective_max_ulp = actual_max_allowed_ulp
     effective_p99_9 = (
-        0.0 if is_discrete and p99_9_allowed_ulp == 1 else p99_9_allowed_ulp
+        0.0 if diag_discrete and p99_9_allowed_ulp == 1 else p99_9_allowed_ulp
     )
     ulp_passed = bool(max_ulp <= effective_max_ulp and p99_9 <= effective_p99_9)
 
-    if is_discrete:
+    if diag_discrete:
       allclose_passed = bool(np.array_equal(out_cand, out_ref))
     else:
-      dtype_eps, atol_val = _DTYPE_TOLERANCES.get(canonical_dtype, (1e-3, 1e-5))
+      tol_dtype = (
+          canonical_dtype
+          if ulp_view is None
+          else resolve_canonical_dtype(ulp_dtype)
+      )
+      dtype_eps, atol_val = _DTYPE_TOLERANCES.get(tol_dtype, (1e-3, 1e-5))
       rtol_val = actual_max_allowed_ulp * dtype_eps
-      cand_f32 = out_cand.astype(np.float32)
-      ref_f32 = out_ref.astype(np.float32)
+      cand_f32 = diag_cand.astype(np.float32)
+      ref_f32 = diag_ref.astype(np.float32)
       allclose_passed = bool(
           np.allclose(cand_f32, ref_f32, rtol=rtol_val, atol=atol_val)
       )
 
-    if out_cand.size > 0:
+    if diag_cand.size > 0:
       flat_max_idx = int(np.argmax(ulp_arr))
       max_idx = tuple(
           int(x) for x in np.unravel_index(flat_max_idx, ulp_arr.shape)
       )
-      ref_v = float(np.asarray(out_ref, dtype=np.float64)[max_idx])
-      cand_v = float(np.asarray(out_cand, dtype=np.float64)[max_idx])
+      ref_v = float(np.asarray(diag_ref, dtype=np.float64)[max_idx])
+      cand_v = float(np.asarray(diag_cand, dtype=np.float64)[max_idx])
       abs_d = abs(cand_v - ref_v)
       rel_d = abs_d / (abs(ref_v) + 1e-12)
       mismatch_cnt = int(np.sum(ulp_arr > effective_max_ulp))
@@ -1546,7 +2012,7 @@ def _execute_single_batch(
           abs_diff=abs_d,
           rel_diff=rel_d,
           mismatch_count=mismatch_cnt,
-          mismatch_ratio=float(mismatch_cnt) / float(out_cand.size),
+          mismatch_ratio=float(mismatch_cnt) / float(diag_cand.size),
       )
 
     passed = bool(ulp_passed and allclose_passed)
@@ -1601,6 +2067,31 @@ def _execute_single_batch(
     )
     passed = row_cmp.passed
 
+  # Only the strict checks read input views, so a report-only SQNR does not
+  # convert the inputs. An output without float values has no input-delta
+  # check. The output arrays decide this, not the run-level dtype.
+  strict_sqnr = (
+      _sqnr_applies(out_ref, out_cand)
+      and _effective_sqnr_config(sqnr_config, contract).strict
+  )
+  sqnr_report = _sqnr_report(
+      out_ref,
+      out_cand,
+      ref_dtype_name,
+      cand_dtype_name,
+      contract=contract,
+      oracle=out_oracle,
+      config=sqnr_config,
+      path=leaf_path,
+      input_views=(
+          _sqnr_input_views(sqnr_inputs or _SqnrInputs(args, kwargs), out_ref)
+          if strict_sqnr
+          else ()
+      ),
+  )
+  if contract == CONTRACT_SQNR:
+    passed = _sqnr_passed(sqnr_report, out_cand, out_ref)
+
   if contract == CONTRACT_BITWISE:
     passed = bitwise_cmp.equal
     if bitwise_cmp.equal and has_nan_or_inf:
@@ -1631,12 +2122,13 @@ def _execute_single_batch(
       worst_offender=worst_offender,
       bitwise=bitwise_cmp,
       tolerance_ratio=(
-          _tolerance_ratio(out_cand, out_ref, *user_tolerance)
+          _tolerance_ratio(diag_cand, diag_ref, *user_tolerance)
           if user_tolerance is not None
           else None
       ),
       oracle_tolerance_ratio=oracle_tolerance_ratio,
       row_rel_l2=row_cmp,
+      sqnr=sqnr_report,
   )
 
   return _BatchExecutionResult(
@@ -1644,6 +2136,8 @@ def _execute_single_batch(
       max_ulp=max_ulp,
       passed=passed,
       oracle_ran=oracle_ran,
+      oracle_checked=out_oracle is not None
+      and (oracle_ran or not isinstance(kernel_oracle, str)),
       oracle_in_float64=oracle_in_float64,
       oracle_output_dtype=oracle_output_dtype,
       ref_oracle_max_ulp=ref_oracle_max_ulp,
@@ -1663,6 +2157,7 @@ class _ValidationAccumulator:
     self.overall_max_ulp: int = 0
     self.failed_batches: int = 0
     self.oracle_ran: bool = False
+    self.oracle_checked: bool = False
     self.oracle_in_float64: bool = True
     self.oracle_output_dtype: str = "float64"
     self.oracle_ref_max_ulp: int = 0
@@ -1678,6 +2173,8 @@ class _ValidationAccumulator:
     self.overall_max_ulp = max(self.overall_max_ulp, res.max_ulp)
     if not res.passed:
       self.failed_batches += 1
+    if res.oracle_checked:
+      self.oracle_checked = True
     if res.oracle_ran:
       self.oracle_ran = True
       if not res.oracle_in_float64:
@@ -1780,6 +2277,219 @@ def _summarize_row_rel_l2(
   return summary
 
 
+def leaf_contract(
+    contract: str | None,
+    contract_by_leaf: collections.abc.Mapping[str, str] | None,
+    leaf_path: str | None,
+) -> str | None:
+  """Returns the effective contract of one output leaf.
+
+  A leaf without an override, and an output that is not a pytree (leaf path
+  None or ""), use the run contract.
+
+  Args:
+    contract: The comparison contract of the run.
+    contract_by_leaf: Per-leaf contract overrides, or None.
+    leaf_path: The leaf path of the output, or None for a plain array.
+  """
+  if not leaf_path:
+    return contract
+  return (contract_by_leaf or {}).get(leaf_path, contract)
+
+
+def _summarize_sqnr(
+    batch_results: collections.abc.Sequence[BatchValidationResult],
+    config: sqnr.SqnrConfig,
+    contract: str,
+    contract_by_leaf: collections.abc.Mapping[str, str],
+) -> dict[str, Any]:
+  """Returns the worst SQNR figures across batches and output leaves.
+
+  When an output uses CONTRACT_SQNR, only the leaves whose contract is
+  CONTRACT_SQNR are merged, so the report-only SQNR of a leaf under another
+  contract does not change the run-level SQNR verdict. Each leaf keeps its own
+  `sqnr` report. When no output uses CONTRACT_SQNR, every report is merged.
+
+  Args:
+    batch_results: The batch results of the run.
+    config: The SQNR policy of the run.
+    contract: The comparison contract of the run.
+    contract_by_leaf: Per-leaf contract overrides for pytree outputs.
+
+  Returns:
+    `sqnr.merge_reports` over the selected leaf reports, plus the config, the
+    threshold of each leaf, the report and failure counts and the batch and
+    leaf with the lowest `sqnr_db`. `threshold_db` and `threshold_source` are
+    the threshold of that leaf. Empty when no selected output has a report.
+  """
+  sqnr_leaves_only = CONTRACT_SQNR in (contract, *contract_by_leaf.values())
+  leaf_reports: list[tuple[str, str | None, dict[str, Any]]] = []
+  for batch in batch_results:
+    leaves = batch.leaf_results.values() if batch.leaf_results else [batch]
+    for leaf in leaves:
+      if leaf.sqnr is None:
+        continue
+      own_contract = leaf_contract(contract, contract_by_leaf, leaf.leaf_path)
+      if sqnr_leaves_only and own_contract != CONTRACT_SQNR:
+        continue
+      leaf_reports.append((batch.batch_name, leaf.leaf_path, leaf.sqnr))
+  if not leaf_reports:
+    return {}
+  summary = sqnr.merge_reports([report for _, _, report in leaf_reports])
+  thresholds = sorted({
+      (report["threshold_db"], report["threshold_source"])
+      for _, _, report in leaf_reports
+      if report.get("threshold_db") is not None
+  })
+  # `threshold_db` pairs with the worst `sqnr_db`, so both come from the same
+  # leaf. Without a measured leaf that has a threshold, it is the highest
+  # threshold.
+  threshold = thresholds[-1] if thresholds else (None, None)
+  measured = [
+      entry for entry in leaf_reports if entry[2].get("sqnr_db") is not None
+  ]
+  if measured:
+    worst_batch, worst_leaf, worst_report = min(
+        measured, key=lambda entry: entry[2]["sqnr_db"]
+    )
+    summary.update(worst_sqnr_batch=worst_batch, worst_sqnr_leaf=worst_leaf)
+    if worst_report.get("threshold_db") is not None:
+      threshold = (
+          worst_report["threshold_db"],
+          worst_report["threshold_source"],
+      )
+  summary.update(
+      config=dataclasses.asdict(config),
+      gate_math=config.gate_math,
+      threshold_db=threshold[0],
+      threshold_source=threshold[1],
+      thresholds=[
+          {"threshold_db": db, "threshold_source": source}
+          for db, source in thresholds
+      ],
+      reports=len(leaf_reports),
+      failed_reports=sum(
+          1 for _, _, report in leaf_reports if not report["passed"]
+      ),
+  )
+  return summary
+
+
+def _threshold_text(sqnr_summary: collections.abc.Mapping[str, Any]) -> str:
+  """Returns the threshold of an SQNR summary for a summary message."""
+  threshold_db = sqnr_summary.get("threshold_db")
+  if threshold_db is None:
+    return "n/a"
+  return f"{threshold_db:.2f} dB ({sqnr_summary.get('threshold_source')})"
+
+
+def _format_sqnr_summary(
+    batch_results: collections.abc.Sequence[BatchValidationResult],
+    sqnr_summary: collections.abc.Mapping[str, Any],
+    config: sqnr.SqnrConfig,
+    contract: str,
+    contract_by_leaf: collections.abc.Mapping[str, str],
+    *,
+    failed_batches: int,
+) -> str:
+  """Returns the summary message of a run under CONTRACT_SQNR.
+
+  Args:
+    batch_results: The batch results of the run.
+    sqnr_summary: The run-level SQNR summary from `_summarize_sqnr`.
+    config: The SQNR policy of the run.
+    contract: The comparison contract of the run.
+    contract_by_leaf: Per-leaf contract overrides for pytree outputs.
+    failed_batches: The number of failed batches. Zero means the run passed.
+  """
+  if failed_batches == 0:
+    worst_db = sqnr_summary.get("sqnr_db")
+    worst = f"{worst_db:.2f} dB" if worst_db is not None else "n/a"
+    return (
+        "PASSED: Candidate meets the SQNR contract across"
+        f" {len(batch_results)} batches (worst sqnr_db {worst}, threshold"
+        f" {_threshold_text(sqnr_summary)}, gate_math"
+        f" {config.gate_math}) (contract: sqnr)."
+    )
+  first_bad = next(b for b in batch_results if not b.passed)
+  leaf = f" output leaf {first_bad.leaf_path}," if first_bad.leaf_path else ""
+  bad_contract = leaf_contract(contract, contract_by_leaf, first_bad.leaf_path)
+  if bad_contract != CONTRACT_SQNR:
+    # The report-only SQNR of a leaf under another contract does not explain
+    # its failure.
+    detail = f"failed its {bad_contract} contract."
+  else:
+    detail = _sqnr_failure_detail(first_bad)
+  return (
+      "FAILED: Candidate misses the SQNR contract in"
+      f" {failed_batches}/{len(batch_results)} batches (contract:"
+      f" sqnr). First failure: batch '{first_bad.batch_name}' (regime"
+      f" '{first_bad.regime}'),{leaf} {detail}"
+  )
+
+
+def _sqnr_failure_detail(result: BatchValidationResult) -> str:
+  """Returns why a failed output under CONTRACT_SQNR failed, for a summary."""
+  reasons = (result.sqnr or {}).get("failed_reasons") or []
+  if reasons:
+    return "; ".join(str(r) for r in reasons[:3])
+  if result.sqnr is None:
+    return "discrete output differs from the reference."
+  return f"SQNR status {result.sqnr.get('sqnr_status')}."
+
+
+def _sqnr_leaf_failure_line(
+    batch_results: collections.abc.Sequence[BatchValidationResult],
+    contract: str,
+    contract_by_leaf: collections.abc.Mapping[str, str],
+) -> str | None:
+  """Returns a summary line for the first failed CONTRACT_SQNR leaf.
+
+  It serves a run under another contract. The summary of such a run uses the
+  words of the run contract, so this line gives the SQNR reason of a leaf that
+  `contract_by_leaf` moved to CONTRACT_SQNR.
+
+  Args:
+    batch_results: The batch results of the run.
+    contract: The comparison contract of the run.
+    contract_by_leaf: Per-leaf contract overrides for pytree outputs.
+
+  Returns:
+    A summary line, or None if no CONTRACT_SQNR leaf failed.
+  """
+  for batch in batch_results:
+    if batch.passed or not batch.leaf_results:
+      continue
+    for leaf in batch.leaf_results.values():
+      own_contract = leaf_contract(contract, contract_by_leaf, leaf.leaf_path)
+      if leaf.passed or own_contract != CONTRACT_SQNR:
+        continue
+      return (
+          f"SQNR failure: batch '{batch.batch_name}' (regime"
+          f" '{batch.regime}'), output leaf {leaf.leaf_path} (contract:"
+          f" sqnr): {_sqnr_failure_detail(leaf)}"
+      )
+  return None
+
+
+def stored_sqnr_config(
+    stored: collections.abc.Mapping[str, Any],
+) -> sqnr.SqnrConfig:
+  """Rebuilds the SQNR policy that a failure dump saved as a dict.
+
+  A missing key takes the `sqnr.SqnrConfig` default, so a dump from an older
+  version still loads. An unknown key is ignored.
+
+  Args:
+    stored: The `sqnr_config` entry of the dump metadata.
+
+  Returns:
+    The config.
+  """
+  known = {field.name for field in dataclasses.fields(sqnr.SqnrConfig)}
+  return sqnr.SqnrConfig(**{k: v for k, v in stored.items() if k in known})
+
+
 def replay_failure_dump(
     path: str | os.PathLike[str],
     kernel_ref: collections.abc.Callable[..., Any],
@@ -1790,6 +2500,7 @@ def replay_failure_dump(
     rel_l2_tol: float | None = None,
     row_factor: float | None = None,
     row_norm_floor: float | None = None,
+    sqnr_config: sqnr.SqnrConfig | None = None,
 ) -> KernelValidationReport:
   """Re-runs a batch saved by `validate_kernels(dump_failures_to=...)`.
 
@@ -1807,6 +2518,8 @@ def replay_failure_dump(
     rel_l2_tol: Overrides the stored CONTRACT_ROW_REL_L2 tolerance.
     row_factor: Overrides the stored per-row factor.
     row_norm_floor: Overrides the stored row-norm floor.
+    sqnr_config: Overrides the stored SQNR policy. A dump without one uses the
+      contract default, as in `validate_kernels`.
 
   Returns:
     A KernelValidationReport for the saved batch.
@@ -1822,6 +2535,9 @@ def replay_failure_dump(
       return override
     value = info.get(key)
     return default if value is None else value
+
+  if sqnr_config is None and info.get("sqnr_config"):
+    sqnr_config = stored_sqnr_config(info["sqnr_config"])
 
   return validate_kernels(
       kernel_ref,
@@ -1840,6 +2556,7 @@ def replay_failure_dump(
       row_norm_floor=stored(
           row_norm_floor, "row_norm_floor", rel_l2.ROW_NORM_FLOOR
       ),
+      sqnr_config=sqnr_config,
   )
 
 
@@ -1867,6 +2584,7 @@ def validate_kernels(
     rel_l2_tol: float | None = None,
     row_factor: float = rel_l2.ROW_FACTOR,
     row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
+    sqnr_config: sqnr.SqnrConfig | None = None,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1892,14 +2610,22 @@ def validate_kernels(
       dtypes run 'normal' only. The report's `coverage` lists the regimes that
       ran and those that did not.
     kernel_oracle: Optional high-precision reference used to report how far
-      `kernel_ref` itself sits from an exact result. Report-only: it populates
-      `oracle_audit` and never changes the pass/fail verdict. Two modes: * An
-      explicit host float64 callable is independent of `kernel_ref` and catches
-      every source of reference error, including accelerator default-precision
-      truncation (TPU MXU bf16 passes, GPU TF32). * ORACLE_AUTO ("auto") re-runs
-      `kernel_ref` with its floating-point arguments promoted to float64. It
-      sees only the loss that the input dtype controls. Requires jax_enable_x64
-      for JAX references.
+      `kernel_ref` itself sits from an exact result. It populates `oracle_audit`
+      for finite outputs of a float run. Under CONTRACT_ULP, CONTRACT_BITWISE
+      and CONTRACT_ROW_REL_L2 it is report-only and never changes the verdict.
+      Under CONTRACT_SQNR it gates the verdict: the SQNR rule measures the
+      candidate against the oracle (see `sqnr.audit_leaf`), so a candidate far
+      from the oracle, a reference below the floor against the oracle, or a NaN
+      or Inf that the oracle does not have fails the output. Then
+      `correctness_basis` is "AGREEMENT_AND_ORACLE". An explicit oracle callable
+      also gives it for an integer run with float outputs or for NaN or Inf
+      outputs, where `oracle_audit` stays None. ORACLE_AUTO does not give it in
+      those cases. Two modes: * An explicit host float64 callable is independent
+      of `kernel_ref` and catches every source of reference error, including
+      accelerator default-precision truncation (TPU MXU bf16 passes, GPU TF32).
+      * ORACLE_AUTO ("auto") re-runs `kernel_ref` with its floating-point
+      arguments promoted to float64. It sees only the loss that the input dtype
+      controls. Requires jax_enable_x64 for JAX references.
     device_kind: Device/backend identifier (e.g. "tpu", "gpu", "cpu").
       Auto-detected when omitted.
     contract: CONTRACT_ULP (default) gates on ULP distance and allclose.
@@ -1913,6 +2639,17 @@ def validate_kernels(
       Use it for kernels whose arithmetic is intentionally lossy (FP8/FP4
       dequantization, different accumulation order), where a few-ULP gate is too
       strict. ULP statistics are still reported but do not decide the verdict.
+      CONTRACT_SQNR ("sqnr") passes when every floating-point output meets the
+      SQNR floor of `sqnr_config` and, under a strict policy, the anti-cheat
+      checks; see `sqnr_config`. A discrete output must equal the reference,
+      with the same dtype. Use it for lossy kernels whose error is best stated
+      as a noise ratio in dB. Under CONTRACT_SQNR, the NaN and Inf counts and
+      the ULP figures of a float output of an integer or boolean run use the
+      output dtype. If the ULP code does not support that dtype (for example
+      float8_e8m0fnu), the ULP figures are in float32 units. Complex outputs are
+      read as (real, imag) pairs along a new trailing axis of size 2, so their
+      diagnostic indexes have one more axis. The NaN and Inf counts of a complex
+      output count each part, so complex(nan, nan) counts as 2.
     contract_by_leaf: For kernels that return a pytree, overrides `contract` for
       individual output leaves, keyed by JAX key path (for example `{"[1]":
       CONTRACT_ULP}` or `{"['lse']": CONTRACT_BITWISE}`). Every leaf is
@@ -1935,6 +2672,20 @@ def validate_kernels(
     row_factor: Per-row bound as a multiple of `rel_l2_tol`.
     row_norm_floor: Floor on each row's norm as a fraction of the mean row norm,
       so that near-zero rows do not inflate the per-row error.
+    sqnr_config: SQNR policy (`sqnr.SqnrConfig`). None uses the defaults: an
+      AUTO floor derived from the output dtype, plus the strict anti-cheat
+      checks under CONTRACT_SQNR only. The other contracts then get the global
+      and oracle metrics only (`strict=False`), which keeps the report cheap on
+      large outputs. An explicit config is used as given under every contract.
+      Every floating-point output gets an SQNR report in
+      `BatchValidationResult.sqnr` and the run gets `sqnr_summary`. Only
+      CONTRACT_SQNR gates on that report. An error in the SQNR computation gives
+      a report with status `sqnr.STATUS_ERROR`, which fails CONTRACT_SQNR and
+      does not change the verdict of the other contracts. When an oracle runs,
+      the SQNR rule measures the candidate against the oracle (see
+      `sqnr.audit_leaf`). Under a strict policy, the kernel inputs with the
+      element count of an output go to the input-delta check of that output,
+      which catches a candidate that returns an input.
 
   Returns:
     A KernelValidationReport. For pytree outputs each batch result carries
@@ -1942,8 +2693,15 @@ def validate_kernels(
   """
   _check_contract(contract)
   contract_by_leaf = dict(contract_by_leaf or {})
-  for leaf_contract in contract_by_leaf.values():
-    _check_contract(leaf_contract)
+  for override in contract_by_leaf.values():
+    _check_contract(override)
+  # The recorded policy is strict when any output gates on SQNR.
+  run_sqnr_config = _effective_sqnr_config(
+      sqnr_config,
+      CONTRACT_SQNR
+      if CONTRACT_SQNR in (contract, *contract_by_leaf.values())
+      else contract,
+  )
   if isinstance(kernel_oracle, str) and kernel_oracle != ORACLE_AUTO:
     raise ValueError(
         f"Unknown kernel_oracle string '{kernel_oracle}'; expected"
@@ -1960,8 +2718,7 @@ def validate_kernels(
     if user_tolerance == (0.0, 0.0):
       raise ValueError("atol and rtol cannot both be 0; use CONTRACT_BITWISE.")
   uses_row_l2 = contract == CONTRACT_ROW_REL_L2 or any(
-      leaf_contract == CONTRACT_ROW_REL_L2
-      for leaf_contract in contract_by_leaf.values()
+      override == CONTRACT_ROW_REL_L2 for override in contract_by_leaf.values()
   )
   row_l2_gate: tuple[float, float, float] | None = None
   if uses_row_l2:
@@ -2122,6 +2879,7 @@ def validate_kernels(
         contract_by_leaf=contract_by_leaf,
         user_tolerance=user_tolerance,
         row_l2_gate=row_l2_gate,
+        sqnr_config=sqnr_config,
     )
     acc.update(res)
     batch_results.append(res.batch_result)
@@ -2228,8 +2986,21 @@ def validate_kernels(
       if row_l2_gate is not None
       else {}
   )
+  sqnr_summary = _summarize_sqnr(
+      batch_results, run_sqnr_config, contract, contract_by_leaf
+  )
 
-  if contract == CONTRACT_ROW_REL_L2 and row_l2_gate is not None:
+  if contract == CONTRACT_SQNR:
+    caution_msg = None
+    summary = _format_sqnr_summary(
+        batch_results,
+        sqnr_summary,
+        run_sqnr_config,
+        contract,
+        contract_by_leaf,
+        failed_batches=acc.failed_batches,
+    )
+  elif contract == CONTRACT_ROW_REL_L2 and row_l2_gate is not None:
     caution_msg = None
     tol, factor, floor = row_l2_gate
     if is_equivalent:
@@ -2298,6 +3069,13 @@ def validate_kernels(
         f"FAILED: Numerical divergence detected ({acc.failed_batches}/"
         f"{len(batch_results)} batches failed numerical criteria)."
     )
+
+  if not is_equivalent and contract != CONTRACT_SQNR:
+    sqnr_line = _sqnr_leaf_failure_line(
+        batch_results, contract, contract_by_leaf
+    )
+    if sqnr_line:
+      summary = f"{summary}\n{sqnr_line}"
 
   if pin_inert_banner:
     summary = f"{pin_inert_banner}\n{summary}"
@@ -2376,6 +3154,10 @@ def validate_kernels(
             "rel_l2_tol": rel_l2_tol,
             "row_factor": row_factor,
             "row_norm_floor": row_norm_floor,
+            # None keeps the contract default on replay.
+            "sqnr_config": (
+                None if sqnr_config is None else dataclasses.asdict(sqnr_config)
+            ),
         },
     )
     summary = (
@@ -2385,8 +3167,12 @@ def validate_kernels(
         " `xparity_cli replay`."
     )
 
+  # The SQNR oracle checks of CONTRACT_SQNR also ground the verdict. When only
+  # they used an explicit oracle callable (an integer run with float outputs,
+  # or NaN or Inf outputs), there are no ULP oracle statistics, so
+  # `oracle_audit` stays None.
   correctness_basis = (
-      "AGREEMENT_AND_ORACLE" if acc.oracle_ran else "AGREEMENT_ONLY"
+      "AGREEMENT_AND_ORACLE" if acc.oracle_checked else "AGREEMENT_ONLY"
   )
 
   if ref_is_unpinned and correctness_basis == "AGREEMENT_ONLY":
@@ -2459,6 +3245,7 @@ def validate_kernels(
     run_config["rel_l2_tol"] = tol
     run_config["row_factor"] = factor
     run_config["row_norm_floor"] = floor
+  run_config["sqnr_config"] = dataclasses.asdict(run_sqnr_config)
   if pin_inert_detected:
     run_config["reference_pin_inert"] = True
   if ref_is_unpinned:
@@ -2483,6 +3270,7 @@ def validate_kernels(
       coverage=coverage,
       tolerance_headroom=tolerance_headroom,
       rel_l2_summary=rel_l2_summary,
+      sqnr_summary=sqnr_summary,
   )
 
 
@@ -2496,6 +3284,7 @@ def validate_arrays(
     rel_l2_tol: float | None = None,
     row_factor: float = rel_l2.ROW_FACTOR,
     row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
+    sqnr_config: sqnr.SqnrConfig | None = None,
 ) -> BatchValidationResult:
   """Validates bitwise ULP parity between two pre-computed arrays.
 
@@ -2509,11 +3298,23 @@ def validate_arrays(
     contract: CONTRACT_ULP (default) or CONTRACT_BITWISE. Under CONTRACT_BITWISE
       `passed` is True only when both arrays have the same dtype and every
       element has the same bit pattern. Under CONTRACT_ROW_REL_L2 `passed` comes
-      from `rel_l2.compare_row_rel_l2`, reported in `row_rel_l2`.
+      from `rel_l2.compare_row_rel_l2`, reported in `row_rel_l2`. Under
+      CONTRACT_SQNR `passed` comes from the SQNR report in `sqnr`. Under
+      CONTRACT_SQNR, the NaN and Inf counts and the ULP figures of float arrays
+      with an integer or boolean `dtype_str` use the array dtype. If the ULP
+      code does not support that dtype (for example float8_e8m0fnu), the ULP
+      figures are in float32 units. Complex arrays are read as (real, imag)
+      pairs along a new trailing axis of size 2, so their diagnostic indexes
+      have one more axis. The NaN and Inf counts of a complex array count each
+      part, so complex(nan, nan) counts as 2.
     rel_l2_tol: Whole-output relative L2 tolerance; required by
       CONTRACT_ROW_REL_L2.
     row_factor: Per-row bound as a multiple of `rel_l2_tol`.
     row_norm_floor: Row-norm floor as a fraction of the mean row norm.
+    sqnr_config: SQNR policy. None uses the contract default: the AUTO floor,
+      plus the strict checks under CONTRACT_SQNR only. Floating-point inputs
+      always get an SQNR report in `sqnr`, report-only unless the contract is
+      CONTRACT_SQNR.
 
   Returns:
     A BatchValidationResult. When either tensor contains non-finite values the
@@ -2555,6 +3356,15 @@ def validate_arrays(
     )
 
   is_discrete = _is_discrete_dtype(canonical)
+  # As in `_execute_single_batch`: `_sqnr_ulp_view` gives the dtype and the
+  # arrays of the diagnostics for some CONTRACT_SQNR outputs.
+  ulp_view = _sqnr_ulp_view(
+      contract, canonical, is_discrete, exp_np, act_np, exp_dtype_name
+  )
+  ulp_dtype, split = ulp_view or (canonical, False)
+  diag_exp = _complex_parts(exp_np) if split else exp_np
+  diag_act = _complex_parts(act_np) if split else act_np
+  diag_discrete = is_discrete and ulp_view is None
 
   # Non-finite detection runs in the native dtype. ml_dtypes registers isnan
   # and isinf ufuncs for bfloat16 and the float8 formats, so upcasting to
@@ -2564,21 +3374,21 @@ def validate_arrays(
   inf_count = 0
   first_non_finite_index = None
   non_finite_mask = None
-  if not is_discrete:
-    nan_mask = np.isnan(act_np) | np.isnan(exp_np)
-    inf_mask = np.isinf(act_np) | np.isinf(exp_np)
+  if not diag_discrete:
+    nan_mask = np.isnan(diag_act) | np.isnan(diag_exp)
+    inf_mask = np.isinf(diag_act) | np.isinf(diag_exp)
     nan_count = int(np.count_nonzero(nan_mask))
     inf_count = int(np.count_nonzero(inf_mask))
     if nan_count or inf_count:
       non_finite_mask = nan_mask | inf_mask
       flat_first = int(np.argmax(non_finite_mask))
       first_non_finite_index = tuple(
-          int(x) for x in np.unravel_index(flat_first, act_np.shape)
+          int(x) for x in np.unravel_index(flat_first, diag_act.shape)
       )
 
   has_nan_inf = bool(nan_count or inf_count)
 
-  ulp_dist = compute_ulp_distance(act_np, exp_np, dtype_str=canonical)
+  ulp_dist = compute_ulp_distance(diag_act, diag_exp, dtype_str=ulp_dtype)
 
   # Metrics over the finite subset so that a single NaN does not erase all
   # diagnostic signal from the rest of the tensor.
@@ -2613,7 +3423,7 @@ def validate_arrays(
 
   effective_p99_9 = (
       0.0
-      if is_discrete and p99_9_allowed_ulp == 1.0
+      if diag_discrete and p99_9_allowed_ulp == 1.0
       else max(float(p99_9_allowed_ulp), float(limit_ulp))
   )
   ulp_passed = bool(
@@ -2622,15 +3432,18 @@ def validate_arrays(
       and p99_9_ulp <= effective_p99_9
   )
 
-  if is_discrete:
+  if diag_discrete:
     allclose_passed = bool(np.array_equal(act_np, exp_np))
   else:
-    dtype_eps, atol_val = _DTYPE_TOLERANCES.get(canonical, (1e-3, 1e-5))
+    tol_dtype = (
+        canonical if ulp_view is None else resolve_canonical_dtype(ulp_dtype)
+    )
+    dtype_eps, atol_val = _DTYPE_TOLERANCES.get(tol_dtype, (1e-3, 1e-5))
     rtol_val = max(1, limit_ulp) * dtype_eps
     allclose_passed = bool(
         np.allclose(
-            _as_compare_float(act_np),
-            _as_compare_float(exp_np),
+            _as_compare_float(diag_act),
+            _as_compare_float(diag_exp),
             rtol=rtol_val,
             atol=atol_val,
             equal_nan=False,
@@ -2638,17 +3451,19 @@ def validate_arrays(
     )
 
   worst_offender = None
-  if act_np.size > 0:
+  if diag_act.size > 0:
     flat_max_idx = int(np.argmax(ulp_dist))
     max_idx = tuple(
         int(x) for x in np.unravel_index(flat_max_idx, ulp_dist.shape)
     )
     # Index first, convert second. Converting the whole tensor to float64 to
     # read a single element allocates 8 bytes per element for each operand.
-    ref_v = float(exp_np[max_idx])
-    cand_v = float(act_np[max_idx])
+    ref_v = float(diag_exp[max_idx])
+    cand_v = float(diag_act[max_idx])
     abs_d = abs(cand_v - ref_v)
-    rel_d = _relative_diff(abs_d, ref_v, canonical)
+    rel_d = _relative_diff(
+        abs_d, ref_v, canonical if ulp_view is None else ulp_dtype
+    )
     mismatch_cnt = int(np.count_nonzero(ulp_dist > limit_ulp))
     worst_offender = WorstOffender(
         max_ulp_index=max_idx,
@@ -2657,14 +3472,26 @@ def validate_arrays(
         abs_diff=abs_d,
         rel_diff=rel_d,
         mismatch_count=mismatch_cnt,
-        mismatch_ratio=float(mismatch_cnt) / float(act_np.size),
+        mismatch_ratio=float(mismatch_cnt) / float(diag_act.size),
     )
 
   passed = bool(ulp_passed and allclose_passed)
+  sqnr_report = _sqnr_report(
+      exp_np,
+      act_np,
+      exp_dtype_name,
+      act_dtype_name,
+      contract=contract,
+      oracle=None,
+      config=sqnr_config,
+      path="",
+  )
   if contract == CONTRACT_BITWISE:
     passed = bitwise_cmp.equal
   elif row_cmp is not None:
     passed = row_cmp.passed
+  elif contract == CONTRACT_SQNR:
+    passed = _sqnr_passed(sqnr_report, act_np, exp_np)
   note = None
   if has_nan_inf:
     note = (
@@ -2701,6 +3528,7 @@ def validate_arrays(
       worst_offender=worst_offender,
       bitwise=bitwise_cmp,
       row_rel_l2=row_cmp,
+      sqnr=sqnr_report,
   )
 
 

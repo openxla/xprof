@@ -76,6 +76,60 @@ class UlpTest(parameterized.TestCase):
         ulp.compute_ulp_distance(a, b, "int32").tolist(), [0, 3, 3]
     )
 
+  @parameterized.named_parameters(
+      ("uint8", np.uint8, 255),
+      ("uint16", np.uint16, 65535),
+      ("uint32", np.uint32, 2**32 - 1),
+      ("uint64", np.uint64, 2**64 - 1),
+  )
+  def test_unsigned_distance_does_not_overflow(self, dtype, top):
+    a = np.array([0, top, 5], dtype=dtype)
+    b = np.array([top, 0, 7], dtype=dtype)
+    want = min(top, 2**63 - 1)
+    self.assertEqual(
+        ulp.compute_ulp_distance(a, b, np.dtype(dtype).name).tolist(),
+        [want, want, 2],
+    )
+
+  @parameterized.named_parameters(
+      ("uint64_vs_int32", np.uint64, 2**63, np.int32, 0, 2**63 - 1),
+      (
+          "uint64_max_vs_minus_one",
+          np.uint64,
+          2**64 - 1,
+          np.int64,
+          -1,
+          2**63 - 1,
+      ),
+      ("above_2_pow_53", np.uint64, 2**60 + 1, np.uint64, 2**60, 1),
+      ("int64_extremes", np.int64, 2**63 - 1, np.int64, -(2**63), 2**63 - 1),
+      ("int64_min_vs_zero", np.int64, -(2**63), np.int64, 0, 2**63 - 1),
+      ("int64_close_negatives", np.int64, -(2**62) - 3, np.int64, -(2**62), 3),
+      ("uint8_vs_int8", np.uint8, 255, np.int8, -128, 383),
+  )
+  def test_integer_distance_is_exact(
+      self, a_dtype, a_value, b_dtype, b_value, want
+  ):
+    a = np.array([a_value], dtype=a_dtype)
+    b = np.array([b_value], dtype=b_dtype)
+    self.assertEqual(
+        ulp.compute_ulp_distance(a, b, np.dtype(a_dtype).name).tolist(), [want]
+    )
+    self.assertEqual(
+        ulp.compute_ulp_distance(b, a, np.dtype(b_dtype).name).tolist(), [want]
+    )
+
+  def test_integer_candidate_against_float_reference(self):
+    a = np.array([5, -3, -3, 7], dtype=np.int32)
+    e = np.array([5.0, -3.0, 4.0, np.nan], dtype=np.float32)
+    self.assertEqual(
+        ulp.compute_ulp_distance(a, e, "int32").tolist(),
+        [0, 0, 7, 2**63 - 1],
+    )
+    self.assertEqual(
+        ulp.compute_ulp_distance(e[:3], a[:3], "int32").tolist(), [0, 0, 7]
+    )
+
   def test_bool_distance_counts_flips(self):
     a = np.array([True, False, True])
     b = np.array([True, True, False])

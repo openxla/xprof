@@ -93,6 +93,30 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "sqnr_contract_validator_test",
+    srcs = ["sqnr_contract_validator_test.py"],
+    deps = [
+        "//plugin/xprof/xparity",
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:sqnr",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "sqnr_contract_cli_test",
+    srcs = ["sqnr_contract_cli_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:sqnr",
+        "//plugin/xprof/xparity:xparity_cli_lib",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "regime_coverage_test",
     srcs = ["regime_coverage_test.py"],
     deps = [

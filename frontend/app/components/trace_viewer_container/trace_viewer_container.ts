@@ -50,6 +50,19 @@ import {
   MouseModeStatusConfig,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/shortcuts';
 import {
+  type AdjacentNodeInfo,
+  type AdjacentNodesResponse,
+  buildHloMiniGraph,
+  type HloMiniGraph,
+  type HloMiniGraphEdge,
+  type HloMiniGraphInput,
+  type HloMiniGraphNode,
+  type HloMiniGraphNodeRole,
+  parseAdjacentNodeInfo,
+  parseMiniGraphAdjacentNodes,
+  type ValidatedMiniGraphAdjacentNodes,
+} from './hlo_mini_graph';
+import {
   formatHloArgsForJsonTree,
   prettyPrintHloStackTrace,
 } from './hlo_pretty_printer';
@@ -59,10 +72,13 @@ import {formatTimeUs, splitTimeUs} from './trace_viewer_utils';
 import {
   isLoadingStatusUpdateEvent,
   isSearchEventsEvent,
+  isSelectedEventDependenciesEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
   type LoadingStatusUpdateEventDetail,
   SEARCH_EVENTS_EVENT_NAME,
   SearchEventsEventDetail,
+  SELECTED_EVENT_DEPENDENCIES_EVENT_NAME,
+  type SelectedEventDependenciesDetail,
   TraceViewerV2LoadingStatus,
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
@@ -70,6 +86,24 @@ import {
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
+
+export {
+  buildHloMiniGraph,
+  parseAdjacentNodeInfo,
+  parseMiniGraphAdjacentNodes,
+  SELECTED_EVENT_DEPENDENCIES_EVENT_NAME,
+};
+export type {
+  AdjacentNodeInfo,
+  AdjacentNodesResponse,
+  HloMiniGraph,
+  HloMiniGraphEdge,
+  HloMiniGraphInput,
+  HloMiniGraphNode,
+  HloMiniGraphNodeRole,
+  SelectedEventDependenciesDetail,
+  ValidatedMiniGraphAdjacentNodes,
+};
 
 const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
 
@@ -208,6 +242,7 @@ export interface SelectedEvent {
   stepGroupLinkHtml?: string;
   hloModule?: string;
   hloOpName?: string;
+  adjacentNodes?: AdjacentNodesResponse;
   args?: Record<string, unknown>;
   pid?: number;
   tid?: number;
@@ -717,6 +752,11 @@ export class TraceViewerContainer
 
   isHloTextCollapsed = true;
   isStackTraceCollapsed = true;
+  miniGraph?: HloMiniGraph;
+  selectedEventIndex = -1;
+  private selectedEventPresentInTimeline = true;
+  private resolvedOperandNames?: ReadonlySet<string>;
+  private resolvedConsumerNames?: ReadonlySet<string>;
 
   toggleHloTextCollapse() {
     this.isHloTextCollapsed = !this.isHloTextCollapsed;
@@ -734,6 +774,55 @@ export class TraceViewerContainer
       return this.isStackTraceCollapsed;
     }
     return false;
+  }
+
+  hasHloTextProperty(): boolean {
+    return this.rightSideProperties.some((p) => p.property === 'HLO Text');
+  }
+
+  onMiniGraphNodeClick(node: HloMiniGraphNode): void {
+    if (!node.clickable) {
+      return;
+    }
+    if (node.role === 'operand') {
+      this.traceViewerModule?.SelectAdjacentEvent?.(node.name, true);
+    } else if (node.role === 'consumer') {
+      this.traceViewerModule?.SelectAdjacentEvent?.(node.name, false);
+    } else if (node.role === 'selected' && this.selectedEventIndex >= 0) {
+      this.traceViewerModule?.application
+        ?.instance()
+        ?.selectEvent?.(this.selectedEventIndex);
+    }
+  }
+
+  onMiniGraphNodeKeydown(event: Event, node: HloMiniGraphNode): void {
+    if (!node.clickable) {
+      return;
+    }
+    event.preventDefault();
+    this.onMiniGraphNodeClick(node);
+  }
+
+  trackByMiniGraphNode(index: number, node: HloMiniGraphNode): string {
+    return `${node.role}:${node.name}`;
+  }
+
+  trackByMiniGraphEdge(index: number, edge: HloMiniGraphEdge): string {
+    return edge.id;
+  }
+
+  private updateMiniGraph(): void {
+    const validated = parseMiniGraphAdjacentNodes(
+      this.selectedEvent?.adjacentNodes,
+    );
+    this.miniGraph = validated
+      ? buildHloMiniGraph({
+          adjacentNodes: validated,
+          selectedClickable: this.selectedEventPresentInTimeline,
+          clickableOperandNames: this.resolvedOperandNames,
+          clickableConsumerNames: this.resolvedConsumerNames,
+        })
+      : undefined;
   }
 
   getPropPreview(prop: SelectedEventProperty): string {
@@ -1032,6 +1121,10 @@ export class TraceViewerContainer
       EVENT_HOVERED_EVENT_NAME,
       this.eventHoveredEventListener,
     );
+    window.addEventListener(
+      SELECTED_EVENT_DEPENDENCIES_EVENT_NAME,
+      this.selectedEventDependenciesEventListener,
+    );
   }
 
   ngAfterViewInit() {
@@ -1078,6 +1171,10 @@ export class TraceViewerContainer
       EVENT_HOVERED_EVENT_NAME,
       this.eventHoveredEventListener,
     );
+    window.removeEventListener(
+      SELECTED_EVENT_DEPENDENCIES_EVENT_NAME,
+      this.selectedEventDependenciesEventListener,
+    );
     window.removeEventListener('keydown', this.keyDownEventListener);
     if (!this.useTraceViewerV2) {
       window.removeEventListener('mouseup', this.mouseUpEventListener);
@@ -1096,7 +1193,14 @@ export class TraceViewerContainer
         this.isHloTextCollapsed = true;
         this.isStackTraceCollapsed = true;
       }
+      if (!this.selectedEvent) {
+        this.selectedEventIndex = -1;
+        this.selectedEventPresentInTimeline = true;
+        this.resolvedOperandNames = undefined;
+        this.resolvedConsumerNames = undefined;
+      }
       this.selectedEventJson = this.buildSelectedEventJson();
+      this.updateMiniGraph();
     }
     if (changes['selectedEvent'] || changes['customDrawerOpen']) {
       this.updateSplitSizes();
@@ -1320,6 +1424,10 @@ export class TraceViewerContainer
     if (!isEntrySelectedEvent(e)) {
       return;
     }
+    this.selectedEventIndex = e.detail.eventIndex;
+    this.selectedEventPresentInTimeline = e.detail.eventIndex !== -1;
+    this.resolvedOperandNames = undefined;
+    this.resolvedConsumerNames = undefined;
     this.updateSearchResultCountText();
     this.hasSelectedEvent = e.detail.eventIndex !== -1;
     if (e.detail.eventIndex === -1) {
@@ -1327,6 +1435,25 @@ export class TraceViewerContainer
     } else {
       this.eventSelected.emit(e.detail);
     }
+  };
+
+  private readonly selectedEventDependenciesEventListener = (e: Event) => {
+    if (!isSelectedEventDependenciesEvent(e)) {
+      return;
+    }
+    if (e.detail.eventIndex === -1) {
+      this.selectedEventIndex = -1;
+      this.selectedEventPresentInTimeline = false;
+      this.resolvedOperandNames = new Set();
+      this.resolvedConsumerNames = new Set();
+    } else {
+      this.selectedEventIndex = e.detail.eventIndex;
+      this.selectedEventPresentInTimeline = true;
+      this.resolvedOperandNames = new Set(e.detail.operandNames);
+      this.resolvedConsumerNames = new Set(e.detail.consumerNames);
+    }
+    this.updateMiniGraph();
+    this.cdRef.markForCheck();
   };
 
   private readonly eventsSelectedEventListener = (e: Event) => {

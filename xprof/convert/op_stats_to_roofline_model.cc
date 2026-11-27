@@ -225,8 +225,10 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
   tensorflow::profiler::SetTpuUnitFractions(metrics, &record);
 
   // Set the roofline-specific fields.
-  SetRooflineMetrics(metrics, op_stats.perf_env(), op_stats.run_environment(),
-                     &record, options.apply_time_scale_multiplier);
+  const PerfEnv& perf_env =
+      options.perf_env != nullptr ? *options.perf_env : op_stats.perf_env();
+  SetRooflineMetrics(metrics, perf_env, op_stats.run_environment(), &record,
+                     options.apply_time_scale_multiplier);
   double flops_utilization = tsl::profiler::SafeDivide(
       options.apply_time_scale_multiplier
           ? GigaFlopsPerSecondPerCoreNormalizedOnDvfs(metrics)
@@ -340,7 +342,8 @@ RooflineModelDatabase InitializeRooflineModelDatabaseFromOpStats(
   DCHECK(hardware_type == GPU || hardware_type == TPU);
 
   RooflineModelDatabase roofline_model_db;
-  const PerfEnv& perf_env = op_stats.perf_env();
+  const PerfEnv& perf_env =
+      options.perf_env != nullptr ? *options.perf_env : op_stats.perf_env();
   roofline_model_db.set_device_type(op_stats.run_environment().device_type());
   SetTimeScaleMultiplier(op_stats, &roofline_model_db,
                          options.use_flat_op_metrics_db);

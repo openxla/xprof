@@ -24,7 +24,9 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
@@ -173,6 +175,16 @@ inline bool IsSyncWaitDoneOp(absl::string_view op_name) {
          absl::StrContains(op_name, "host-recv-done") ||
          absl::StartsWith(op_name, "Sync Wait:") ||
          absl::StartsWith(op_name, "Barrier Wait:") || op_name == "SFence";
+}
+
+// Returns true for SparseCore Tile Execution Core (TEC) op lines
+// ("TEC 0", "TEC 1", ...), and false for other lines with the same prefix,
+// such as "TEC TraceMe 0".
+inline bool IsSparseCoreTecOpLine(absl::string_view line_name) {
+  constexpr absl::string_view kSparseCoreTecLinePrefix = "TEC ";
+  uint32_t tec_index;
+  return absl::ConsumePrefix(&line_name, kSparseCoreTecLinePrefix) &&
+         absl::SimpleAtoi(line_name, &tec_index);
 }
 
 // Returns the time spent in children (nested) ops.

@@ -434,6 +434,7 @@ class GetRooflineModelToolTest(absltest.TestCase):
         "compute_efficiency",
         "max_mem_bw_utilization",
         "optimal_flop_rate",
+        "is_sparse_core",
     ]
 
     def row(values: dict[str, Any]) -> dict[str, Any]:
@@ -865,6 +866,75 @@ class GetRooflineModelToolTest(absltest.TestCase):
 
     self.assertEqual(program["flops_provenance"], "mixed")
     self.assertEqual(program["operational_intensity_flop_per_byte"], 0.0)
+
+  def test_excludes_sparse_core_rows(self):
+    self._mock_roofline_session(
+        program_row={
+            "total_time": 1000.0,
+            "total_self_time": 0.0,
+            "total_self_time_percent": 1.0,
+            "measured_flop_rate": 10000.0,
+            "hbm_bw": 500.0,
+        },
+        op_rows=[
+            {
+                "rank": 1,
+                "category": "fusion",
+                "operation": "fusion.1",
+                "total_time": 800.0,
+                "total_self_time": 800.0,
+                "total_self_time_percent": 0.8,
+                "measured_flop_rate": 12000.0,
+                "hbm_bw": 400.0,
+                "is_sparse_core": False,
+            },
+            {
+                "rank": 0,
+                "category": "Program",
+                "operation": "Program",
+                "total_time": 500.0,
+                "total_self_time": 500.0,
+                "total_self_time_percent": 1.0,
+                "measured_flop_rate": 500.0,
+                "hbm_bw": 200.0,
+                "is_sparse_core": True,
+            },
+            {
+                "rank": 1,
+                "category": "sc_gather",
+                "operation": "sparse-core-gather.1",
+                "total_time": 300.0,
+                "total_self_time": 300.0,
+                "total_self_time_percent": 0.6,
+                "measured_flop_rate": 300.0,
+                "hbm_bw": 150.0,
+                "is_sparse_core": True,
+            },
+            {
+                "rank": 2,
+                "category": "custom-call",
+                "operation": "custom-call.sc",
+                "total_time": 200.0,
+                "total_self_time": 200.0,
+                "total_self_time_percent": 0.4,
+                "measured_flop_rate": 0.0,
+                "hbm_bw": 100.0,
+                "is_sparse_core": True,
+            },
+        ],
+    )
+
+    result = json.loads(
+        get_roofline_model_tool.get_roofline_model("test_session")
+    )
+
+    self.assertEqual(result["total_operations_analyzed"], 1)
+    self.assertEqual(
+        [op["name"] for op in result["top_operations"]],
+        ["fusion.1"],
+    )
+    self.assertNotIn("custom_call_share_pct", result)
+    self.assertNotIn("custom_call_warning", result)
 
 
 if __name__ == "__main__":

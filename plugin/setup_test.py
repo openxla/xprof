@@ -152,11 +152,15 @@ class SetupTest(absltest.TestCase):
     xparity_num_md = os.path.join(
         xparity_skills_dir, 'references', 'numerical_correctness.md'
     )
+    xparity_sqnr_md = os.path.join(xparity_skills_dir, 'references', 'sqnr.md')
     self.assertTrue(
         os.path.isfile(xparity_skill_md), f'Missing {xparity_skill_md}'
     )
     self.assertTrue(os.path.isfile(xparity_num_md), f'Missing {xparity_num_md}')
-    for md_path in (xparity_skill_md, xparity_num_md):
+    self.assertTrue(
+        os.path.isfile(xparity_sqnr_md), f'Missing {xparity_sqnr_md}'
+    )
+    for md_path in (xparity_skill_md, xparity_num_md, xparity_sqnr_md):
       with open(md_path, 'r', encoding='utf-8') as f:
         md_content = f.read()
       self.assertNotIn('/google/bin/releases', md_content)

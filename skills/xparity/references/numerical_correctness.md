@@ -449,7 +449,8 @@ xparity verify \
 
 **Zero Blast Radius**: The oracle audit is strictly report-only
 (`oracle_audit`). It does not alter `is_numerically_equivalent` or block
-existing pipelines, ensuring backwards compatibility.
+existing pipelines, ensuring backwards compatibility. Under the SQNR contract,
+the oracle SQNR checks gate the verdict, but the audit stays report-only.
 
 ### 3.2 The Three Questions Framework
 
@@ -486,7 +487,13 @@ Follow this inverted hierarchy when parsing verification reports:
     `"AGREEMENT_ONLY"`, the verdict certifies pairwise consistency
     ($f_{\text{ref}} \approx f_{\text{cand}}$) only, NOT mathematical ground
     truth. Never claim a kernel is mathematically correct if
-    `correctness_basis == "AGREEMENT_ONLY"`.
+    `correctness_basis == "AGREEMENT_ONLY"`. Under the SQNR contract,
+    `"AGREEMENT_AND_ORACLE"` with `oracle_audit: null` means that the agreement
+    with the reference and the SQNR oracle checks graded the run, but no ULP
+    oracle statistics were computed (for example, an integer run with float
+    outputs or NaN/Inf outputs with an explicit `kernel_oracle` callable). The
+    oracle precision was not audited, so do not claim float64 grounding. The
+    `oracle_audit` fields in Steps 3 and 4 are null in that case.
 3.  **Step 3: Verify Float64 Execution Integrity**: Check
     `oracle_audit.oracle_executed_in_float64`. If `False`, the runtime failed to
     run in float64 (e.g. JAX x64 disabled). In this case, oracle metrics cannot

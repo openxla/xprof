@@ -1000,12 +1000,26 @@ export function cleanHloOpName(opName?: string): string {
     .trim();
 }
 
+/** Matches the trailing '(program_id)' suffix of an HLO module name. */
+const HLO_MODULE_PROGRAM_ID_SUFFIX = /\((\d+)\)$/;
+
 /** Strips a trailing '(program_id)' suffix from an HLO module name. */
 export function stripHloModuleProgramId(moduleName?: string): string {
   return (moduleName || '')
     .trim()
-    .replace(/\(\d+\)$/, '')
+    .replace(HLO_MODULE_PROGRAM_ID_SUFFIX, '')
     .trim();
+}
+
+/**
+ * Returns the program id of an HLO module name like "<module>(<program id>)",
+ * or an empty string when the name has no trailing numeric program id. The id
+ * is kept as a string because 64-bit program ids can exceed
+ * `Number.MAX_SAFE_INTEGER`.
+ */
+export function parseHloModuleProgramId(moduleName?: string): string {
+  const match = (moduleName ?? '').trim().match(HLO_MODULE_PROGRAM_ID_SUFFIX);
+  return match ? match[1] : '';
 }
 
 /**

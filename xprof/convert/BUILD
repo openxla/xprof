@@ -1881,6 +1881,7 @@ cc_test(
     deps = [
         ":xplane_to_step_events",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:steps_db_proto_cc",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
@@ -1895,6 +1896,7 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:preprocess_xplane",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:trace_utils",
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_test_utils",

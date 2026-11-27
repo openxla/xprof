@@ -346,7 +346,7 @@ StepEvents ConvertDeviceTraceXLineToStepEvents(const uint64_t device_id,
         case DEVICE_COLLECTIVES: {
           AllReduceInfo collective_ops;
           collective_ops.set_start_time_ps(event.TimestampPs());
-          collective_ops.set_end_time_ps(event.EndOffsetPs());
+          collective_ops.set_end_time_ps(event.EndTimestampPs());
           // TODO(jiesun): figure out how to get size info etc.
           result[group_id].AddCollectiveOpEvent(device_id, collective_ops);
           break;

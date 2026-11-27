@@ -33,8 +33,15 @@
       <input
         matInput
         type="number"
+        min="1"
+        [max]="maxInt32"
+        step="1"
+        [errorStateMatcher]="durationErrorStateMatcher"
         [(ngModel)]="duration"
       />
+      <mat-error class="validation-error" *ngIf="!isDurationValid()">
+        Must be an integer between 1 and {{ maxInt32 }}
+      </mat-error>
     </mat-form-field>
   </div>
 
@@ -101,8 +108,15 @@
           <input
             matInput
             type="number"
+            min="0"
+            [max]="maxNumRetry"
+            step="1"
+            [errorStateMatcher]="numRetryErrorStateMatcher"
             [(ngModel)]="numRetry"
           />
+          <mat-error class="validation-error" *ngIf="!isNumRetryValid()">
+            Must be an integer between 0 and {{ maxNumRetry }}
+          </mat-error>
         </mat-form-field>
       </div>
 
@@ -112,8 +126,15 @@
           <input
             matInput
             type="number"
+            min="0"
+            [max]="maxInt32"
+            step="1"
+            [errorStateMatcher]="delayErrorStateMatcher"
             [(ngModel)]="delay"
           />
+          <mat-error class="validation-error" *ngIf="!isDelayValid()">
+            Must be an integer between 0 and {{ maxInt32 }}
+          </mat-error>
         </mat-form-field>
       </div>
 
@@ -135,7 +156,7 @@
 </mat-dialog-content>
 
 <mat-dialog-actions>
-  <button mat-raised-button [disabled]="!serviceAddr" (click)="captureProfile()">
+  <button class="capture-btn" mat-raised-button [disabled]="!isFormValid()" (click)="captureProfile()">
     {{ captureButtonLabel | uppercase }}
   </button>
   <button mat-raised-button (click)="close()">

@@ -33,7 +33,7 @@ export class StackBarChart implements OnChanges, OnInit {
   /** The event when the selection of the chart is changed. */
   @Output() selected = new EventEmitter<number>();
 
-  @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  @ViewChild('chart', {static: true}) chartRef!: ElementRef;
   private readonly destroyRef = inject(DestroyRef);
 
   chart: google.visualization.BarChart | null = null;
@@ -48,7 +48,15 @@ export class StackBarChart implements OnChanges, OnInit {
   }
 
   drawChart() {
-    if (!this.chart || !this.data) {
+    if (!this.chart) {
+      return;
+    }
+    if (
+      !this.data ||
+      this.data.length <= 1 ||
+      (this.data[0]?.length ?? 0) <= 1
+    ) {
+      this.chart.clearChart();
       return;
     }
 
@@ -94,8 +102,10 @@ export class StackBarChart implements OnChanges, OnInit {
         this.chart,
         'onmouseover',
         (event: google.visualization.ChartSelection) => {
-          event = event || {};
-          this.selected.emit(event.row || 0);
+          if (event?.row == null) {
+            return;
+          }
+          this.selected.emit(event.row);
         },
       );
 

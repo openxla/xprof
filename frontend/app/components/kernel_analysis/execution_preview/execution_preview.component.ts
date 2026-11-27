@@ -46,6 +46,7 @@ const MAX_INT32 = 2147483647;
 export class ExecutionPreviewComponent implements OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private copyResetTimer?: ReturnType<typeof setTimeout>;
+  private isDestroyed = false;
 
   @Input() estimatedPasses = 1;
   @Input() path = '';
@@ -61,12 +62,34 @@ export class ExecutionPreviewComponent implements OnDestroy {
   @Output() readonly pathChange = new EventEmitter<string>();
   @Output() readonly expandedToggle = new EventEmitter<void>();
 
-  copyState: 'Copy' | 'Copied!' = 'Copy';
+  copyState: 'Copy' | 'Copied!' | 'Copy failed' = 'Copy';
+
+  get copyIcon(): string {
+    if (this.copyState === 'Copied!') {
+      return 'check';
+    }
+    if (this.copyState === 'Copy failed') {
+      return 'error_outline';
+    }
+    return 'content_copy';
+  }
+
+  private getValidIndices(
+    options: PeriodicCounterSamplingOptions | null | undefined,
+  ): number[] {
+    if (!options?.indices) {
+      return [];
+    }
+    return options.indices.filter(
+      (index) =>
+        typeof index === 'number' && Number.isInteger(index) && index >= 0,
+    );
+  }
 
   private isSamplingInUse(
     options: PeriodicCounterSamplingOptions | null | undefined,
   ): boolean {
-    return !!(options && options.indices && options.indices.length > 0);
+    return this.getValidIndices(options).length > 0;
   }
 
   private formatSamplingOptions(
@@ -82,7 +105,10 @@ export class ExecutionPreviewComponent implements OnDestroy {
         Math.max(
           0,
           Math.trunc(
-            parseFiniteNumber(options.interval_us, DEFAULT_SAMPLING_INTERVAL_US),
+            parseFiniteNumber(
+              options.interval_us,
+              DEFAULT_SAMPLING_INTERVAL_US,
+            ),
           ),
         ),
       );
@@ -101,9 +127,10 @@ export class ExecutionPreviewComponent implements OnDestroy {
       options.counter_size_bits ?? DEFAULT_SAMPLING_COUNTER_SIZE_BITS;
     protoParts.push(`scaling:${scaling}`);
     protoParts.push(`counter_size_bits:${counterSizeBits}`);
-    if (options.indices && options.indices.length > 0) {
+    const validIndices = this.getValidIndices(options);
+    if (validIndices.length > 0) {
       protoParts.push(
-        `${options.indices.map((index) => `indices:${index}`).join(' ')}`,
+        `${validIndices.map((index) => `indices:${index}`).join(' ')}`,
       );
     }
     return protoParts.join(' ');
@@ -157,26 +184,76 @@ options.advanced_configuration = ${configStr}`;
 
   async copyCommand() {
     const command = this.generatedCommand;
-    if (!command || !navigator.clipboard?.writeText) return;
-    try {
-      await navigator.clipboard.writeText(command);
-      this.copyState = 'Copied!';
-      this.cdr.markForCheck();
-      if (this.copyResetTimer !== undefined) {
-        clearTimeout(this.copyResetTimer);
+    if (!command) return;
+
+    let copied = false;
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(command);
+        copied = true;
+      } catch (err) {
+        console.error('Failed to copy command via Clipboard API:', err);
       }
-      this.copyResetTimer = setTimeout(() => {
-        this.copyState = 'Copy';
-        this.cdr.markForCheck();
-      }, 2000);
+    }
+
+    if (this.isDestroyed) {
+      return;
+    }
+
+    if (!copied) {
+      copied = this.copyCommandFallback(command);
+    }
+
+    this.setTransientCopyState(copied ? 'Copied!' : 'Copy failed');
+  }
+
+  private copyCommandFallback(command: string): boolean {
+    const textarea = document.createElement('textarea');
+    textarea.value = command;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-9999px';
+    textarea.style.left = '-9999px';
+    textarea.style.opacity = '0';
+    const activeElement = document.activeElement;
+    document.body.appendChild(textarea);
+    try {
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, command.length);
+      // execCommand('copy') is deprecated, but is the only fallback when
+      // navigator.clipboard is unavailable (plain HTTP or restricted iframes).
+      // tslint:disable-next-line:deprecation
+      return document.execCommand('copy');
     } catch (err) {
-      console.error('Failed to copy command:', err);
+      console.error('Failed to copy command via execCommand:', err);
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
+      if (activeElement instanceof HTMLElement) {
+        activeElement.focus();
+      }
     }
   }
 
-  ngOnDestroy() {
+  private setTransientCopyState(state: 'Copied!' | 'Copy failed') {
+    this.copyState = state;
+    this.cdr.markForCheck();
     if (this.copyResetTimer !== undefined) {
       clearTimeout(this.copyResetTimer);
+    }
+    this.copyResetTimer = setTimeout(() => {
+      this.copyState = 'Copy';
+      this.copyResetTimer = undefined;
+      this.cdr.markForCheck();
+    }, 2000);
+  }
+
+  ngOnDestroy() {
+    this.isDestroyed = true;
+    if (this.copyResetTimer !== undefined) {
+      clearTimeout(this.copyResetTimer);
+      this.copyResetTimer = undefined;
     }
   }
 }

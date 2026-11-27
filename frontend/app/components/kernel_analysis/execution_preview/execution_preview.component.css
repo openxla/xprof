@@ -102,6 +102,12 @@
   border-color: var(--mat-sys-primary);
 }
 
+.copy-btn.copy-failed {
+  color: var(--mat-sys-error, #b3261e);
+  background: var(--mat-sys-error-container, #f9dedc);
+  border-color: var(--mat-sys-error, #b3261e);
+}
+
 .has-tooltip {
   border-bottom: 1px dashed var(--mat-sys-outline-variant);
   cursor: help;

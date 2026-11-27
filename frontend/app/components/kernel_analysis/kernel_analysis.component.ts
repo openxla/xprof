@@ -136,36 +136,50 @@ export class KernelAnalysisComponent {
     });
 
     const samplingGroups = Object.values(COMPONENT_TO_GROUP_NAME);
+    const subscriptions: Array<{unsubscribe(): void}> = [];
 
     // Disable/Enable interval_us based on is_external_trigger
     for (const groupName of samplingGroups) {
       const group = this.kernelForm.get(groupName) as FormGroup;
-      group.get('is_external_trigger')?.valueChanges.subscribe((isExternal) => {
-        const intervalCtrl = group.get('interval_us');
-        if (isExternal) {
-          intervalCtrl?.disable();
-        } else {
-          intervalCtrl?.enable();
-        }
-      });
+      const triggerSub = group
+        .get('is_external_trigger')
+        ?.valueChanges.subscribe((isExternal) => {
+          const intervalCtrl = group.get('interval_us');
+          if (isExternal) {
+            intervalCtrl?.disable();
+          } else {
+            intervalCtrl?.enable();
+          }
+        });
+      if (triggerSub) {
+        subscriptions.push(triggerSub);
+      }
     }
 
-    this.kernelForm.get('device_name')?.valueChanges.subscribe(() => {
-      for (const groupName of samplingGroups) {
-        const group = this.kernelForm.get(groupName) as FormGroup;
-        group.get('indices')?.setValue([]);
-      }
-    });
+    const deviceSub = this.kernelForm
+      .get('device_name')
+      ?.valueChanges.subscribe(() => {
+        for (const groupName of samplingGroups) {
+          const group = this.kernelForm.get(groupName) as FormGroup;
+          group.get('indices')?.setValue([]);
+        }
+      });
+    if (deviceSub) {
+      subscriptions.push(deviceSub);
+    }
 
-    const valueSub = this.kernelForm.valueChanges.subscribe(() => {
-      this.cdr.markForCheck();
-    });
-    const statusSub = this.kernelForm.statusChanges.subscribe(() => {
-      this.cdr.markForCheck();
-    });
+    subscriptions.push(
+      this.kernelForm.valueChanges.subscribe(() => {
+        this.cdr.markForCheck();
+      }),
+      this.kernelForm.statusChanges.subscribe(() => {
+        this.cdr.markForCheck();
+      }),
+    );
     this.destroyRef.onDestroy(() => {
-      valueSub.unsubscribe();
-      statusSub.unsubscribe();
+      for (const sub of subscriptions) {
+        sub.unsubscribe();
+      }
     });
   }
 }

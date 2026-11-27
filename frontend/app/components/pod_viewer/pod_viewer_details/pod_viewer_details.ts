@@ -74,8 +74,7 @@ export class PodViewerDetails implements OnDestroy {
     this.updateSizeAndLatency(info);
     this.details.push({
       title: 'Send Delay',
-      value:
-          utils.bytesToMiB(Number(info.sendDelayUs || '0')).toFixed(2) + ' Us',
+      value: Number(info.sendDelayUs || '0').toFixed(2) + ' Us',
     });
     (info.hloNames || []).forEach(hloName => {
       if (hloName) {
@@ -113,9 +112,11 @@ export class PodViewerDetails implements OnDestroy {
   }
 
   update(info: AllReduceOpInfo|ChannelInfo|PodStatsRecord|null) {
+    this.name = '';
     this.details = [];
     this.hloNames = '';
     this.replicaGroups = '';
+    this.description = '';
     if (!info) {
       this.info = undefined;
       return;

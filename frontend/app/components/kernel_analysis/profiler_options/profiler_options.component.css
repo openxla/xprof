@@ -15,6 +15,19 @@
   color: green;
 }
 
+.component-selection button.has-error,
+.component-selection button.has-error.in-use:not(.is-selected) {
+  border-color: var(--mat-sys-error, #b3261e);
+  color: var(--mat-sys-error, #b3261e);
+}
+
+.component-selection button .tab-error-icon {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+}
+
 .objective-list {
   display: flex;
   flex-direction: column;

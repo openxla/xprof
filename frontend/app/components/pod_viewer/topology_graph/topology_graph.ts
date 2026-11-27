@@ -21,6 +21,7 @@ interface ElementInfo {
 }
 
 interface Nodes {
+  z: number;
   nodes: ElementInfo[];
 }
 
@@ -76,6 +77,7 @@ export class TopologyGraph implements OnChanges, OnDestroy {
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private isReplicaGroupColoring = false;
 
   hosts: ElementInfo[] = [];
   labels: ElementInfo[] = [];
@@ -114,7 +116,7 @@ export class TopologyGraph implements OnChanges, OnDestroy {
     this.store.select(getActivePodViewerInfoState)
         .pipe(takeUntil(this.destroyed))
         .subscribe((info) => {
-          this.updateReplicaGroupColoring(info as AllReduceOpInfo);
+          this.updateReplicaGroupColoring(info);
         });
   }
 
@@ -354,7 +356,8 @@ export class TopologyGraph implements OnChanges, OnDestroy {
 
     if (this.topology.cores && this.topology.cores.length > 0) {
       const numCoresPerChip = this.topology.numCoresPerChip || 1;
-      this.topology.cores.forEach(chip => {
+      const planesByZ = new Map<number, ElementInfo[]>();
+      this.topology.cores.forEach((chip) => {
         for (let i = 0; i < numCoresPerChip; i++) {
           const chipId = chip.globalId || 0;
           const chipx = chip.x || 0;
@@ -365,30 +368,43 @@ export class TopologyGraph implements OnChanges, OnDestroy {
           if (i === 0) {
             nodeInfo.label = chipId.toString();
           }
-          if (this.coreIdToReplicaIdMap &&
-              this.coreIdToReplicaIdMap[chipId] !== undefined) {
+          if (
+            this.coreIdToReplicaIdMap &&
+            this.coreIdToReplicaIdMap[chipId] !== undefined
+          ) {
             nodeInfo.rid = this.coreIdToReplicaIdMap[chipId];
           }
-          if (this.nodes[chipz] === undefined) {
-            this.nodes[chipz] = {nodes: []};
+          let planeNodes = planesByZ.get(chipz);
+          if (!planeNodes) {
+            planeNodes = [];
+            planesByZ.set(chipz, planeNodes);
           }
-          this.nodes[chipz].nodes.push(nodeInfo);
+          planeNodes.push(nodeInfo);
         }
       });
+      this.nodes = Array.from(planesByZ.entries())
+        .sort(([zA], [zB]) => zA - zB)
+        .map(([z, nodes]) => ({z, nodes}));
     } else if (this.podStatsPerCore) {
-      this.nodes[0] = {nodes: []};
-      Object.keys(this.podStatsPerCore).forEach(coreId => {
-        const podStatsRecord = this.podStatsPerCore![coreId];
+      const nodes: ElementInfo[] = [];
+      Object.keys(this.podStatsPerCore).forEach((coreId) => {
+        const podStatsRecord = this.podStatsPerCore?.[coreId];
+        if (!podStatsRecord) {
+          return;
+        }
         const chipId = podStatsRecord.chipId || 0;
         const nodeId = podStatsRecord.nodeId || 0;
         const nodeInfo = this.getNodePosition(chipId, nodeId);
         nodeInfo.id = this.createElementId(chipId, nodeId);
-        if (this.coreIdToReplicaIdMap &&
-            this.coreIdToReplicaIdMap[coreId] !== undefined) {
+        if (
+          this.coreIdToReplicaIdMap &&
+          this.coreIdToReplicaIdMap[coreId] !== undefined
+        ) {
           nodeInfo.rid = this.coreIdToReplicaIdMap[coreId];
         }
-        this.nodes[0].nodes.push(nodeInfo);
+        nodes.push(nodeInfo);
       });
+      this.nodes = [{z: 0, nodes}];
     }
   }
 
@@ -441,11 +457,20 @@ export class TopologyGraph implements OnChanges, OnDestroy {
         CONTAINER_MARGIN;
   }
 
+  private clearNodeColors() {
+    const nodeEls = this.elRef.nativeElement.querySelectorAll('.node');
+    nodeEls.forEach((el: HTMLElement) => {
+      el.style.backgroundColor = '';
+    });
+  }
+
   hideTooltip() {
     this.tooltipText = '';
   }
 
   selectMetric(key: number, label: string) {
+    this.clearNodeColors();
+    this.isReplicaGroupColoring = false;
     if (!label) {
       this.selectedMetric = 0;
       this.selectedMetricLabel = 'Please select a metric';
@@ -590,21 +615,38 @@ export class TopologyGraph implements OnChanges, OnDestroy {
     this.selected.emit(index || 0);
   }
 
-  updateReplicaGroupColoring(info: AllReduceOpInfo) {
-    if (!info || !info.replicaGroups || !info.replicaGroups.length) return;
+  updateReplicaGroupColoring(
+    info: AllReduceOpInfo | ChannelInfo | PodStatsRecord | null,
+  ) {
+    const replicaGroups =
+      info && 'replicaGroups' in info ? info.replicaGroups : undefined;
+    if (!replicaGroups || replicaGroups.length === 0) {
+      if (this.isReplicaGroupColoring) {
+        this.clearNodeColors();
+        this.isReplicaGroupColoring = false;
+        this.selectedMetric = 0;
+        this.selectedMetricLabel = 'Please select a metric';
+      }
+      return;
+    }
+    this.clearNodeColors();
     // Colors the nodes within the same replica group to the same color.
-    for (let i = 0; i < info.replicaGroups.length; i++) {
-      const group = info.replicaGroups[i].replicaIds;
+    for (let i = 0; i < replicaGroups.length; i++) {
+      const group = replicaGroups[i].replicaIds;
       if (!group) continue;
+      const color = '#' + KELLY_COLORS[i % KELLY_COLORS.length];
       for (let j = 0; j < group.length; j++) {
         const groupEl = this.elRef.nativeElement.querySelectorAll(
-            '[rid="' + group[j] + '"]');
+          '[rid="' + group[j] + '"]',
+        );
         groupEl.forEach((el: HTMLElement) => {
-          el.style.backgroundColor = KELLY_COLORS[i % 20];
+          el.style.backgroundColor = color;
         });
       }
     }
+    this.isReplicaGroupColoring = true;
     this.selectedMetric = 0;
+    this.selectedMetricLabel = 'Color: Replica groups';
   }
 
   update() {

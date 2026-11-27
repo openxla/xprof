@@ -68,5 +68,46 @@ TEST(ComputeInferenceLatencyResult, InferenceLatencyTest) {
               kMaxError);
 }
 
+TEST(ComputeInferenceLatencyResult, ClampsNegativeHostTimeToZero) {
+  InferenceStats inference_stats;
+  auto& model = (*inference_stats.mutable_inference_stats_per_model())[0];
+
+  // Request 1: device + communication time exceeds session run duration
+  // (15 us > 10 us). Must clamp to 0 instead of cancelling out request 2.
+  RequestDetail* req1 = model.add_request_details();
+  req1->set_start_time_ps(0);
+  req1->set_end_time_ps(10000000);       // 10 us
+  req1->set_device_time_ps(12000000);    // 12 us
+  req1->set_write_to_device_time_ps(3000000);  // 3 us
+
+  // Request 2: healthy request with host time = 10 - 2 - 2 = 6 us.
+  RequestDetail* req2 = model.add_request_details();
+  req2->set_start_time_ps(0);
+  req2->set_end_time_ps(10000000);       // 10 us
+  req2->set_device_time_ps(2000000);     // 2 us
+  req2->set_write_to_device_time_ps(2000000);  // 2 us
+
+  auto result = ComputeInferenceLatencyResult(inference_stats);
+  ASSERT_EQ(result.latency_breakdowns_size(), 6);
+  // Average host time is (0 + 6) / 2 = 3.0 us (unclamped would be (-5 + 6)/2).
+  EXPECT_NEAR(result.latency_breakdowns(0).host_latency_us(), 3.0, kMaxError);
+  for (int i = 0; i < result.latency_breakdowns_size(); ++i) {
+    EXPECT_GE(result.latency_breakdowns(i).host_latency_us(), 0.0);
+  }
+}
+
+TEST(ComputeInferenceLatencyResult, GuardsReversedRequestTimestampUnderflow) {
+  InferenceStats inference_stats;
+  auto& model = (*inference_stats.mutable_inference_stats_per_model())[0];
+  RequestDetail* req = model.add_request_details();
+  req->set_start_time_ps(5000000);
+  req->set_end_time_ps(1000000);  // start > end
+
+  auto result = ComputeInferenceLatencyResult(inference_stats);
+  ASSERT_EQ(result.latency_breakdowns_size(), 6);
+  EXPECT_DOUBLE_EQ(result.latency_breakdowns(0).total_latency_us(), 0.0);
+  EXPECT_DOUBLE_EQ(result.latency_breakdowns(0).host_latency_us(), 0.0);
+}
+
 }  // namespace
 }  // namespace tensorflow::profiler

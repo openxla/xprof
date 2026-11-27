@@ -61,23 +61,25 @@ void ComputeAverage(int64_t count, LatencyBreakdown* breakdown) {
 void ComputeBreakdownFromSessionRun(
     const tensorflow::profiler::RequestDetail& request_detail,
     LatencyBreakdown* res, LatencyBreakdown* avg) {
-  double session_run_duration_us = tsl::profiler::PicoToMicro(
-      request_detail.end_time_ps() - request_detail.start_time_ps());
+  const uint64_t duration_ps =
+      request_detail.end_time_ps() > request_detail.start_time_ps()
+          ? request_detail.end_time_ps() - request_detail.start_time_ps()
+          : 0;
+  double session_run_duration_us = tsl::profiler::PicoToMicro(duration_ps);
   double device_time_us =
       tsl::profiler::PicoToMicro(request_detail.device_time_ps());
   double communication_time_us =
       tsl::profiler::PicoToMicro(request_detail.read_from_device_time_ps() +
                                  request_detail.write_to_device_time_ps());
-  double host_time_us =
-      session_run_duration_us - device_time_us - communication_time_us;
+  double host_time_us = std::max(
+      0.0, session_run_duration_us - device_time_us - communication_time_us);
   *res = {session_run_duration_us, host_time_us, device_time_us,
           communication_time_us};
 
   avg->total_latency_us += session_run_duration_us;
   avg->device_latency_us += device_time_us;
   avg->communication_latency_us += communication_time_us;
-  avg->host_latency_us +=
-      session_run_duration_us - device_time_us - communication_time_us;
+  avg->host_latency_us += host_time_us;
 }
 
 // Compute the inference latency from inference stats proto.

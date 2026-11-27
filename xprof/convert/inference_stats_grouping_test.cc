@@ -601,10 +601,72 @@ TEST(InferenceStatsGroupingTest, PropagatesProgramIdsToAggregatedBatchDetails) {
 
   const auto& bs8 = model_stats.per_batch_size_aggregated_result(0);
   EXPECT_EQ(bs8.batch_size(), 8);
+  EXPECT_DOUBLE_EQ(bs8.request_throughput(), 0.0);
   EXPECT_THAT(bs8.aggregated_batch_result().program_ids(),
               ::testing::UnorderedElementsAre(11111, 22222));
   EXPECT_THAT(model_stats.aggregated_batch_detail().program_ids(),
               ::testing::IsEmpty());
+}
+
+TEST(InferenceStatsGroupingTest, DisambiguatesSameBatchIdAcrossMultipleHosts) {
+  InferenceStats inference_stats = ParseTextProto<InferenceStats>(R"pb(
+                                     inference_stats_per_host {
+                                       key: 0
+                                       value {
+                                         request_details {
+                                           host_id: 0
+                                           request_id: 1
+                                           start_time_ps: 1000
+                                           end_time_ps: 2000
+                                           related_batch_ids: 0
+                                           host_runtime_ps: 100
+                                         }
+                                         batch_details {
+                                           host_id: 0
+                                           batch_id: 0
+                                           start_time_ps: 1000
+                                           end_time_ps: 2000
+                                           batch_size_after_padding: 8
+                                         }
+                                       }
+                                     }
+                                     inference_stats_per_host {
+                                       key: 1
+                                       value {
+                                         request_details {
+                                           host_id: 1
+                                           request_id: 1
+                                           start_time_ps: 1000
+                                           end_time_ps: 3000
+                                           related_batch_ids: 0
+                                           host_runtime_ps: 300
+                                         }
+                                         batch_details {
+                                           host_id: 1
+                                           batch_id: 0
+                                           start_time_ps: 1000
+                                           end_time_ps: 3000
+                                           batch_size_after_padding: 16
+                                         }
+                                       }
+                                     }
+                                   )pb")
+                                       .value();
+
+  RegroupInferenceStatsByModel(&inference_stats);
+
+  const auto& model_stats = inference_stats.inference_stats_per_model().at(0);
+  ASSERT_EQ(model_stats.per_batch_size_aggregated_result_size(), 2);
+  EXPECT_EQ(model_stats.per_batch_size_aggregated_result(0).batch_size(), 8);
+  EXPECT_EQ(model_stats.per_batch_size_aggregated_result(0)
+                .aggregated_request_result()
+                .host_runtime_ps(),
+            100);
+  EXPECT_EQ(model_stats.per_batch_size_aggregated_result(1).batch_size(), 16);
+  EXPECT_EQ(model_stats.per_batch_size_aggregated_result(1)
+                .aggregated_request_result()
+                .host_runtime_ps(),
+            300);
 }
 
 TEST(InferenceStatsGroupingTest, IgnoresUnattributedBatchWhenModelIdPresent) {
@@ -642,6 +704,104 @@ TEST(InferenceStatsGroupingTest, IgnoresUnattributedBatchWhenModelIdPresent) {
   EXPECT_EQ(bs8.aggregated_batch_result().batch_id(), 1);
   EXPECT_THAT(bs8.aggregated_batch_result().program_ids(),
               ::testing::ElementsAre(22222));
+}
+
+TEST(InferenceStatsGroupingTest,
+     MissingBatchOnSameHostDoesNotCrossAttributeToOtherHost) {
+  InferenceStats inference_stats = ParseTextProto<InferenceStats>(R"pb(
+                                     inference_stats_per_host {
+                                       key: 0
+                                       value {
+                                         request_details {
+                                           host_id: 0
+                                           request_id: 1
+                                           start_time_ps: 1000
+                                           end_time_ps: 2000
+                                           related_batch_ids: 42
+                                           host_runtime_ps: 500
+                                         }
+                                       }
+                                     }
+                                     inference_stats_per_host {
+                                       key: 1
+                                       value {
+                                         batch_details {
+                                           host_id: 1
+                                           batch_id: 42
+                                           start_time_ps: 1000
+                                           end_time_ps: 2000
+                                           batch_size_after_padding: 16
+                                         }
+                                       }
+                                     }
+                                   )pb")
+                                       .value();
+
+  RegroupInferenceStatsByModel(&inference_stats);
+
+  const auto& model_stats = inference_stats.inference_stats_per_model().at(0);
+  ASSERT_EQ(model_stats.per_batch_size_aggregated_result_size(), 1);
+  const auto& bs16 = model_stats.per_batch_size_aggregated_result(0);
+  EXPECT_EQ(bs16.batch_size(), 16);
+  EXPECT_EQ(bs16.aggregated_request_result().host_runtime_ps(), 0);
+}
+
+TEST(InferenceStatsGroupingTest, Supports64BitBatchIdAndSub100PsThroughput) {
+  InferenceStats inference_stats = ParseTextProto<InferenceStats>(R"pb(
+                                     inference_stats_per_host {
+                                       key: 0
+                                       value {
+                                         request_details {
+                                           host_id: 0
+                                           request_id: 1
+                                           start_time_ps: 1000
+                                           end_time_ps: 1050
+                                           related_batch_ids: 1099511627776
+                                           host_runtime_ps: 50
+                                         }
+                                         batch_details {
+                                           host_id: 0
+                                           batch_id: 1099511627776
+                                           start_time_ps: 1000
+                                           end_time_ps: 1050
+                                           batch_size_after_padding: 4
+                                         }
+                                       }
+                                     }
+                                   )pb")
+                                       .value();
+
+  RegroupInferenceStatsByModel(&inference_stats);
+
+  const auto& model_stats = inference_stats.inference_stats_per_model().at(0);
+  EXPECT_GT(model_stats.request_throughput(), 0.0);
+  EXPECT_GT(model_stats.batch_throughput(), 0.0);
+  ASSERT_EQ(model_stats.per_batch_size_aggregated_result_size(), 1);
+  const auto& bs4 = model_stats.per_batch_size_aggregated_result(0);
+  EXPECT_EQ(bs4.batch_size(), 4);
+  EXPECT_EQ(bs4.aggregated_request_result().host_runtime_ps(), 50);
+}
+
+TEST(InferenceStatsGroupingTest, ZeroDurationSpanReturnsZeroThroughput) {
+  InferenceStats inference_stats = ParseTextProto<InferenceStats>(R"pb(
+                                     inference_stats_per_host {
+                                       key: 0
+                                       value {
+                                         request_details {
+                                           host_id: 0
+                                           request_id: 1
+                                           start_time_ps: 5000
+                                           end_time_ps: 5000
+                                         }
+                                       }
+                                     }
+                                   )pb")
+                                       .value();
+
+  RegroupInferenceStatsByModel(&inference_stats);
+
+  const auto& model_stats = inference_stats.inference_stats_per_model().at(0);
+  EXPECT_DOUBLE_EQ(model_stats.request_throughput(), 0.0);
 }
 
 }  // namespace

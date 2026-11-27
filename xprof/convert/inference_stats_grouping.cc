@@ -118,6 +118,9 @@ Out nway_merge(const ContainerContainer& containers, Out out, Cmp cmp) {
 
 double GetThroughput(size_t data_size, uint64_t start_time_ps,
                      uint64_t end_time_ps) {
+  if (end_time_ps <= start_time_ps) {
+    return 0.0;
+  }
   return data_size / tsl::profiler::PicoToUni(end_time_ps - start_time_ps);
 }
 
@@ -359,9 +362,10 @@ void AggregatePerModelInferenceStats(InferenceStats* inference_stats) {
   for (auto& [model_index, per_model_stats] :
        *inference_stats->mutable_inference_stats_per_model()) {
     // TODO: remove batch size aggregation from request table.
-    absl::flat_hash_map<int /*batch_id*/, const BatchDetail*> batch_id_to_batch;
+    absl::flat_hash_map<std::pair<int32_t, int64_t>, const BatchDetail*>
+        host_and_batch_id_to_batch;
     for (const BatchDetail& b : per_model_stats.batch_details()) {
-      batch_id_to_batch[b.batch_id()] = &b;
+      host_and_batch_id_to_batch[{b.host_id(), b.batch_id()}] = &b;
     }
 
     // Aggregated result for all data.
@@ -370,20 +374,22 @@ void AggregatePerModelInferenceStats(InferenceStats* inference_stats) {
 
     struct PerBatchSizeInfo {
       PerBatchSizeAggregatedResult result;
-      int request_count;
-      int batch_count;
+      int request_count = 0;
+      int batch_count = 0;
     };
     // Aggregated result per batch size.
-    absl::flat_hash_map<int /*batch_id*/, PerBatchSizeInfo> per_batch_size_info;
+    absl::flat_hash_map<int /*batch_size*/, PerBatchSizeInfo>
+        per_batch_size_info;
 
     for (const RequestDetail& r : per_model_stats.request_details()) {
       // Aggregate all data.
       AggregateRequest(r, &aggregated_r);
       // Aggregate per batch size.
       // TODO: remove batch size aggregation from request table.
-      for (const auto batch_id : r.related_batch_ids()) {
-        if (const BatchDetail* batch =
-                ::tsl::gtl::FindPtrOrNull(batch_id_to_batch, batch_id)) {
+      for (const int64_t batch_id : r.related_batch_ids()) {
+        if (const BatchDetail* batch = tsl::gtl::FindPtrOrNull(
+                host_and_batch_id_to_batch,
+                std::make_pair(r.host_id(), batch_id))) {
           int batch_size = batch->batch_size_after_padding();
           auto& info = per_batch_size_info[batch_size];
           AggregateRequest(r, info.result.mutable_aggregated_request_result());
@@ -424,16 +430,16 @@ void AggregatePerModelInferenceStats(InferenceStats* inference_stats) {
       auto& info = per_batch_size_info[batch_size];
       *result->mutable_aggregated_request_result() = GetAverageRequestDetails(
           info.result.aggregated_request_result(), info.request_count);
-      result->set_request_throughput(info.request_count *
-                                     per_model_stats.request_throughput() /
-                                     per_model_stats.request_details_size());
+      result->set_request_throughput(tsl::profiler::SafeDivide(
+          info.request_count * per_model_stats.request_throughput(),
+          per_model_stats.request_details_size()));
       *result->mutable_aggregated_batch_result() = GetAverageBatchDetails(
           info.result.aggregated_batch_result(), info.batch_count);
       result->mutable_aggregated_request_result()->set_device_time_ps(
           result->aggregated_batch_result().device_time_ps());
-      result->set_batch_throughput(info.batch_count *
-                                   per_model_stats.batch_throughput() /
-                                   per_model_stats.batch_details_size());
+      result->set_batch_throughput(tsl::profiler::SafeDivide(
+          info.batch_count * per_model_stats.batch_throughput(),
+          per_model_stats.batch_details_size()));
     }
   }
 }

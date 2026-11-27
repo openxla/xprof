@@ -26,6 +26,9 @@ import {takeUntil} from 'rxjs/operators';
   styleUrls: ['./megascale_perfetto.scss'],
 })
 export class MegascalePerfetto implements OnDestroy {
+  private static readonly PING_INTERVAL_MS = 250;
+  private static readonly PING_TIMEOUT_MS = 10_000;
+
   readonly tool = 'megascale_perfetto';
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -37,11 +40,16 @@ export class MegascalePerfetto implements OnDestroy {
   sessionId = '';
   host = '';
   groupTinyEvents = '';
-  private initTimer: number | null = null;
   private pingTimer: number | null = null;
+  private pingTimeoutTimer: number | null = null;
   private isLoading = false;
-  // tslint:disable-next-line:no-any
-  private messageHandler: ((evt: any) => void) | null = null;
+  private isIframeLoaded = false;
+  private lastLoadedDataUrl = '';
+  private inFlightDataUrl = '';
+  private cachedTraceBuffer: ArrayBuffer | null = null;
+  private fetchAbortController: AbortController | null = null;
+  private activeLoadId = 0;
+  private messageHandler: ((evt: MessageEvent) => void) | null = null;
 
   constructor(
     route: ActivatedRoute,
@@ -51,6 +59,8 @@ export class MegascalePerfetto implements OnDestroy {
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
         const prevSessionId = this.sessionId;
+        const prevDataUrl = this.perfettoDataUrl;
+        const prevHost = this.host;
         // Prefer the route session, because query params copied from saved
         // search params can carry a stale session. A bare route falls back to
         // the query session.
@@ -65,7 +75,28 @@ export class MegascalePerfetto implements OnDestroy {
         );
         this.groupTinyEvents = queryParams['group_tiny_events'] || '';
         this.perfettoDataUrl = this.buildPerfettoDataURL();
-        this.perfettoUrl = this.buildMegascalePerfettoUrl();
+        if (!this.isIframeLoaded) {
+          this.perfettoUrl = this.buildMegascalePerfettoUrl();
+          return;
+        }
+        if (!this.host) {
+          if (
+            prevHost ||
+            this.lastLoadedDataUrl ||
+            this.inFlightDataUrl ||
+            this.perfettoDataUrl !== prevDataUrl
+          ) {
+            this.clearTrace();
+            void this.loadPerfetto();
+          }
+          return;
+        }
+        if (this.perfettoUrl === 'about:blank') {
+          this.perfettoUrl = this.buildMegascalePerfettoUrl();
+        }
+        if (this.perfettoDataUrl !== prevDataUrl || !prevHost) {
+          void this.loadPerfetto();
+        }
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
@@ -77,15 +108,12 @@ export class MegascalePerfetto implements OnDestroy {
   getPerfettoWindow() {
     const perfettoIframe = document.getElementById(
       'perfetto-page',
-    )! as HTMLIFrameElement;
-    return perfettoIframe.contentWindow;
+    ) as HTMLIFrameElement | null;
+    return perfettoIframe?.contentWindow ?? null;
   }
 
   async initPerfetto() {
-    if (this.initTimer !== null) {
-      window.clearTimeout(this.initTimer);
-      this.initTimer = null;
-    }
+    this.isIframeLoaded = true;
     // We cannot check perfettoWindow.document.readyState for megascale because of
     // cross-origin restrictions. We rely on the (load) event and the PING/PONG
     // handshake.
@@ -93,19 +121,55 @@ export class MegascalePerfetto implements OnDestroy {
   }
 
   async loadPerfetto(): Promise<void> {
-    if (this.isLoading) {
+    const targetUrl = this.perfettoDataUrl;
+    if (!this.host) {
+      this.resetLoadedState();
+      this.store.dispatch(
+        setErrorMessageStateAction({
+          errorMessage: 'A host must be specified.',
+        }),
+      );
       return;
     }
+    if (this.isLoading && this.inFlightDataUrl === targetUrl) {
+      return;
+    }
+    const loadId = ++this.activeLoadId;
+    this.abortInFlightFetch();
+    this.cleanupPing();
+    if (
+      targetUrl &&
+      targetUrl === this.lastLoadedDataUrl &&
+      this.cachedTraceBuffer !== null
+    ) {
+      this.throbber.stop();
+      setLoadingState(false, this.store);
+      this.store.dispatch(setErrorMessageStateAction({errorMessage: ''}));
+      this.openPerfettoUI(this.cachedTraceBuffer);
+      return;
+    }
+
+    const abortController = new AbortController();
+    this.fetchAbortController = abortController;
+    this.inFlightDataUrl = targetUrl;
     this.isLoading = true;
     this.store.dispatch(setErrorMessageStateAction({errorMessage: ''}));
     setLoadingState(true, this.store, 'Loading perfetto data');
     try {
       this.throbber.start();
-      await this.getDataAndOpenPerfettoUI();
+      await this.getDataAndOpenPerfettoUI(
+        abortController.signal,
+        loadId,
+        targetUrl,
+      );
     } finally {
-      this.throbber.stop();
-      setLoadingState(false, this.store);
-      this.isLoading = false;
+      if (loadId === this.activeLoadId) {
+        this.throbber.stop();
+        setLoadingState(false, this.store);
+        this.isLoading = false;
+        this.inFlightDataUrl = '';
+        this.fetchAbortController = null;
+      }
     }
   }
 
@@ -122,15 +186,23 @@ export class MegascalePerfetto implements OnDestroy {
     requestURL.searchParams.set('tag', 'megascale_stats');
     if (this.host) {
       requestURL.searchParams.set('host', this.host);
+    } else {
+      requestURL.searchParams.delete('host');
     }
     if (this.groupTinyEvents !== '') {
       requestURL.searchParams.set('group_tiny_events', this.groupTinyEvents);
+    } else {
+      requestURL.searchParams.delete('group_tiny_events');
     }
     return requestURL.toString();
   }
 
-  async getDataAndOpenPerfettoUI(): Promise<void> {
-    if (!this.perfettoDataUrl) return;
+  async getDataAndOpenPerfettoUI(
+    signal?: AbortSignal,
+    loadId?: number,
+    dataUrl = this.perfettoDataUrl,
+  ): Promise<void> {
+    if (!dataUrl) return;
     if (!this.host) {
       this.store.dispatch(
         setErrorMessageStateAction({
@@ -139,15 +211,24 @@ export class MegascalePerfetto implements OnDestroy {
       );
       return;
     }
+    const isStale = () =>
+      Boolean(signal?.aborted) ||
+      (loadId !== undefined && loadId !== this.activeLoadId);
     try {
-      const response = await fetch(this.perfettoDataUrl);
+      const response = signal
+        ? await fetch(dataUrl, {signal})
+        : await fetch(dataUrl);
+      if (isStale()) return;
       if (!response.ok) {
         const errorMessage = `Failed to load Perfetto data: ${await formatFetchError(response)}`;
+        if (isStale()) return;
         this.store.dispatch(setErrorMessageStateAction({errorMessage}));
         return;
       }
       const blob = await response.blob();
+      if (isStale()) return;
       const trace = await blob.arrayBuffer();
+      if (isStale()) return;
       if (trace.byteLength === 0) {
         this.store.dispatch(
           setErrorMessageStateAction({
@@ -156,8 +237,13 @@ export class MegascalePerfetto implements OnDestroy {
         );
         return;
       }
+      this.lastLoadedDataUrl = dataUrl;
+      this.cachedTraceBuffer = trace;
       this.openPerfettoUI(trace);
     } catch (e) {
+      if (isStale() || (e instanceof DOMException && e.name === 'AbortError')) {
+        return;
+      }
       this.store.dispatch(
         setErrorMessageStateAction({
           errorMessage: `Failed to load Perfetto data: ${formatFetchException(e)}`,
@@ -173,21 +259,24 @@ export class MegascalePerfetto implements OnDestroy {
       return;
     }
     this.cleanupPing();
-    // tslint:disable:no-any allow any type for the message object
-    this.messageHandler = (evt: any) => {
-      if (evt.data !== 'PONG') {
+    this.messageHandler = (evt: MessageEvent) => {
+      if (
+        evt.origin !== this.perfettoOrigin ||
+        evt.source !== perfettoWindow ||
+        evt.data !== 'PONG'
+      ) {
         return;
       }
       this.cleanupPing();
       const shareUrl = new URL(
-        `/${this.tool}/${this.sessionId}?${window.location.search}`,
-        window.location.href,
+        `${this.tool}/${encodeURIComponent(this.sessionId)}${window.location.search}`,
+        document.baseURI,
       );
-      const perfettoMessage: any = {
-        buffer: trace,
-        title: `xprof session ${this.sessionId}`,
-        url: shareUrl.toString(),
-        keepApiOpen: true,
+      const perfettoMessage: Record<string, unknown> = {
+        'buffer': trace,
+        'title': `xprof session ${this.sessionId}`,
+        'url': shareUrl.toString(),
+        'keepApiOpen': true,
       };
 
       perfettoWindow.postMessage(
@@ -200,13 +289,50 @@ export class MegascalePerfetto implements OnDestroy {
     window.addEventListener('message', this.messageHandler);
     this.pingTimer = window.setInterval(() => {
       perfettoWindow.postMessage('PING', this.perfettoOrigin);
-    }, 250);
+    }, MegascalePerfetto.PING_INTERVAL_MS);
+    this.pingTimeoutTimer = window.setTimeout(() => {
+      this.cleanupPing();
+      this.store.dispatch(
+        setErrorMessageStateAction({
+          errorMessage:
+            'Timed out waiting for Perfetto UI to respond. Please reload the page.',
+        }),
+      );
+    }, MegascalePerfetto.PING_TIMEOUT_MS);
+  }
+
+  private clearTrace() {
+    this.resetLoadedState();
+    this.perfettoUrl = 'about:blank';
+  }
+
+  private resetLoadedState() {
+    this.activeLoadId++;
+    this.abortInFlightFetch();
+    this.cleanupPing();
+    this.throbber.stop();
+    setLoadingState(false, this.store);
+    this.lastLoadedDataUrl = '';
+    this.cachedTraceBuffer = null;
+  }
+
+  private abortInFlightFetch() {
+    if (this.fetchAbortController) {
+      this.fetchAbortController.abort();
+      this.fetchAbortController = null;
+    }
+    this.inFlightDataUrl = '';
+    this.isLoading = false;
   }
 
   private cleanupPing() {
     if (this.pingTimer !== null) {
       window.clearInterval(this.pingTimer);
       this.pingTimer = null;
+    }
+    if (this.pingTimeoutTimer !== null) {
+      window.clearTimeout(this.pingTimeoutTimer);
+      this.pingTimeoutTimer = null;
     }
     if (this.messageHandler) {
       window.removeEventListener('message', this.messageHandler);
@@ -215,10 +341,8 @@ export class MegascalePerfetto implements OnDestroy {
   }
 
   ngOnDestroy() {
-    if (this.initTimer !== null) {
-      window.clearTimeout(this.initTimer);
-      this.initTimer = null;
-    }
+    this.activeLoadId++;
+    this.abortInFlightFetch();
     this.cleanupPing();
     // Unsubscribes all pending subscriptions.
     setLoadingState(false, this.store);

@@ -55,6 +55,7 @@ void Timeline::DrawTimelinePlayerSync() {
     EventData payload;
     payload["time"] = current_play_time_;
     payload["currentTime"] = current_progress_us;
+    payload["visibleStart"] = static_cast<double>(visible_range().start());
     payload["duration"] = (double)visible_duration;
     payload["isPlaying"] = is_playing_;
 

@@ -584,14 +584,16 @@ void TraceProcessor::AddGlobalCounters() {
     for (const auto& track : tracks) {
       for (const auto& event : track.events) {
         if (RE2::FullMatch(event.name, *kGraphNameRe)) {
-          int64_t end_time_ps = event.timestamp_ps + event.duration_ps;
-          inflight_collective_count_deltas.push_back({event.timestamp_ps, 1});
+          int64_t start_time_ps = std::max<int64_t>(0, event.timestamp_ps);
+          int64_t end_time_ps = std::max<int64_t>(
+              start_time_ps, event.timestamp_ps + event.duration_ps);
+          inflight_collective_count_deltas.push_back({start_time_ps, 1});
           inflight_collective_count_deltas.push_back({end_time_ps, -1});
 
           int64_t input_size = 0;
           if (FindArgInt(event, trace_, "input_size", &input_size)) {
             inflight_collective_bytes_deltas.push_back(
-                {event.timestamp_ps, input_size});
+                {start_time_ps, input_size});
             inflight_collective_bytes_deltas.push_back(
                 {end_time_ps, -input_size});
           }
@@ -622,8 +624,13 @@ void TraceProcessor::AddGlobalCounters() {
               continue;
             }
             chunks++;
-            int64_t end_time_ps = event.timestamp_ps + event.duration_ps;
-            int64_t start_time_ps = end_time_ps - (latency_us * 1000000);
+            int64_t end_time_ps =
+                std::max<int64_t>(0, event.timestamp_ps + event.duration_ps);
+            int64_t start_time_ps =
+                (latency_uint > static_cast<uint64_t>(end_time_ps) / 1000000)
+                    ? 0
+                    : end_time_ps -
+                          static_cast<int64_t>(latency_uint * 1000000);
 
             rx_deltas.push_back({start_time_ps, bytes});
             rx_deltas.push_back({end_time_ps, -bytes});
@@ -657,6 +664,12 @@ void TraceProcessor::AddGlobalCounters() {
                 << "NetworkSend END missing action_duration_ns";
             continue;
           }
+          if (duration_ns < 0) {
+            LOG_EVERY_N(WARNING, 1000)
+                << "NetworkSend END has negative action_duration_ns: "
+                << duration_ns;
+            continue;
+          }
 
           absl::string_view buffer_sizes;
           if (!FindArgString(event, trace_, "buffer_sizes", &buffer_sizes)) {
@@ -675,8 +688,11 @@ void TraceProcessor::AddGlobalCounters() {
               continue;
             }
             chunks++;
-            int64_t end_time_ps = event.timestamp_ps + event.duration_ps;
-            int64_t start_time_ps = end_time_ps - (duration_ns * 1000);
+            int64_t end_time_ps =
+                std::max<int64_t>(0, event.timestamp_ps + event.duration_ps);
+            int64_t start_time_ps = (duration_ns > end_time_ps / 1000)
+                                        ? 0
+                                        : end_time_ps - (duration_ns * 1000);
             tx_deltas.push_back({start_time_ps, bytes});
             tx_deltas.push_back({end_time_ps, -bytes});
 

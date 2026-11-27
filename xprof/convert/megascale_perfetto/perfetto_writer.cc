@@ -1,5 +1,6 @@
 #include "xprof/convert/megascale_perfetto/perfetto_writer.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -42,6 +43,10 @@ using ::perfetto::protos::TrackEvent;
 
 // Use a single sequence ID to allow interning across the whole file.
 constexpr uint32_t kTrustedPacketSequenceId = 1;
+
+uint64_t ClampedPsToNs(int64_t timestamp_ps) {
+  return static_cast<uint64_t>(std::max<int64_t>(0, timestamp_ps) / 1000);
+}
 
 class WriterContext {
  public:
@@ -186,7 +191,7 @@ class WriterContext {
   template <typename T>
   void WriteCounterEvent(int64_t timestamp_ps, T value, uint64_t track_uuid) {
     TracePacket* packet = NewPacket();
-    packet->set_timestamp(timestamp_ps / 1000);
+    packet->set_timestamp(ClampedPsToNs(timestamp_ps));
     if (packet->trusted_packet_sequence_id() == 0) {
       packet->set_trusted_packet_sequence_id(kTrustedPacketSequenceId);
     }
@@ -205,7 +210,7 @@ class WriterContext {
 
     // 1. Begin (or Instant) Packet
     TracePacket* packet = NewPacket();
-    packet->set_timestamp(event.timestamp_ps / 1000);
+    packet->set_timestamp(ClampedPsToNs(event.timestamp_ps));
     TrackEvent* te = packet->mutable_track_event();
     te->set_track_uuid(track_uuid);
     te->set_type(is_instant ? TrackEvent::TYPE_INSTANT
@@ -268,7 +273,8 @@ class WriterContext {
     }
 
     packet = NewPacket();
-    packet->set_timestamp((event.timestamp_ps + event.duration_ps) / 1000);
+    packet->set_timestamp(
+        ClampedPsToNs(event.timestamp_ps + event.duration_ps));
     te = packet->mutable_track_event();
     te->set_track_uuid(track_uuid);
     te->set_type(TrackEvent::TYPE_SLICE_END);

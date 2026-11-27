@@ -1,21 +1,21 @@
 <div class="timeline-player-container">
-  <div class="progress-bar-container">
-     <div class="loop-region" *ngIf="loopState === 'ACTIVE'"
-          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
-          [style.width.%]="duration() ? ((loopEnd! - loopStart!) / duration()) * 100 : 0"></div>
+  <div #progressBarContainer class="progress-bar-container">
+     <div class="loop-region" *ngIf="isLoopRegionVisible"
+          [style.left.%]="loopRegionLeftPercent"
+          [style.width.%]="loopRegionWidthPercent"></div>
 
-     <div class="loop-marker start" *ngIf="loopState !== 'INACTIVE'"
-          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
+     <div class="loop-marker start" *ngIf="isLoopStartVisible"
+          [style.left.%]="loopStartPercent"
           (pointerdown)="onStartMarkerPointerDown($event)">
           <span class="loop-flag">A</span>
      </div>
 
-     <div class="loop-marker end" *ngIf="loopState === 'ACTIVE'"
-          [style.left.%]="duration() ? (loopEnd! / duration()) * 100 : 0"
+     <div class="loop-marker end" *ngIf="isLoopEndVisible"
+          [style.left.%]="loopEndPercent"
           (pointerdown)="onEndMarkerPointerDown($event)">
           <span class="loop-flag">B</span>
      </div>
-     <div class="progress-fill" [style.width.%]="duration() ? (currentTime() / duration()) * 100 : 0"></div>
+     <div class="progress-fill" [style.width.%]="progressFillPercent"></div>
      <input type="range" class="progress-bar"
             [min]="0" [max]="duration()" step="any"
             [value]="currentTime()"

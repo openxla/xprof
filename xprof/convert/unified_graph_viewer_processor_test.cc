@@ -430,5 +430,73 @@ TEST_F(UnifiedGraphViewerProcessorTest,
                                ::testing::HasSubstr("source_op_meta")));
 }
 
+TEST_F(UnifiedGraphViewerProcessorTest, HandleContentTypesByTypeAndFormat) {
+  xla::HloProto dummy_hlo = ParseTextProtoOrDie(R"pb(
+    hlo_module {
+      name: "my_module"
+      entry_computation_name: "entry"
+      entry_computation_id: 1
+      host_program_shape { result { element_type: F32 } }
+      computations {
+        name: "entry"
+        id: 1
+        root_id: 10
+        instructions {
+          name: "constant.1"
+          opcode: "constant"
+          id: 10
+          shape {
+            element_type: F32
+            layout {}
+          }
+          literal {
+            shape {
+              element_type: F32
+              layout {}
+            }
+            f32s: 1.0
+          }
+        }
+        program_shape { result { element_type: F32 } }
+      }
+    }
+  )pb");
+  ASSERT_OK(WriteBinaryProto(
+      file::JoinPath(session_dir_, "my_module.hlo_proto.pb"), dummy_hlo));
+  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  ASSERT_OK(WriteBinaryProto(xspace_path, XSpace()));
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot snapshot,
+      SessionSnapshot::Create({xspace_path}, /*xspaces=*/std::nullopt));
+
+  struct Case {
+    const char* type;
+    const char* format;
+    const char* mime;
+    const char* substr;
+  };
+  const Case kCases[] = {
+      {"adj_nodes", "", "application/json", "\"constant.1\""},
+      {"graph", "html", "text/html", ""},
+      {"graph", "dot", "text/plain", "digraph"},
+      {"short_txt", "html", "text/plain", ""},
+  };
+  for (const auto& tc : kCases) {
+    ToolOptions opts = {{"module_name", std::string("my_module")},
+                        {"node_name", std::string("constant.1")},
+                        {"graph_width", std::string("1")},
+                        {"type", std::string(tc.type)}};
+    if (*tc.format != '\0') opts["format"] = std::string(tc.format);
+    auto processor = UnifiedProfileProcessorFactory::GetInstance().Create(
+        "graph_viewer", opts);
+    ASSERT_NE(processor, nullptr);
+    ASSERT_OK(processor->ProcessSession(snapshot, opts));
+    EXPECT_EQ(processor->GetContentType(), tc.mime) << tc.type;
+    if (*tc.substr != '\0') {
+      EXPECT_THAT(processor->GetData(), ::testing::HasSubstr(tc.substr));
+    }
+  }
+}
+
 }  // namespace
 }  // namespace xprof

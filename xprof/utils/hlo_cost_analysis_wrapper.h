@@ -21,7 +21,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
+#include "absl/container/btree_map.h"
 #include "absl/functional/any_invocable.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/hlo_cost_analysis.h"
@@ -53,11 +53,11 @@ class HloCostAnalysisWrapper {
   // The input is the cost associated with the HLO instruction and the output is
   // the adjusted cost.
   using CostAdjustmentFn = absl::AnyInvocable<int64_t(int64_t)>;
-  // Type for mapping from XProf memory space to XLA memory space. Used when
-  // constructing the memory accessed breakdown of an HLO instruction.
+  // Type for mapping from XProf memory space to XLA memory space. Ordered by
+  // MemorySpace so the memory accessed breakdown of an HLO instruction has a
+  // deterministic order across runs.
   using MemorySpaceMap =
-      absl::flat_hash_map<PerformanceInfo::MemoryAccessed::MemorySpace,
-                          int64_t>;
+      absl::btree_map<PerformanceInfo::MemoryAccessed::MemorySpace, int64_t>;
 
   // Generates a PerformanceInfo proto for the given HLO instruction. Should be
   // used in conjunction with PerformanceInfoWrapper.

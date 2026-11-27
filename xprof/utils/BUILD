@@ -656,7 +656,7 @@ cc_library(
         ":cost_utils",
         ":function_registry",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
-        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -672,10 +672,12 @@ cc_test(
     srcs = ["hlo_cost_analysis_wrapper_test.cc"],
     deps = [
         ":hlo_cost_analysis_wrapper",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/hlo/parser:hlo_parser",
+        "@xla//xla/service:hlo_cost_analysis",
         "@xla//xla/tsl/platform:test",
     ],
 )

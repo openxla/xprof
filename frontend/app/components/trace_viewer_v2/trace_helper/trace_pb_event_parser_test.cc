@@ -118,6 +118,41 @@ void AddCompleteEventTrack(xprof::TraceDataResponse& frame,
   }
 }
 
+struct CompleteSeriesFieldLengths {
+  int num_deltas = 0;
+  int num_durations = 0;
+  int num_event_metadata = 0;
+  int num_name_refs = 0;
+  uint32_t fallback_name_ref = 1;
+  uint32_t explicit_name_ref = 2;
+  uint64_t step_ps = 1'000'000'000ULL;
+  uint64_t duration_ps = 500'000'000ULL;
+};
+
+void AddCompleteEventTrackWithLengths(
+    xprof::TraceDataResponse& frame, xprof::Process& proc, uint32_t tid,
+    absl::string_view thread_name, const CompleteSeriesFieldLengths& lengths) {
+  xprof::Thread* thread = proc.add_threads();
+  thread->set_id(tid);
+  thread->set_name(thread_name);
+  xprof::TraceEventSeries* series = frame.add_complete_events();
+  series->mutable_metadata()->set_process_id(proc.id());
+  series->mutable_metadata()->set_thread_id(tid);
+  series->mutable_metadata()->set_name_ref(lengths.fallback_name_ref);
+  for (int i = 0; i < lengths.num_deltas; ++i) {
+    series->add_deltas(lengths.step_ps);
+  }
+  for (int i = 0; i < lengths.num_durations; ++i) {
+    series->add_durations(lengths.duration_ps);
+  }
+  for (int i = 0; i < lengths.num_event_metadata; ++i) {
+    series->add_event_metadata()->set_serial(static_cast<uint32_t>(i + 1));
+  }
+  for (int i = 0; i < lengths.num_name_refs; ++i) {
+    series->add_name_refs(lengths.explicit_name_ref);
+  }
+}
+
 // Builds, serializes, and Zstd-compresses a single-event TraceDataResponse.
 absl::StatusOr<CompressedTestFrame> CompressSingleEventFrame(
     absl::string_view event_name) {
@@ -1419,6 +1454,141 @@ TEST(
     EXPECT_DOUBLE_EQ(data.entry_total_times[0], 450000.0);
     EXPECT_EQ(data.entry_names[1], "op_f0");
   }
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     BlockCacheHandlesEmptyAndTruncatedOptionalFieldsOnSmallTrack) {
+  using ::testing::ElementsAre;
+
+  IncrementalCacheCleanup cleanup_guard;
+
+  xprof::TraceDataResponse frame;
+  frame.set_full_timespan_start_ps(0ULL);
+  frame.set_full_timespan_end_ps(10'000'000'000ULL);
+  frame.add_interned_strings("");
+  frame.add_interned_strings("fallback_op");
+  frame.add_interned_strings("explicit_op");
+  xprof::Process* proc = frame.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  // Track 1: all optional repeated fields omitted.
+  AddCompleteEventTrackWithLengths(frame, *proc, /*tid=*/10, "Empty Optional",
+                                   {.num_deltas = 3,
+                                    .num_durations = 0,
+                                    .num_event_metadata = 0,
+                                    .num_name_refs = 0});
+  // Track 2: all optional repeated fields shorter than deltas.
+  AddCompleteEventTrackWithLengths(frame, *proc, /*tid=*/11,
+                                   "Truncated Optional",
+                                   {.num_deltas = 3,
+                                    .num_durations = 2,
+                                    .num_event_metadata = 2,
+                                    .num_name_refs = 2});
+
+  const absl::StatusOr<std::string> compressed =
+      CompressTraceDataResponse(frame);
+  ASSERT_TRUE(compressed.ok()) << compressed.status();
+
+  ColorPalette palette = ColorPalette::Default();
+  DataProvider data_provider;
+  Timeline timeline(palette);
+  // Force compaction so the block cache built on the small-track path is
+  // retained and exercised on cached replay as well.
+  timeline.set_max_uncompacted_overview_entries_for_test(2);
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+  while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  // Replay the full range from the cached block store (no frames enqueued).
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 10.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+
+  const FlameChartTimelineData& data = timeline.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 6u);
+  EXPECT_THAT(data.entry_names,
+              ElementsAre("fallback_op", "fallback_op", "fallback_op",
+                          "explicit_op", "explicit_op", "fallback_op"));
+  EXPECT_THAT(data.entry_total_times,
+              ElementsAre(0.0, 0.0, 0.0, 500.0, 500.0, 0.0));
+  EXPECT_THAT(data.entry_serials, ElementsAre(0u, 0u, 0u, 1u, 2u, 0u));
+  EXPECT_TRUE(data.flow_lines.empty());
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     BlockCacheHandlesOmittedAndTruncatedFieldsOnLargeOverviewTrackAndReplay) {
+  using ::testing::ElementsAre;
+
+  IncrementalCacheCleanup cleanup_guard;
+
+  constexpr int kLargeTrackEvents = 8200;
+  xprof::TraceDataResponse frame;
+  frame.set_full_timespan_start_ps(0ULL);
+  frame.set_full_timespan_end_ps(9'000'000'000'000ULL);
+  frame.add_interned_strings("");
+  frame.add_interned_strings("fallback_op");
+  frame.add_interned_strings("explicit_op");
+  xprof::Process* proc = frame.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  // Track 1 (> 8,192 events): all three optional repeated fields omitted.
+  AddCompleteEventTrackWithLengths(frame, *proc, /*tid=*/10, "Large Omitted",
+                                   {.num_deltas = kLargeTrackEvents,
+                                    .num_durations = 0,
+                                    .num_event_metadata = 0,
+                                    .num_name_refs = 0});
+  // Track 2 (> 8,192 events): all three optional repeated fields truncated
+  // near the tail of the track.
+  AddCompleteEventTrackWithLengths(frame, *proc, /*tid=*/11, "Large Truncated",
+                                   {.num_deltas = kLargeTrackEvents,
+                                    .num_durations = kLargeTrackEvents - 5,
+                                    .num_event_metadata = kLargeTrackEvents - 5,
+                                    .num_name_refs = kLargeTrackEvents - 5});
+
+  const absl::StatusOr<std::string> compressed =
+      CompressTraceDataResponse(frame);
+  ASSERT_TRUE(compressed.ok()) << compressed.status();
+
+  ColorPalette palette = ColorPalette::Default();
+  DataProvider data_provider;
+  Timeline timeline(palette);
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+  while (StepIncrementalTraceEvents(50000, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  // Zoom replay covering events 8194..8199 (timestamps 8195 ms .. 8200 ms).
+  // Event 8193 ends at 8194.5 ms, so starting at 8194.6 ms isolates 8194..8199.
+  BeginIncrementalTraceEvents(std::make_pair(8194.6, 8201.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(50000, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+
+  const FlameChartTimelineData& data = timeline.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 12u);
+  EXPECT_THAT(
+      data.entry_names,
+      ElementsAre("fallback_op", "fallback_op", "fallback_op", "fallback_op",
+                  "fallback_op", "fallback_op", "explicit_op", "fallback_op",
+                  "fallback_op", "fallback_op", "fallback_op", "fallback_op"));
+  EXPECT_THAT(data.entry_total_times,
+              ElementsAre(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0, 0.0,
+                          0.0, 0.0));
+  EXPECT_THAT(data.entry_serials,
+              ElementsAre(0u, 0u, 0u, 0u, 0u, 0u, 8195u, 0u, 0u, 0u, 0u, 0u));
+  EXPECT_TRUE(data.flow_lines.empty());
 }
 
 #ifdef __EMSCRIPTEN__

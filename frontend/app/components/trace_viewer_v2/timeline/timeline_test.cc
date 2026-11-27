@@ -836,6 +836,25 @@ TEST(TimelineTest, CalculateTickInfoZoomedIn) {
   EXPECT_DOUBLE_EQ(info.first_tick_time, 1105.0);
 }
 
+TEST(TimelineTest, CalculateTickInfoNonPositiveOrNonFiniteReturnsFinite) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({1000.0, 2000.0});
+  timeline.SetVisibleRange({1100.0, 1200.0});
+
+  for (const double invalid_px :
+       {0.0, -5.0, std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::infinity()}) {
+    const Timeline::TickInfo info = timeline.CalculateTickInfo(invalid_px);
+    EXPECT_TRUE(std::isfinite(info.tick_interval));
+    EXPECT_GT(info.tick_interval, 0.0);
+    EXPECT_TRUE(std::isfinite(info.major_tick_dist_px));
+    EXPECT_FLOAT_EQ(info.major_tick_dist_px, 0.0f);
+    EXPECT_TRUE(std::isfinite(info.first_tick_time));
+    EXPECT_DOUBLE_EQ(info.first_tick_time, 1100.0);
+  }
+}
+
 TEST(TimelineTest, CalculateTickInfoUnitlessClampsIntervalToOne) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
@@ -5743,6 +5762,145 @@ TEST_F(MockTimelineImGuiFixture, PanningDisabledDuringLabelColumnResizing) {
   SimulateFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, LabelSplitterClampsToMinTimelineWidthOnDrag) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(800.0f, 400.0f);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+
+  SimulateLabelColumnResizeDragStart();
+
+  const Pixel content_avail_width =
+      io.DisplaySize.x - ImGui::GetStyle().ScrollbarSize;
+  const Pixel expected_max_label_width =
+      content_avail_width - kTimelinePaddingRight - kMinTimelineWidth;
+
+  // Drag the splitter far past the right edge of the viewport.
+  io.AddMousePosEvent(io.DisplaySize.x + 500.0f, io.MousePos.y);
+  SimulateFrame();
+
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), expected_max_label_width);
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(),
+                  expected_max_label_width);
+  EXPECT_GE(timeline_.current_timeline_width_for_test(), kMinTimelineWidth);
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), expected_max_label_width);
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(),
+                  expected_max_label_width);
+  EXPECT_FLOAT_EQ(timeline_.current_timeline_width_for_test(),
+                  kMinTimelineWidth);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       WindowShrinkClampsEffectiveLabelWidthAndRestoresOnWiden) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(1280.0f, 720.0f);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.set_label_width_for_test(880.0f);
+
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), 880.0f);
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(), 880.0f);
+
+  // Shrink the viewport below the stored label width: effective width clamps so
+  // the timeline stays at least kMinTimelineWidth wide, while stored width is
+  // preserved.
+  io.DisplaySize = ImVec2(600.0f, 720.0f);
+  SimulateFrame();
+  const Pixel expected_clamped = 600.0f - ImGui::GetStyle().ScrollbarSize -
+                                 kTimelinePaddingRight - kMinTimelineWidth;
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), expected_clamped);
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(), 880.0f);
+  EXPECT_FLOAT_EQ(timeline_.current_timeline_width_for_test(),
+                  kMinTimelineWidth);
+
+  // Transient zero-width frame must not clobber stored label width.
+  io.DisplaySize = ImVec2(0.0f, 0.0f);
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(), 880.0f);
+
+  // Widening the viewport back restores the user's preferred splitter width.
+  io.DisplaySize = ImVec2(1280.0f, 720.0f);
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), 880.0f);
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(), 880.0f);
+
+  // Dragging left while shrunk moves smoothly from the clamped handle position
+  // and updates the stored width.
+  io.DisplaySize = ImVec2(600.0f, 720.0f);
+  SimulateFrame();
+  const Pixel handle_x = std::round(timeline_.GetLabelWidth() - 2.0f);
+  const Pixel handle_y = std::round(kRulerHeight + 10.0f);
+  io.AddMousePosEvent(handle_x, handle_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(handle_x - 20.0f, handle_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), expected_clamped - 20.0f);
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(),
+                  expected_clamped - 20.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       SyncMinimapStateEmitsClampedLabelWidthOnWindowShrink) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(1280.0f, 720.0f);
+  timeline_.set_minimap_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.set_label_width_for_test(880.0f);
+
+  std::vector<EventData> minimap_updates;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kMinimapUpdated) {
+          minimap_updates.push_back(detail);
+        }
+      });
+
+  SimulateFrame();
+  ASSERT_FALSE(minimap_updates.empty());
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), 880.0f);
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(minimap_updates.back().at("labelWidthPx")),
+      static_cast<double>(timeline_.GetLabelWidth()));
+
+  // Shrink the viewport below the stored label width: SyncMinimapState() must
+  // detect the effective width change and emit the clamped label width.
+  minimap_updates.clear();
+  io.DisplaySize = ImVec2(600.0f, 720.0f);
+  SimulateFrame();
+  const Pixel expected_clamped = 600.0f - ImGui::GetStyle().ScrollbarSize -
+                                 kTimelinePaddingRight - kMinTimelineWidth;
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), expected_clamped);
+  EXPECT_FLOAT_EQ(timeline_.stored_label_width_for_test(), 880.0f);
+  ASSERT_EQ(minimap_updates.size(), 1u);
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(minimap_updates.back().at("labelWidthPx")),
+      static_cast<double>(timeline_.GetLabelWidth()));
+
+  // A subsequent frame at the same narrow width must not re-emit an update.
+  minimap_updates.clear();
+  SimulateFrame();
+  EXPECT_TRUE(minimap_updates.empty());
+
+  // Widening the viewport back emits the restored label width.
+  io.DisplaySize = ImVec2(1280.0f, 720.0f);
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(timeline_.GetLabelWidth(), 880.0f);
+  ASSERT_EQ(minimap_updates.size(), 1u);
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(minimap_updates.back().at("labelWidthPx")),
+      static_cast<double>(timeline_.GetLabelWidth()));
+}
+
 TEST_F(MockTimelineImGuiFixture, ScrollDownWithDownArrowKey) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_DownArrow, true);
 
@@ -6127,6 +6285,150 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
   EXPECT_EQ(timeline_.selected_event_index(), -1);
   EXPECT_EQ(timeline_.selected_group_index(), 0);
   EXPECT_EQ(timeline_.selected_counter_index(), 1);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickCounterEventEmitsCounterPayloadWhenTooltipsEnabled) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "HBM Utilization",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Memory Bytes",
+                         .start_level = 1,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Plain Counter",
+                         .start_level = 2,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  CounterData fraction_counter;
+  fraction_counter.timestamps = {10.0, 20.0, 30.0};
+  fraction_counter.values = {0.2, 0.75, 0.5};
+  fraction_counter.min_value = 0.0;
+  fraction_counter.max_value = 1.0;
+  fraction_counter.event_stats = "util";
+  fraction_counter.unit = CounterUnit::kFraction;
+  data.counter_data_by_group_index[0] = std::move(fraction_counter);
+
+  CounterData bytes_counter;
+  bytes_counter.timestamps = {10.0, 20.0, 30.0};
+  bytes_counter.values = {1024.0, 2048.0, 4096.0};
+  bytes_counter.min_value = 0.0;
+  bytes_counter.max_value = 4096.0;
+  bytes_counter.unit = CounterUnit::kBytes;
+  data.counter_data_by_group_index[1] = std::move(bytes_counter);
+
+  CounterData plain_counter;
+  plain_counter.timestamps = {10.0, 20.0, 30.0};
+  plain_counter.values = {1.0, 42.5, 5.0};
+  plain_counter.min_value = 0.0;
+  plain_counter.max_value = 50.0;
+  plain_counter.unit = CounterUnit::kNone;
+  data.counter_data_by_group_index[2] = std::move(plain_counter);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+  ASSERT_TRUE(timeline_.event_tooltip_enabled());
+
+  EventData last_selected;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected) {
+          last_selected = detail;
+        }
+      });
+
+  auto click_counter_track = [&](absl::string_view child_id) -> bool {
+    ImGui::NewFrame();
+    timeline_.Draw();
+    ImGuiWindow* counter_window = nullptr;
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+      if (absl::StrContains(w->Name, child_id)) {
+        counter_window = w;
+        break;
+      }
+    }
+    if (counter_window == nullptr) {
+      ImGui::EndFrame();
+      ADD_FAILURE() << "Counter window not found: " << child_id;
+      return false;
+    }
+    const ImVec2 target_pos(
+        std::round(counter_window->Pos.x + counter_window->Size.x * 0.25f),
+        std::round(counter_window->Pos.y + counter_window->Size.y * 0.5f));
+    ImGui::EndFrame();
+
+    ImGui::GetIO().MousePos = target_pos;
+    ImGui::GetIO().MouseDown[0] = true;
+    SimulateFrame();
+    ImGui::GetIO().MouseDown[0] = false;
+    SimulateFrame();
+    return true;
+  };
+
+  // 1. Fraction counter with series emits all standard counter payload fields.
+  ASSERT_TRUE(click_counter_track("TimelineChild_HBM Utilization_0"));
+  ASSERT_TRUE(last_selected.contains(kEventSelectedIndex));
+  EXPECT_EQ(std::any_cast<int>(last_selected.at(kEventSelectedIndex)), -1);
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at(kEventSelectedName)),
+            "HBM Utilization");
+  EXPECT_EQ(
+      std::any_cast<std::string>(last_selected.at(kEventSelectedTrackName)),
+      "HBM Utilization");
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at("trackType")),
+            "counter");
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(last_selected.at(kEventSelectedStart)),
+                   20.0);
+  EXPECT_EQ(std::any_cast<std::string>(
+                last_selected.at(kEventSelectedStartFormatted)),
+            timeline_.FormatRulerLabel(20.0, /*tick_interval=*/0.0));
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(last_selected.at("counterValue")),
+                   0.75);
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at("counterSeries")),
+            "util");
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at("counterUnit")),
+            "fraction");
+
+  // 2. Bytes counter with empty series emits counterUnit="bytes" and omits
+  // empty counterSeries.
+  last_selected.clear();
+  ASSERT_TRUE(click_counter_track("TimelineChild_Memory Bytes_1"));
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at("trackType")),
+            "counter");
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(last_selected.at("counterValue")),
+                   2048.0);
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at("counterUnit")),
+            "bytes");
+  EXPECT_FALSE(last_selected.contains("counterSeries"));
+
+  // 3. Plain counter omits counterUnit and counterSeries.
+  last_selected.clear();
+  ASSERT_TRUE(click_counter_track("TimelineChild_Plain Counter_2"));
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at("trackType")),
+            "counter");
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(last_selected.at("counterValue")),
+                   42.5);
+  EXPECT_FALSE(last_selected.contains("counterUnit"));
+  EXPECT_FALSE(last_selected.contains("counterSeries"));
+
+  // 4. When event tooltips are disabled, schedule details populate startUs with
+  // the clicked bundle (25.0) rather than the step start timestamp (20.0).
+  timeline_.set_event_tooltip_enabled(false);
+  last_selected.clear();
+  ASSERT_TRUE(click_counter_track("TimelineChild_HBM Utilization_0"));
+  EXPECT_EQ(std::any_cast<std::string>(last_selected.at("trackType")),
+            "counter");
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(last_selected.at("stepStartBundle")),
+                   20.0);
+  EXPECT_GE(std::any_cast<double>(last_selected.at(kEventSelectedStart)), 20.0);
+  EXPECT_FALSE(last_selected.contains("counterSeries"));
+  EXPECT_FALSE(last_selected.contains("counterUnit"));
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
@@ -8740,6 +9042,61 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
   EXPECT_NEAR(timeline_.visible_range().start(), expected_start, 0.001);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       RevealEventNearStartEdgeClampsToDataTimeRange) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("near_start");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(105.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({100.0, 20000.0});
+  timeline_.SetVisibleRange({2000.0, 3000.0});
+
+  SimulateFrame();
+  ASSERT_GT(timeline_.px_per_time_unit(), 0.0);
+
+  timeline_.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 1100.0);
+}
+
+TEST_F(RealTimelineImGuiFixture, RevealEventNearEndEdgeClampsToDataTimeRange) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("near_end");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(19995.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+
+  SimulateFrame();
+  ASSERT_GT(timeline_.px_per_time_unit(), 0.0);
+
+  timeline_.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 19000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 20000.0);
+}
+
 TEST_F(RealTimelineImGuiFixture, RevealEventInvalidIndexReturnsEarly) {
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
@@ -8895,6 +9252,7 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
   data.entry_total_times.push_back(std::numeric_limits<double>::quiet_NaN());
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
 
   timeline_.SetVisibleRange({0.0, 500.0});
   SimulateFrame();
@@ -8920,6 +9278,7 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithZeroDurationSetsMinDuration) {
   data.entry_total_times.push_back(0.0);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
 
   timeline_.SetVisibleRange({0.0, 500.0});
   SimulateFrame();
@@ -9494,6 +9853,239 @@ TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
   ImGui::GetIO().MousePos = ImVec2(0.0f, 0.0f);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Arrow);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickCloseButtonOverProcessHeaderDoesNotCollapseProcess) {
+  FlameChartTimelineData data;
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "Process 0",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .child_indices = {1},
+       .level_count = 1,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread 0",
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 0,
+       .level_count = 1},
+  };
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  AddEvents(data, {{"op0", 10.0, 20.0, 0, 1}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 165.5});
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.AddSelectedTimeRange({5.0, 25.0});
+
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  ASSERT_TRUE(timeline_.timeline_data().groups[0].expanded);
+
+  const double px_per_time = timeline_.px_per_time_unit();
+  const Pixel range_x_start = GetTimelineStartX() + 5.0 * px_per_time;
+  const Pixel range_x_end = GetTimelineStartX() + 25.0 * px_per_time;
+  const std::string text = FormatDuration(20.0, TimeAxisUnit::kTime);
+  const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+  const Pixel text_x =
+      range_x_start + (range_x_end - range_x_start - text_size.x) / 2.0f;
+  const Pixel text_y = kRulerHeight + kSelectedTimeRangeTextTopPadding;
+  const ImVec2 button_center(
+      std::round(text_x + text_size.x + kCloseButtonPadding +
+                 kCloseButtonSize / 2.0f),
+      std::round(text_y + (text_size.y - kCloseButtonSize) / 2.0f +
+                 kCloseButtonSize / 2.0f));
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = button_center;
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickCloseButtonOverEmptySpaceDoesNotDeselectOrClearMultiSelection) {
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kFlame,
+                  .name = "Thread 0",
+                  .start_level = 0,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true,
+                  .level_count = 1}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  AddEvents(data, {{"op0", 100.0, 20.0, 0, 1}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 165.5});
+  timeline_.SetVisibleRange({0.0, 165.5});
+
+  int deselect_callbacks = 0;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected &&
+            std::any_cast<int>(detail.at(kEventSelectedIndex)) == -1) {
+          ++deselect_callbacks;
+        }
+      });
+
+  // Case 1: single selection active, click (X) over empty track space.
+  timeline_.RevealEvent(0);
+  timeline_.AddSelectedTimeRange({5.0, 25.0});
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  const double px_per_time = timeline_.px_per_time_unit();
+  const Pixel range_x_start = GetTimelineStartX() + 5.0 * px_per_time;
+  const Pixel range_x_end = GetTimelineStartX() + 25.0 * px_per_time;
+  const std::string text = FormatDuration(20.0, TimeAxisUnit::kTime);
+  const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+  const Pixel text_x =
+      range_x_start + (range_x_end - range_x_start - text_size.x) / 2.0f;
+  const Pixel text_y = kRulerHeight + kSelectedTimeRangeTextTopPadding;
+  const ImVec2 button_center(
+      std::round(text_x + text_size.x + kCloseButtonPadding +
+                 kCloseButtonSize / 2.0f),
+      std::round(text_y + (text_size.y - kCloseButtonSize) / 2.0f +
+                 kCloseButtonSize / 2.0f));
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = button_center;
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(deselect_callbacks, 0);
+
+  // Case 2: Select mode with active multi-selection, click (X).
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+  SetSelectedEventIndices(timeline_, {0});
+  timeline_.AddSelectedTimeRange({5.0, 25.0});
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_event_indices_for_test().size(), 1u);
+
+  io.MousePos = button_center;
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+  EXPECT_TRUE(timeline_.selected_event_indices_for_test().contains(0));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickCloseButtonOverSliceDoesNotStealSelectionOrResizeNarrowRange) {
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kFlame,
+                  .name = "Thread 0",
+                  .start_level = 0,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true,
+                  .level_count = 1}};
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  // Event 0 sits directly below the narrow range [10.0, 10.4] (4 px wide at
+  // 10 px/us so the centered (X) overlaps both the range edges and event 0).
+  AddEvents(data, {{"underlying_op", 5.0, 30.0, 0, 1},
+                   {"selected_op", 80.0, 20.0, 0, 2}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 165.5});
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.RevealEvent(1);
+  timeline_.AddSelectedTimeRange({10.0, 10.4});
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_event_index(), 1);
+
+  const double px_per_time = timeline_.px_per_time_unit();
+  const Pixel range_x_start = GetTimelineStartX() + 10.0 * px_per_time;
+  const Pixel range_x_end = GetTimelineStartX() + 10.4 * px_per_time;
+  const std::string text = FormatDuration(0.4, TimeAxisUnit::kTime);
+  const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+  const Pixel text_y = kRulerHeight + kSelectedTimeRangeTextTopPadding;
+  // Text does not fit inside the 4 px range, so the close button is centered.
+  const ImVec2 button_center(
+      std::round((range_x_start + range_x_end) / 2.0f),
+      std::round(text_y + (text_size.y - kCloseButtonSize) / 2.0f +
+                 kCloseButtonSize / 2.0f));
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = button_center;
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  EXPECT_FALSE(timeline_.has_time_range_resizing_state_for_test());
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_FALSE(timeline_.has_time_range_resizing_state_for_test());
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickBookmarkCloseButtonRemovesBookmarkWithoutLeakingSelection) {
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kFlame,
+                  .name = "Thread 0",
+                  .start_level = 0,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true,
+                  .level_count = 1}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  AddEvents(data, {{"op0", 80.0, 20.0, 0, 1}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 165.5});
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.AddBookmark(20.0);
+  timeline_.RevealEvent(0);
+  SimulateFrame();
+  ASSERT_EQ(timeline_.bookmarks().size(), 1u);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  const double px_per_time = timeline_.px_per_time_unit();
+  const Microseconds tick_interval =
+      timeline_.CalculateTickInfo(px_per_time).tick_interval;
+  const std::string label = timeline_.FormatRulerLabel(20.0, tick_interval);
+  ImGui::PushFont(fonts::label_small);
+  const ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
+  ImGui::PopFont();
+  const Pixel x = GetTimelineStartX() + 20.0 * px_per_time;
+  const ImVec2 button_center(
+      std::round(x + kBookmarkLabelPadding + label_size.x +
+                 kBookmarkLabelPadding + kCloseButtonSize / 2.0f),
+      std::round(kBookmarkLabelPadding + kCloseButtonSize / 2.0f));
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = button_center;
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
 }
 
 TEST_F(TimelineDragSelectionTest, ClickingTextDoesNotRemoveSelectedTimeRange) {
@@ -13151,6 +13743,141 @@ TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
 
   // Verify Process A became hidden
   EXPECT_FALSE(timeline_.group_visible()[0]);
+}
+
+TEST(TimelineTest, RevealAndZoomEventExpandCollapsedTrackManagementSections) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  int redraws = 0;
+  timeline.set_redraw_callback([&]() { ++redraws; });
+
+  FlameChartTimelineData data;
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "Process All",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .child_indices = {1},
+       .level_count = 1,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread All",
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 0,
+       .level_count = 1},
+      {.type = Group::Type::kFlame,
+       .name = "Process Pinned",
+       .start_level = 1,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .child_indices = {3},
+       .level_count = 1,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread Pinned",
+       .start_level = 1,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 2,
+       .level_count = 1},
+      {.type = Group::Type::kFlame,
+       .name = "Process Hidden",
+       .start_level = 2,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .child_indices = {5},
+       .level_count = 1,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread Hidden",
+       .start_level = 2,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 4,
+       .level_count = 1},
+      {.type = Group::Type::kFlame,
+       .name = "Process Both",
+       .start_level = 3,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .child_indices = {7},
+       .level_count = 1,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread Both",
+       .start_level = 3,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 6,
+       .level_count = 1},
+  };
+  data.level_offsets = {0, 1, 2, 3, 4};
+  data.level_event_indices = {0, 1, 2, 3};
+  AddEvents(data, {{"ev_all", 10.0, 5.0, 0, 1},
+                   {"ev_pinned", 20.0, 5.0, 1, 2},
+                   {"ev_hidden", 30.0, 5.0, 2, 3},
+                   {"ev_both", 40.0, 5.0, 3, 4}});
+
+  timeline.set_track_management_enabled(true);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+  timeline.pin_track_for_test("Process Pinned");
+  timeline.HideTrack("Process Hidden");
+  // Process Both is in both sets; Hidden takes precedence over Pinned.
+  timeline.pin_track_for_test("Process Both");
+  timeline.HideTrack("Process Both");
+
+  timeline.set_header_all_expanded_for_test(false);
+  timeline.set_header_pinned_expanded_for_test(false);
+  timeline.set_header_hidden_expanded_for_test(false);
+  timeline.UpdateLevelPositions(timeline.timeline_data());
+  ASSERT_FALSE(timeline.group_visible_for_test()[0]);
+  ASSERT_FALSE(timeline.group_visible_for_test()[2]);
+  ASSERT_FALSE(timeline.group_visible_for_test()[4]);
+  ASSERT_FALSE(timeline.group_visible_for_test()[6]);
+
+  // 1. RevealEvent opens collapsed ALL section even when groups are expanded.
+  redraws = 0;
+  timeline.RevealEvent(0);
+  EXPECT_TRUE(timeline.header_all_expanded_for_test());
+  EXPECT_FALSE(timeline.header_pinned_expanded_for_test());
+  EXPECT_FALSE(timeline.header_hidden_expanded_for_test());
+  EXPECT_TRUE(timeline.group_visible_for_test()[0]);
+  EXPECT_TRUE(timeline.group_visible_for_test()[1]);
+  EXPECT_GT(redraws, 0);
+
+  // 2. ZoomEvent opens collapsed PINNED section.
+  redraws = 0;
+  timeline.ZoomEvent(1);
+  EXPECT_TRUE(timeline.header_pinned_expanded_for_test());
+  EXPECT_FALSE(timeline.header_hidden_expanded_for_test());
+  EXPECT_TRUE(timeline.group_visible_for_test()[2]);
+  EXPECT_TRUE(timeline.group_visible_for_test()[3]);
+  EXPECT_GT(redraws, 0);
+
+  // 3. RevealEvent opens collapsed HIDDEN section.
+  redraws = 0;
+  timeline.RevealEvent(2);
+  EXPECT_TRUE(timeline.header_hidden_expanded_for_test());
+  EXPECT_TRUE(timeline.group_visible_for_test()[4]);
+  EXPECT_TRUE(timeline.group_visible_for_test()[5]);
+  EXPECT_GT(redraws, 0);
+
+  // 4. Track in both hidden and pinned sets expands HIDDEN (not PINNED).
+  timeline.set_header_hidden_expanded_for_test(false);
+  timeline.set_header_pinned_expanded_for_test(false);
+  timeline.UpdateLevelPositions(timeline.timeline_data());
+  ASSERT_FALSE(timeline.group_visible_for_test()[6]);
+
+  timeline.ZoomEvent(3);
+  EXPECT_TRUE(timeline.header_hidden_expanded_for_test());
+  EXPECT_FALSE(timeline.header_pinned_expanded_for_test());
+  EXPECT_TRUE(timeline.group_visible_for_test()[6]);
+  EXPECT_TRUE(timeline.group_visible_for_test()[7]);
 }
 
 TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
@@ -17958,6 +18685,80 @@ TEST(TimelineTest, CalculateAndEmitMetricsEscapesSpecialAndNonAsciiNames) {
   EXPECT_EQ(parsed["counters"][0]["series"].get<std::string>(), kSeriesName);
   EXPECT_DOUBLE_EQ(parsed["counters"][0]["time"].get<double>(), 15.0);
   EXPECT_DOUBLE_EQ(parsed["counters"][0]["value"].get<double>(), 42.5);
+}
+
+TEST(TimelineTest, CalculateAndEmitMetricsOmitsNonFiniteCounterPoints) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.entry_names = {"op_a"};
+  data.entry_start_times = {10.0};
+  data.entry_total_times = {5.0};
+  data.entry_self_times = {5.0};
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Power \"PL4\"\\n",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  CounterData counter_data;
+  counter_data.timestamps = {10.0,
+                             20.0,
+                             30.0,
+                             std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity(),
+                             40.0};
+  counter_data.values = {std::numeric_limits<double>::quiet_NaN(),
+                         std::numeric_limits<double>::infinity(),
+                         -std::numeric_limits<double>::infinity(),
+                         50.0,
+                         60.0,
+                         42.5};
+  counter_data.min_value = 0.0;
+  counter_data.max_value = 100.0;
+  counter_data.event_stats = "series\t\"w\"";
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+  timeline.SetTimelineData(std::move(data));
+
+  std::string json;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& event_data) {
+        if (const auto it = event_data.find(kEventsSelectedData);
+            it != event_data.end()) {
+          json = std::any_cast<std::string>(it->second);
+        }
+      });
+
+  // Mix of non-finite points and one finite point alongside a flame event.
+  SetSelectedEventIndices(timeline, {0});
+  timeline.selected_counter_points_for_test() = {{0, 0}, {0, 1}, {0, 2},
+                                                 {0, 3}, {0, 4}, {0, 5}};
+  timeline.CalculateAndEmitMetrics_for_test();
+
+  nlohmann::json parsed =
+      nlohmann::json::parse(json, /*cb=*/nullptr, /*allow_exceptions=*/false);
+  ASSERT_FALSE(parsed.is_discarded()) << "Invalid JSON: " << json;
+  ASSERT_TRUE(parsed.contains("metrics"));
+  ASSERT_EQ(parsed["metrics"].size(), 1);
+  ASSERT_TRUE(parsed.contains("counters"));
+  ASSERT_EQ(parsed["counters"].size(), 1);
+  EXPECT_EQ(parsed["counters"][0]["counter"].get<std::string>(),
+            "Power \"PL4\"\\n");
+  EXPECT_EQ(parsed["counters"][0]["series"].get<std::string>(),
+            "series\t\"w\"");
+  EXPECT_DOUBLE_EQ(parsed["counters"][0]["time"].get<double>(), 40.0);
+  EXPECT_DOUBLE_EQ(parsed["counters"][0]["value"].get<double>(), 42.5);
+
+  // All selected counter points non-finite still produces valid JSON.
+  json.clear();
+  timeline.selected_event_indices_for_test().clear();
+  timeline.selected_counter_points_for_test() = {{0, 0}, {0, 1}, {0, 3}};
+  timeline.CalculateAndEmitMetrics_for_test();
+
+  nlohmann::json all_non_finite =
+      nlohmann::json::parse(json, /*cb=*/nullptr, /*allow_exceptions=*/false);
+  ASSERT_FALSE(all_non_finite.is_discarded()) << "Invalid JSON: " << json;
+  ASSERT_TRUE(all_non_finite.contains("counters"));
+  EXPECT_TRUE(all_non_finite["counters"].empty());
 }
 
 TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {

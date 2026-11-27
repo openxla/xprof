@@ -380,9 +380,18 @@ void AppendCompleteSeriesSliceToBlockCache(
   if (!session.can_build_trace_store || slice_count == 0) {
     return;
   }
+  const size_t total_deltas = static_cast<size_t>(series.deltas_size());
+  if (slice_start_idx >= total_deltas) {
+    return;
+  }
   const ProcessId pid = series.metadata().process_id();
   const ThreadId tid = series.metadata().thread_id();
-  const size_t slice_end_idx = slice_start_idx + slice_count;
+  const size_t slice_end_idx =
+      slice_start_idx + std::min(slice_count, total_deltas - slice_start_idx);
+  const int durations_size = series.durations_size();
+  const int event_metadata_size = series.event_metadata_size();
+  const int name_refs_size = series.name_refs_size();
+  const uint32_t fallback_name_ref = series.metadata().name_ref();
 
   for (size_t b_start = slice_start_idx; b_start < slice_end_idx;
        b_start += kCachedBlockEvents) {
@@ -405,7 +414,8 @@ void AppendCompleteSeriesSliceToBlockCache(
         block.base_ts_ps = running_ts_ps;
       }
 
-      const uint64_t raw_dur_ps = series.durations(i);
+      const uint64_t raw_dur_ps =
+          i < durations_size ? series.durations(i) : 0ULL;
       const uint64_t dur_ps = raw_dur_ps & ~kDurationPhaseMask;
       const bool is_begin = (raw_dur_ps & kDurationPhaseBeginBit) != 0;
       const bool is_end = (raw_dur_ps & kDurationPhaseEndBit) != 0;
@@ -415,7 +425,10 @@ void AppendCompleteSeriesSliceToBlockCache(
         block.has_split_events = true;
       }
 
-      const auto& ev_meta = series.event_metadata(i);
+      const xprof::TraceEventMetadata& ev_meta =
+          i < event_metadata_size
+              ? series.event_metadata(i)
+              : xprof::TraceEventMetadata::default_instance();
       const bool has_flow = (ev_meta.flow_id() != 0);
       const bool ns_scaled =
           (delta_ts_ps % 1000ULL == 0) && (dur_ps % 1000ULL == 0);
@@ -426,7 +439,8 @@ void AppendCompleteSeriesSliceToBlockCache(
           (packed_dur << 4) | (is_begin ? 1ULL : 0ULL) |
           (is_end ? 2ULL : 0ULL) | (has_flow ? 4ULL : 0ULL) |
           (ns_scaled ? 8ULL : 0ULL);
-      const uint32_t name_ref = series.name_refs(i);
+      const uint32_t name_ref =
+          i < name_refs_size ? series.name_refs(i) : fallback_name_ref;
       const uint32_t serial = ev_meta.serial();
       const int64_t serial_delta =
           static_cast<int64_t>(serial) - static_cast<int64_t>(prev_serial);

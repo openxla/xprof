@@ -171,7 +171,18 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   dataInfoHBMRatio: Partial<NodeChartDataInfoMap> = {};
   dataProcessorHBMRatio: Partial<NodeFilterDataProcessorMap> = {};
   coreIndexes: number[] = [];
+  unitCoreIndexes: number[] = [];
+  bandwidthCoreIndexes: number[] = [];
   hbmCoreIndexes: number[] = [];
+  isLoaded = false;
+
+  get hasChartData(): boolean {
+    return (
+      this.unitCoreIndexes.length > 0 ||
+      this.hbmCoreIndexes.length > 0 ||
+      this.bandwidthCoreIndexes.length > 0
+    );
+  }
 
   constructor(
     route: ActivatedRoute,
@@ -202,6 +213,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
 
   update() {
     this.dataSubscription?.unsubscribe();
+    this.isLoaded = false;
     setLoadingState(true, this.store, 'Loading utilization viewer data');
     this.throbber.start();
 
@@ -210,33 +222,69 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
         host: this.host,
       })
       .pipe(takeUntil(this.destroyed))
-      .subscribe(({active, baseline}) => {
-        this.throbber.stop();
-        setLoadingState(false, this.store);
-        this.parseData(this.mergeTables(active, baseline));
+      .subscribe({
+        next: ({active, baseline}) => {
+          this.throbber.stop();
+          setLoadingState(false, this.store);
+          this.parseData(this.mergeTables(active, baseline));
+        },
+        error: () => {
+          this.throbber.stop();
+          setLoadingState(false, this.store);
+          this.parseData(null);
+        },
       });
   }
 
+  private resetState() {
+    this.pendingData = null;
+    this.dataTable = undefined;
+    this.dataView = undefined;
+    this.coreIndexes = [];
+    this.unitCoreIndexes = [];
+    this.bandwidthCoreIndexes = [];
+    this.hbmCoreIndexes = [];
+    this.dataInfoTensorNodesUnit = {};
+    this.dataProcessorTensorNodesUnit = {};
+    this.dataInfoTensorNodesBandwidth = {};
+    this.dataProcessorTensorNodesBandwidth = {};
+    this.dataInfoHBMRatio = {};
+    this.dataProcessorHBMRatio = {};
+    this.filters.clear();
+    this.dataProvider = new DefaultDataProvider();
+    this.isLoaded = true;
+  }
+
   initDataProcessors(hasBaseline = false) {
+    this.dataInfoTensorNodesUnit = {};
+    this.dataProcessorTensorNodesUnit = {};
+    this.dataInfoTensorNodesBandwidth = {};
+    this.dataProcessorTensorNodesBandwidth = {};
+    this.dataInfoHBMRatio = {};
+    this.dataProcessorHBMRatio = {};
     const unitOptions = hasBaseline
       ? UNIT_CHART_OPTIONS_BASELINE
       : UNIT_CHART_OPTIONS;
     const bandwidthOptions = hasBaseline
       ? BANDWIDTH_CHART_OPTIONS_BASELINE
       : BANDWIDTH_CHART_OPTIONS;
-    this.coreIndexes.forEach((index: number) => {
+    this.unitCoreIndexes.forEach((index: number) => {
       this.dataInfoTensorNodesUnit[index] = {
         data: null,
         dataProvider: this.dataProvider,
         options: unitOptions,
       };
       this.dataProcessorTensorNodesUnit[index] = null;
+    });
+    this.bandwidthCoreIndexes.forEach((index: number) => {
       this.dataInfoTensorNodesBandwidth[index] = {
         data: null,
         dataProvider: this.dataProvider,
         options: bandwidthOptions,
       };
       this.dataProcessorTensorNodesBandwidth[index] = null;
+    });
+    this.hbmCoreIndexes.forEach((index: number) => {
       this.dataInfoHBMRatio[index] = {
         data: null,
         dataProvider: this.dataProvider,
@@ -251,25 +299,27 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     coreCol: number,
     unitCol: number,
   ) {
-    this.coreIndexes.forEach((index: number) => {
-      if (this.dataInfoTensorNodesUnit[index] !== undefined) {
-        this.dataInfoTensorNodesUnit[index]!.customChartDataProcessor =
-          this.dataProcessorTensorNodesUnit[index] = new FilterDataProcessor(
-            visibleColumns,
-            [
-              {column: coreCol, value: index},
-              // A range filter intended to include "cycles" and
-              // "instructions", but exclude "bytes"
-              {
-                column: unitCol,
-                minValue: 'cycles',
-                maxValue: 'instructions',
-              },
-            ],
-          );
+    this.unitCoreIndexes.forEach((index: number) => {
+      const dataInfo = this.dataInfoTensorNodesUnit[index];
+      if (dataInfo !== undefined) {
+        dataInfo.customChartDataProcessor = this.dataProcessorTensorNodesUnit[
+          index
+        ] = new FilterDataProcessor(visibleColumns, [
+          {column: coreCol, value: index},
+          // A range filter intended to include "cycles" and
+          // "instructions", but exclude "bytes"
+          {
+            column: unitCol,
+            minValue: 'cycles',
+            maxValue: 'instructions',
+          },
+        ]);
       }
-      if (this.dataInfoTensorNodesBandwidth.hasOwnProperty(index)) {
-        this.dataInfoTensorNodesBandwidth[index]!.customChartDataProcessor =
+    });
+    this.bandwidthCoreIndexes.forEach((index: number) => {
+      const dataInfo = this.dataInfoTensorNodesBandwidth[index];
+      if (dataInfo !== undefined) {
+        dataInfo.customChartDataProcessor =
           this.dataProcessorTensorNodesBandwidth[index] =
             new FilterDataProcessor(visibleColumns, [
               {column: coreCol, value: index},
@@ -286,10 +336,10 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   ) {
     const visibleColumns = [nameCol, achievedCol];
     this.hbmCoreIndexes.forEach((index: number) => {
-      this.dataInfoHBMRatio[index]!.customChartDataProcessor =
-        this.dataProcessorHBMRatio[index] = new FilterDataProcessor(
-          visibleColumns,
-          [
+      const dataInfo = this.dataInfoHBMRatio[index];
+      if (dataInfo !== undefined) {
+        dataInfo.customChartDataProcessor = this.dataProcessorHBMRatio[index] =
+          new FilterDataProcessor(visibleColumns, [
             {column: coreCol, value: index},
             // A range filter to select rows with HBM Read Ratio and HBM Write Ratio.
             {
@@ -297,8 +347,8 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
               minValue: HBM_READ_RATIO_NAME,
               maxValue: HBM_WRITE_RATIO_NAME,
             },
-          ],
-        );
+          ]);
+      }
     });
   }
 
@@ -403,33 +453,55 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
 
   override parseData(data: SimpleDataTable | null) {
     if (!data) {
-      this.pendingData = null;
-      this.dataTable = undefined;
-      this.dataView = undefined;
+      this.resetState();
       return;
     }
     if (!this.ensureChartPackagesLoaded(data)) return;
+    this.filters.clear();
     this.dataProvider.parseData(data);
     const dataTable = this.dataProvider.getDataTable();
     if (dataTable) {
-      this.dataTable = dataTable;
-
       const coreCol = dataTable.getColumnIndex(CORE_ID);
       const nameCol = dataTable.getColumnIndex(NAME_ID);
       const achievedCol = dataTable.getColumnIndex(ACHIEVED_ID);
       const peakCol = dataTable.getColumnIndex(PEAK_ID);
       const unitCol = dataTable.getColumnIndex(UNIT_ID);
+      if (
+        coreCol === -1 ||
+        nameCol === -1 ||
+        achievedCol === -1 ||
+        peakCol === -1 ||
+        unitCol === -1 ||
+        dataTable.getNumberOfRows() === 0
+      ) {
+        this.resetState();
+        return;
+      }
+      this.dataTable = dataTable;
       this.coreIndexes = dataTable.getDistinctValues(coreCol);
 
-      // Determine which cores have HBM Read/Write Ratio data.
+      // Determine which cores have Unit, Bandwidth, and HBM Read/Write Ratio data.
+      const unitCoreSet = new Set<number>();
+      const bandwidthCoreSet = new Set<number>();
       const hbmCoreSet = new Set<number>();
       for (let i = 0; i < dataTable.getNumberOfRows(); i++) {
+        const coreIndex = dataTable.getValue(i, coreCol);
+        const unit = dataTable.getValue(i, unitCol);
         const name = dataTable.getValue(i, nameCol);
+        if (unit === 'cycles' || unit === 'instructions') {
+          unitCoreSet.add(coreIndex);
+        }
+        if (unit === 'bytes') {
+          bandwidthCoreSet.add(coreIndex);
+        }
         if (name === HBM_READ_RATIO_NAME || name === HBM_WRITE_RATIO_NAME) {
-          const coreIndex = dataTable.getValue(i, coreCol);
           hbmCoreSet.add(coreIndex);
         }
       }
+      this.unitCoreIndexes = Array.from(unitCoreSet).sort((a, b) => a - b);
+      this.bandwidthCoreIndexes = Array.from(bandwidthCoreSet).sort(
+        (a, b) => a - b,
+      );
       this.hbmCoreIndexes = Array.from(hbmCoreSet).sort((a, b) => a - b);
 
       const hasBaseline =
@@ -449,6 +521,26 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
           type: 'number',
           label: hasBaseline ? 'Active % Active' : '% Active',
           id: 'active',
+        },
+        // Tooltip for Active
+        {
+          calc: (data: google.visualization.DataTable, row: number) => {
+            const achieved = data.getValue(row, achievedCol);
+            const peak = data.getValue(row, peakCol);
+            const unit = data.getValue(row, unitCol);
+            const activePct = peak !== 0 ? (100 * achieved) / peak : 0;
+            const baseAchieved = hasBaseline
+              ? data.getValue(row, baselineAchievedCol)
+              : null;
+            const basePeak = hasBaseline
+              ? data.getValue(row, baselinePeakCol)
+              : null;
+            return getTooltipContent(
+                achieved, peak, unit, activePct, hasBaseline, baseAchieved, basePeak);
+          },
+          type: 'string',
+          role: 'tooltip',
+          'properties': {'html': true},
         },
       ];
 
@@ -509,7 +601,8 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
             const achieved = data.getValue(row, baselineAchievedCol);
             if (achieved === 0) return undefined;
             const peak = data.getValue(row, baselinePeakCol);
-            return ((100 * achieved) / peak).toFixed(2) + '%';
+            const basePct = peak !== 0 ? (100 * achieved) / peak : 0;
+            return `${basePct.toFixed(2)}%`;
           },
           type: 'string',
           role: 'annotation',
@@ -520,6 +613,9 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
       this.updateDataProcessors(visibleColumns, coreCol, unitCol);
       this.updateHBMDataProcessors(nameCol, achievedCol, coreCol);
       this.updateView();
+      this.isLoaded = true;
+    } else {
+      this.resetState();
     }
   }
 
@@ -548,6 +644,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
+    this.dataSubscription?.unsubscribe();
     this.pendingData = null;
     setLoadingState(false, this.store);
     this.destroyed.next();

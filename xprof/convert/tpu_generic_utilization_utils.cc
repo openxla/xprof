@@ -31,6 +31,7 @@ constexpr absl::string_view kPercent = "percent";
 void AddUtilization(const TpuCounterUtil& counters, uint64_t node_id,
                     absl::string_view metric, double achieved, double peak,
                     absl::string_view unit, UtilizationCounters* utilization) {
+  if (peak <= 0.0 && achieved <= 0.0) return;
   utilization->host_id = counters.host_id();
   utilization->device_id = counters.device_id();
   utilization->correlation_id = counters.correlation_id();
@@ -1274,13 +1275,21 @@ void ComputeTpuGenericIciBandwidthUtilization(
   // NOLINTEND
 
   const uint64_t cycles = counters.GetValue(cycle_counter_address);
-  if (cycles == 0) return;
+  if (cycles == 0 || options.frequency_hz <= 0.0) return;
 
   const double time_s =
-      tsl::profiler::CyclesToSeconds(cycles, 1000000000);  // Approximation
+      tsl::profiler::CyclesToSeconds(cycles, options.frequency_hz);
 
-  const double kPeakIciRdBwBytesPerSecond = 294947368421.0526;
-  const double peak_ici_rd_bytes = kPeakIciRdBwBytesPerSecond * time_s;
+  // TPU v6e: 294 GB/s bidirectional chip ICI peak.
+  // TPU v7x: 2 directions * 3 dimensions * 93.4 GB/s = 560.4 GB/s.
+  constexpr int kNumTpuV7xIciDimensions = 3;
+  constexpr double kTpuV7xIciUnidirBwBps = 93.4e9;
+  constexpr int kNumDir = 2;
+  const double peak_ici_bw_bps =
+      options.is_tpu6e
+          ? 2.94e11
+          : kNumDir * kNumTpuV7xIciDimensions * kTpuV7xIciUnidirBwBps;
+  const double peak_ici_rd_bytes = peak_ici_bw_bps * time_s;
   const double peak_ici_wr_bytes = peak_ici_rd_bytes;
 
   AddUtilization(counters, 0, "ICI (Read)", ici_rd_bytes, peak_ici_rd_bytes,

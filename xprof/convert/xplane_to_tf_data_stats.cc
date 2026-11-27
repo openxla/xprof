@@ -300,12 +300,19 @@ void SetBottleneckAnalysis(CombinedTfDataStats* combined_tf_data_stats) {
         // Ignore device input pipelines.
         continue;
       }
+      if (input_pipeline_stats.stats().empty()) {
+        continue;
+      }
       // Choose the slowest execution trace of the input pipeline.
       // `input_pipeline_stats.stats` is already sorted so choose the first one.
       const InputPipelineStat& input_pipeline_stat =
           input_pipeline_stats.stats(0);
-      const IteratorMetadata& metadata = tf_data_stats.iterator_metadata().at(
+      auto metadata_it = tf_data_stats.iterator_metadata().find(
           input_pipeline_stat.bottleneck_iterator_id());
+      if (metadata_it == tf_data_stats.iterator_metadata().end()) {
+        continue;
+      }
+      const IteratorMetadata& metadata = metadata_it->second;
       slow_input_pipelines.emplace_back(
           host_name, input_pipeline_stats.metadata().name(),
           input_pipeline_stats.max_latency_ps(), metadata.name(),

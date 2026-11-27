@@ -19,10 +19,15 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/tool_options.h"
 
 namespace xprof {
+
+// Returns true if the given device type string is supported by the Utilization
+// Viewer and Kernel Utilization converters.
+bool ShouldProcessDevice(absl::string_view device_type);
 
 // Converts an XSpace with performance counters to a JSON string formatted for
 // the Utilization Viewer DataTable.

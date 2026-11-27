@@ -137,14 +137,14 @@ int GetNumDies(ViewerDeviceType device_type) {
 
 int GetNumScCoresPerDie(ViewerDeviceType device_type) { return 2; }
 
-// Helper to determine if we should process this device.
-bool ShouldProcessDevice(absl::string_view device_type) {
-  static const auto* const kSupportedDevices =
-      new absl::flat_hash_set<std::string>{
-          "TPU v7x",
-          "TPU v6 Lite",
-      };
-  return kSupportedDevices->contains(device_type);
+int64_t ParseDeviceIdFromPlaneName(absl::string_view plane_name) {
+  constexpr absl::string_view kPrefix = "/device:TPU:";
+  int64_t device_id = -1;
+  if (absl::StartsWith(plane_name, kPrefix) &&
+      absl::SimpleAtoi(plane_name.substr(kPrefix.size()), &device_id)) {
+    return device_id;
+  }
+  return -1;
 }
 
 uint64_t GetCounterValue(std::variant<double, uint64_t> counter_value) {
@@ -189,11 +189,11 @@ void ComputeAllTpuGenericUtilizations(const TpuCounterUtil& tpu_counters,
     // 2. Process Bandwidth (HBM)
     xprof::ComputeTpuGenericBandwidthUtilization(tpu_counters, options, core,
                                                  utilization);
-
-    // 3. Process ICI Bandwidth (Per Device/Chip)
-    xprof::ComputeTpuGenericIciBandwidthUtilization(tpu_counters, options,
-                                                    utilization);
   }
+
+  // 3. Process ICI Bandwidth (once per chip/sample, on node 0)
+  xprof::ComputeTpuGenericIciBandwidthUtilization(tpu_counters, options,
+                                                  utilization);
 
   // 4. Process SC Cores (interleaved per die/core)
   if (device_type_enum == ViewerDeviceType::TPU_V7X) {
@@ -214,6 +214,15 @@ void ComputeAllTpuGenericUtilizations(const TpuCounterUtil& tpu_counters,
 }
 
 }  // namespace
+
+bool ShouldProcessDevice(absl::string_view device_type) {
+  static const auto* const kSupportedDevices =
+      new absl::flat_hash_set<std::string>{
+          "TPU v7x",
+          "TPU v6 Lite",
+      };
+  return kSupportedDevices->contains(device_type);
+}
 
 absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
     const XSpace& space) {
@@ -253,6 +262,10 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
         device_type = std::string(stat.StrOrRefValue());
       }
     });
+
+    if (device_id == -1) {
+      device_id = ParseDeviceIdFromPlaneName(plane.name());
+    }
 
     if (device_id == -1 || !ShouldProcessDevice(device_type)) {
       continue;
@@ -576,13 +589,7 @@ std::optional<json> ProcessDevicePlane(
 
   // Fallback: parse device ID from plane name /device:TPU:<id>
   if (device_id == -1) {
-    absl::string_view plane_name = plane.name();
-    static constexpr absl::string_view kPrefix = "/device:TPU:";
-    if (absl::StartsWith(plane_name, kPrefix)) {
-      if (!absl::SimpleAtoi(plane_name.substr(kPrefix.size()), &device_id)) {
-        device_id = -1;
-      }
-    }
+    device_id = ParseDeviceIdFromPlaneName(plane.name());
   }
 
   if (device_id == -1 || !ShouldProcessDevice(device_type)) return std::nullopt;

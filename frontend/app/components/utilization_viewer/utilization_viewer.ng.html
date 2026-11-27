@@ -15,8 +15,11 @@
 </div>
 <!-- dummy chart node to initialize gviz in chart  -->
 <chart [chartType]="ChartType.BAR_CHART" style="display:none;"></chart>
-<div class="section-container">
-  <div class="row" *ngFor="let index of coreIndexes">
+<div class="section-container empty-state" *ngIf="isLoaded && !hasChartData">
+  No utilization data available for this profile.
+</div>
+<div class="section-container" *ngIf="unitCoreIndexes.length > 0">
+  <div class="row" *ngFor="let index of unitCoreIndexes">
     <div class="bar-chart">
       <div class="mat-title">Tensor Node {{ index }} - Unit Utilization</div>
       <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesUnit[index]"></chart>
@@ -29,8 +32,8 @@
     <chart chartType="PieChart" [dataInfo]="dataInfoHBMRatio[index]"></chart>
   </div>
 </div>
-<div class="section-container">
-  <div class="row" *ngFor="let index of coreIndexes">
+<div class="section-container" *ngIf="bandwidthCoreIndexes.length > 0">
+  <div class="row" *ngFor="let index of bandwidthCoreIndexes">
     <div class="bar-chart">
       <div class="mat-title">Tensor Node {{ index }} - Bandwidth Utilization</div>
       <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesBandwidth[index]"></chart>

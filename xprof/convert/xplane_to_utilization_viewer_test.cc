@@ -858,5 +858,190 @@ TEST(ConvertXSpaceToUtilizationViewerTest,
   EXPECT_NEAR(kernel["duration_us"].get<double>(), 100.0, 1e-3);
 }
 
+TEST(ConvertXSpaceToUtilizationViewerTest, IciBandwidthTpuV6ePeakAndKernel) {
+  XSpace space;
+  XPlane* plane = space.add_planes();
+  plane->set_name("/device:TPU:0");
+  XPlaneBuilder builder(plane);
+
+  builder.AddStatValue(
+      *builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kDeviceId)), 0);
+  builder.AddStatValue(*builder.GetOrCreateStatMetadata(
+                           GetStatTypeStr(StatType::kDeviceTypeString)),
+                       "TPU v6 Lite");
+
+  auto line_builder = builder.GetOrCreateLine(0);
+  line_builder.SetName("counters_ici_v6e");
+  auto* id_meta = builder.GetOrCreateStatMetadata(
+      GetStatTypeStr(StatType::kPerformanceCounterId));
+  auto* val_meta =
+      builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kCounterValue));
+
+  using Tpu6e = TpuCounterIdsTpu6e;
+  {
+    auto ev =
+        line_builder.AddEvent(*builder.GetOrCreateEventMetadata("CYCLES"));
+    ev.AddStatValue(
+        *id_meta,
+        static_cast<uint64_t>(
+            Tpu6e::
+                VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES));  // NOLINT
+    ev.AddStatValue(*val_meta, 1750.0);
+  }
+  {
+    auto ev = line_builder.AddEvent(*builder.GetOrCreateEventMetadata("RD_0"));
+    ev.AddStatValue(
+        *id_meta,
+        static_cast<uint64_t>(
+            Tpu6e::
+                VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT));  // NOLINT
+    ev.AddStatValue(*val_meta, 10.0);
+  }
+
+  ASSERT_OK_AND_ASSIGN(std::string viewer_json_str,
+                       ConvertXSpaceToUtilizationViewer(space));
+  json viewer_table = json::parse(viewer_json_str);
+  int ici_read_count = 0;
+  double ici_read_achieved = 0.0;
+  double ici_read_peak = 0.0;
+  for (const auto& row : viewer_table["rows"]) {
+    const std::string name = row["c"][4]["v"].get<std::string>();
+    const double peak = row["c"][6]["v"].get<double>();
+    // Dense workload: idle SparseCore zero-peak rows must not be emitted.
+    EXPECT_GT(peak, 0.0) << "Unexpected zero-peak row: " << name;
+    EXPECT_EQ(name.find("TEC "), std::string::npos);
+    EXPECT_EQ(name.find("SC Vector"), std::string::npos);
+    EXPECT_EQ(name.find("SCS"), std::string::npos);
+    if (name == "ICI (Read)") {
+      ++ici_read_count;
+      ici_read_achieved = row["c"][5]["v"].get<double>();
+      ici_read_peak = peak;
+    }
+  }
+  EXPECT_EQ(ici_read_count, 1);
+  EXPECT_DOUBLE_EQ(ici_read_achieved, 1280.0);
+  EXPECT_NEAR(ici_read_peak, 294000.0, 1e-3);
+
+  ASSERT_OK_AND_ASSIGN(std::string kernel_json_str,
+                       ConvertXSpaceToKernelUtilization(space));
+  json kernel_result = json::parse(kernel_json_str);
+  ASSERT_THAT(kernel_result["devices"], testing::SizeIs(1));
+  ASSERT_THAT(kernel_result["devices"][0]["kernels"], testing::SizeIs(1));
+  // 1280 / 294000 * 100 = 0.43537... -> rounded to 0.44%.
+  EXPECT_NEAR(
+      kernel_result["devices"][0]["kernels"][0]["other_metrics"]["ICI (Read)"]
+          .get<double>(),
+      0.44, 1e-3);
+}
+
+TEST(ConvertXSpaceToUtilizationViewerTest,
+     IciBandwidthTpuV7xSingleRowAndNoIdleSparseCore) {
+  XSpace space;
+  XPlane* plane = space.add_planes();
+  plane->set_name("/device:TPU:0");
+  XPlaneBuilder builder(plane);
+
+  builder.AddStatValue(
+      *builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kDeviceId)), 0);
+  builder.AddStatValue(*builder.GetOrCreateStatMetadata(
+                           GetStatTypeStr(StatType::kDeviceTypeString)),
+                       "TPU v7x");
+
+  auto line_builder = builder.GetOrCreateLine(0);
+  auto* id_meta = builder.GetOrCreateStatMetadata(
+      GetStatTypeStr(StatType::kPerformanceCounterId));
+  auto* val_meta =
+      builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kCounterValue));
+
+  using Tpu7x = TpuCounterIdsTpu7x;
+  {
+    auto ev =
+        line_builder.AddEvent(*builder.GetOrCreateEventMetadata("CYCLES"));
+    ev.AddStatValue(
+        *id_meta,
+        static_cast<uint64_t>(
+            Tpu7x::
+                VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT));  // NOLINT
+    ev.AddStatValue(*val_meta, 1900.0);
+  }
+  {
+    auto ev = line_builder.AddEvent(*builder.GetOrCreateEventMetadata("RD_0"));
+    ev.AddStatValue(
+        *id_meta,
+        static_cast<uint64_t>(
+            Tpu7x::
+                VF_CHIP_DIE1_OCI_ICR_0_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT));  // NOLINT
+    ev.AddStatValue(*val_meta, 10.0);
+  }
+  {
+    auto ev = line_builder.AddEvent(*builder.GetOrCreateEventMetadata("WR_0"));
+    ev.AddStatValue(
+        *id_meta,
+        static_cast<uint64_t>(
+            Tpu7x::
+                VF_CHIP_DIE1_OCI_ICR_0_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT));  // NOLINT
+    ev.AddStatValue(*val_meta, 5.0);
+  }
+
+  ASSERT_OK_AND_ASSIGN(std::string json_str,
+                       ConvertXSpaceToUtilizationViewer(space));
+  json table = json::parse(json_str);
+  int ici_read_count = 0;
+  int ici_write_count = 0;
+  for (const auto& row : table["rows"]) {
+    const int node = row["c"][3]["v"].get<int>();
+    const std::string name = row["c"][4]["v"].get<std::string>();
+    const double achieved = row["c"][5]["v"].get<double>();
+    const double peak = row["c"][6]["v"].get<double>();
+    EXPECT_GT(peak, 0.0) << "Unexpected zero-peak row: " << name;
+    EXPECT_EQ(name.find("TEC "), std::string::npos);
+    EXPECT_EQ(name.find("SC Vector"), std::string::npos);
+    EXPECT_EQ(name.find("SCS"), std::string::npos);
+    if (name == "ICI (Read)") {
+      ++ici_read_count;
+      EXPECT_EQ(node, 0);
+      EXPECT_DOUBLE_EQ(achieved, 1280.0);
+      EXPECT_NEAR(peak, 560400.0, 1e-3);
+    } else if (name == "ICI (Write)") {
+      ++ici_write_count;
+      EXPECT_EQ(node, 0);
+      EXPECT_DOUBLE_EQ(achieved, 640.0);
+      EXPECT_NEAR(peak, 560400.0, 1e-3);
+    }
+  }
+  EXPECT_EQ(ici_read_count, 1);
+  EXPECT_EQ(ici_write_count, 1);
+}
+
+TEST(ConvertXSpaceToUtilizationViewerTest, DeviceIdFallbackFromPlaneName) {
+  XSpace space;
+  XPlane* plane = space.add_planes();
+  plane->set_name("/device:TPU:3");
+  XPlaneBuilder builder(plane);
+
+  // Omit StatType::kDeviceId to verify /device:TPU:<id> parsing fallback.
+  builder.AddStatValue(*builder.GetOrCreateStatMetadata(
+                           GetStatTypeStr(StatType::kDeviceTypeString)),
+                       "TPU v7x");
+
+  auto line_builder = builder.GetOrCreateLine(0);
+  auto ev = line_builder.AddEvent(*builder.GetOrCreateEventMetadata("CYCLES"));
+  ev.AddStatValue(
+      *builder.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kPerformanceCounterId)),
+      static_cast<uint64_t>(
+          TpuCounterIdsTpu7x::
+              VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT));  // NOLINT
+  ev.AddStatValue(
+      *builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kCounterValue)),
+      1000.0);
+
+  ASSERT_OK_AND_ASSIGN(std::string json_str,
+                       ConvertXSpaceToUtilizationViewer(space));
+  json table = json::parse(json_str);
+  ASSERT_FALSE(table["rows"].empty());
+  EXPECT_EQ(table["rows"][0]["c"][1]["v"].get<int>(), 3);
+}
+
 }  // namespace
 }  // namespace xprof

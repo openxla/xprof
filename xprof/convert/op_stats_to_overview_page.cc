@@ -546,8 +546,17 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats,
 
   HardwareType hardware_type = GetHardwareType(op_stats.run_environment());
   if (hardware_type == tensorflow::profiler::TPU) {
-    ComputeTpuAnalysisResult(op_stats, overview_page.mutable_analysis(),
-                             /*limits=*/std::nullopt, use_flat_op_metrics_db);
+    std::optional<TpuPerformanceLimits> limits;
+    const PerfEnv& perf_env = op_stats.perf_env();
+    double max_gflops =
+        tsl::profiler::TeraToGiga(perf_env.peak_tera_flops_per_second());
+    double max_hbm_gbps =
+        GetMemoryPeakBandwidth(perf_env, MemBwType::MEM_BW_TYPE_HBM_RW);
+    if (max_gflops > 0.0 && max_hbm_gbps > 0.0) {
+      limits = TpuPerformanceLimits{max_gflops, max_hbm_gbps};
+    }
+    ComputeTpuAnalysisResult(op_stats, overview_page.mutable_analysis(), limits,
+                             use_flat_op_metrics_db);
   }
 
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting "
@@ -810,6 +819,11 @@ std::unique_ptr<DataTable> GenerateInferenceLatencyDataTable(
           absl::StrFormat("%.1f%%", (result.percentile_numbers().Get(i))),
           result.latency_breakdowns().Get(breakdown_index));
     }
+  }
+  if (result.has_sessions_per_second()) {
+    data_table->AddCustomProperty(
+        "sessionsPerSecond",
+        absl::StrFormat("%.1f", result.sessions_per_second()));
   }
   return data_table;
 }

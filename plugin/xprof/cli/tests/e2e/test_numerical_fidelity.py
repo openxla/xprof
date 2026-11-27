@@ -132,19 +132,14 @@ class NumericalFidelityTest(parameterized.TestCase):
 
     res_raw = get_overview_tool.get_overview(self.t1_path)
     res = json.loads(res_raw)
-    tool_duty_cycle_raw = res.get("performance_summary", {}).get(
-        "device_compute_duty_cycle_percent"
-    ) or res.get("performance_summary", {}).get("duty_cycle")
-    if tool_duty_cycle_raw is not None:
-      if isinstance(tool_duty_cycle_raw, str):
-        tool_duty_cycle = float(tool_duty_cycle_raw.replace("%", "").strip())
-        if tool_duty_cycle > 1.0:
-          tool_duty_cycle /= 100.0
-      else:
-        tool_duty_cycle = float(tool_duty_cycle_raw)
-        if tool_duty_cycle > 1.0:
-          tool_duty_cycle /= 100.0
-      self.assertAlmostEqual(tool_duty_cycle, oracle_duty_cycle, delta=0.01)
+    perf_summary = res.get("performance_summary", {})
+    self.assertIn("device_duty_cycle_percent", perf_summary)
+    tool_duty_cycle_raw = perf_summary["device_duty_cycle_percent"]
+    self.assertIsNotNone(tool_duty_cycle_raw)
+    # `device_duty_cycle_percent` is always emitted on the [0, 100] scale.
+    raw_text = str(tool_duty_cycle_raw).strip().rstrip("%").strip()
+    tool_duty_cycle = float(raw_text) / 100.0
+    self.assertAlmostEqual(tool_duty_cycle, oracle_duty_cycle, delta=0.01)
 
   def test_n03_t2_steptime_fidelity(self):
     """N-3: T2 step time matches Oracle 1 ground truth."""
@@ -227,28 +222,20 @@ class NumericalFidelityTest(parameterized.TestCase):
       )
 
   def test_n05_kpi_metrics_contract(self):
-
     """N-5: get_kpi_metrics returns structured schema with physical bounds."""
     res_raw = get_kpi_metrics_tool.get_kpi_metrics(self.t1_path)
     res = json.loads(res_raw)
     self.assertIsInstance(res, dict)
     self.assertNotIn("error", res)
-    if "step_time_ms" in res and res["step_time_ms"] != "N/A":
-      step_ms = float(str(res["step_time_ms"]).replace("ms", "").strip())
-      self.assertGreater(step_ms, 0.0)
-    if (
-        "compute_duty_cycle_percent" in res
-        and res["compute_duty_cycle_percent"] != "N/A"
-    ):
-      duty_pct = float(
-          str(res["compute_duty_cycle_percent"]).replace("%", "").strip()
-      )
-      self.assertGreaterEqual(duty_pct, 0.0)
-      self.assertLessEqual(duty_pct, 100.0)
-    if "infeed_percent" in res and res["infeed_percent"] != "N/A":
-      infeed_pct = float(str(res["infeed_percent"]).replace("%", "").strip())
-      self.assertGreaterEqual(infeed_pct, 0.0)
-      self.assertLessEqual(infeed_pct, 100.0)
+    self.assertIn("step_time_ms", res)
+    self.assertNotIn(res["step_time_ms"], (None, "N/A"))
+    step_ms = float(str(res["step_time_ms"]).replace("ms", "").strip())
+    self.assertGreater(step_ms, 0.0)
+    self.assertIn("duty_cycle_percent", res)
+    self.assertNotIn(res["duty_cycle_percent"], (None, "N/A"))
+    duty_pct = float(str(res["duty_cycle_percent"]).replace("%", "").strip())
+    self.assertGreaterEqual(duty_pct, 0.0)
+    self.assertLessEqual(duty_pct, 100.0)
 
   def test_n06_roofline_model_ridge_point(self):
     """N-6: get_roofline_model ridge point calculation."""

@@ -269,6 +269,7 @@ pytype_strict_contrib_test(
         "//plugin/xprof:server",
         "//plugin/xprof/cli:xprof_cli_lib",
         "//plugin/xprof/cli/internal:trace_selection",
+        "//plugin/xprof/cli/tools:get_hlo_stats_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
         "//plugin/xprof/cli/tools:install_skills_tool",
         "//plugin/xprof/cli/tools/oss:diff_sessions_tool",
@@ -381,6 +382,7 @@ pytype_strict_contrib_test(
     srcs = ["oss_kernel_utilization_tool_test.py"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
         "@absl_py//absl/testing:absltest",

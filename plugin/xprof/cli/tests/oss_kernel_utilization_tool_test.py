@@ -5,6 +5,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from xprof.cli.internal import decorators
+from xprof.cli.internal.oss import kernel_stats_tools
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools.oss import get_kernel_utilization_tool
 
@@ -275,7 +276,7 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
       )
 
   @mock.patch.object(
-      get_kernel_utilization_tool.kernel_stats_tools,
+      kernel_stats_tools,
       "get_kernel_stats",
       autospec=True,
       spec_set=True,
@@ -339,7 +340,7 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
     )
 
   @mock.patch.object(
-      get_kernel_utilization_tool.kernel_stats_tools,
+      kernel_stats_tools,
       "get_kernel_stats",
       autospec=True,
       spec_set=True,
@@ -453,6 +454,191 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
     )
     self.assertAlmostEqual(
         kernel["other_metrics"]["No XLU Busy"], 90.0, places=2
+    )
+
+  @mock.patch.object(
+      kernel_stats_tools,
+      "get_kernel_stats",
+      autospec=True,
+      spec_set=True,
+  )
+  def test_fallback_prefers_average_duration_over_total(
+      self, mock_get_kernel_stats
+  ):
+    zero_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "kernels": [{"kernel_name": "matmul", "duration_us": 0.0}],
+        }],
+    })
+    nonzero_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "kernels": [{"kernel_name": "matmul", "duration_us": 100.0}],
+        }],
+    })
+    self.mock_client.fetch.side_effect = [
+        (None, zero_response.encode("utf-8")),
+        (None, nonzero_response.encode("utf-8")),
+    ]
+    mock_get_kernel_stats.return_value = json.dumps([{
+        "kernel_name": "matmul",
+        "total_duration_us": 400.0,
+        "avg_duration_us": 100.0,
+        "execution_count": 4,
+    }])
+
+    get_kernel_utilization_tool.get_kernel_utilization(
+        session_id="session_avg", output_format="dict", bypass_cache=True
+    )
+
+    self.assertEqual(self.mock_client.fetch.call_count, 2)
+    self.assertEqual(
+        self.mock_client.fetch.call_args_list[1],
+        mock.call(
+            tool_name="kernel_utilization.json",
+            session_id="session_avg",
+            bypass_cache=True,
+            duration_us="100.0",
+            force_duration=True,
+        ),
+    )
+
+  @mock.patch.object(
+      kernel_stats_tools,
+      "get_kernel_stats",
+      autospec=True,
+      spec_set=True,
+  )
+  def test_fallback_divides_total_duration_by_execution_count(
+      self, mock_get_kernel_stats
+  ):
+    zero_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "kernels": [{"kernel_name": "matmul", "duration_us": 0.0}],
+        }],
+    })
+    nonzero_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "kernels": [{"kernel_name": "matmul", "duration_us": 100.0}],
+        }],
+    })
+    self.mock_client.fetch.side_effect = [
+        (None, zero_response.encode("utf-8")),
+        (None, nonzero_response.encode("utf-8")),
+    ]
+    mock_get_kernel_stats.return_value = json.dumps([{
+        "kernel_name": "matmul",
+        "total_duration_us": 400.0,
+        "avg_duration_us": 0.0,
+        "execution_count": 4,
+    }])
+
+    get_kernel_utilization_tool.get_kernel_utilization(
+        session_id="session_total", output_format="dict", bypass_cache=True
+    )
+
+    self.assertEqual(self.mock_client.fetch.call_count, 2)
+    self.assertEqual(
+        self.mock_client.fetch.call_args_list[1],
+        mock.call(
+            tool_name="kernel_utilization.json",
+            session_id="session_total",
+            bypass_cache=True,
+            duration_us="100.0",
+            force_duration=True,
+        ),
+    )
+
+  @mock.patch.object(
+      kernel_stats_tools,
+      "get_kernel_stats",
+      autospec=True,
+      spec_set=True,
+  )
+  def test_fallback_patches_only_zero_duration_kernels_on_mixed_trace(
+      self, mock_get_kernel_stats
+  ):
+    mixed_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "kernels": [
+                {"kernel_name": "untimed_kernel", "mxu_utilization": 5.0},
+                {
+                    "kernel_name": "healthy_kernel",
+                    "duration_us": 500.0,
+                    "mxu_utilization": 40.0,
+                },
+                {
+                    "kernel_name": "zero_kernel",
+                    "duration_us": 0.0,
+                    "mxu_utilization": 0.01,
+                },
+            ],
+        }],
+    })
+    zero_kernel_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "kernels": [{
+                "kernel_name": "zero_kernel",
+                "duration_us": 10.0,
+                "mxu_utilization": 30.0,
+            }],
+        }],
+    })
+    self.mock_client.fetch.side_effect = [
+        (None, mixed_response.encode("utf-8")),
+        (None, zero_kernel_response.encode("utf-8")),
+    ]
+    mock_get_kernel_stats.return_value = json.dumps([{
+        "kernel_name": "zero_kernel",
+        "total_duration_us": 10.0,
+        "avg_duration_us": 10.0,
+        "execution_count": 1,
+    }])
+
+    result = get_kernel_utilization_tool.get_kernel_utilization(
+        session_id="session_mixed", output_format="dict", bypass_cache=True
+    )
+
+    self.assertIsInstance(result, dict)
+    assert isinstance(result, dict)
+    kernels = result["devices"][0]["kernels"]
+    self.assertEqual(
+        [k["kernel_name"] for k in kernels],
+        ["untimed_kernel", "healthy_kernel", "zero_kernel"],
+    )
+    self.assertNotIn("duration_us", kernels[0])
+    self.assertEqual(kernels[0]["mxu_utilization"], 5.0)
+    self.assertEqual(kernels[1]["duration_us"], 500.0)
+    self.assertEqual(kernels[1]["mxu_utilization"], 40.0)
+    self.assertEqual(kernels[2]["duration_us"], 10.0)
+    self.assertEqual(kernels[2]["mxu_utilization"], 30.0)
+    mock_get_kernel_stats.assert_called_once_with(
+        "session_mixed",
+        kernel_name="zero_kernel",
+        limit=0,
+        bypass_cache=True,
+    )
+    self.assertEqual(
+        self.mock_client.fetch.call_args_list[1],
+        mock.call(
+            tool_name="kernel_utilization.json",
+            session_id="session_mixed",
+            bypass_cache=True,
+            kernel="zero_kernel",
+            duration_us="10.0",
+            force_duration=True,
+        ),
     )
 
 

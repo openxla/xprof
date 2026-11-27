@@ -16,6 +16,7 @@ from absl.testing import parameterized
 from xprof import server
 from xprof.cli import xprof_cli
 from xprof.cli.internal import trace_selection
+from xprof.cli.tools import get_hlo_stats_tool
 from xprof.cli.tools import get_kernel_stats_tool
 from xprof.cli.tools import install_skills_tool
 from xprof.cli.tools.oss import diff_sessions_tool
@@ -161,7 +162,7 @@ class XProfCliTest(parameterized.TestCase):
     self.cli.upload_trace('/path/to/trace.xplane.pb')
     mock_upload.assert_called_with('/path/to/trace.xplane.pb')
 
-  @mock.patch.object(xprof_cli.fire, 'Fire')
+  @mock.patch.object(fire, 'Fire')
   def test_main(self, mock_fire):
     xprof_cli.main([])
     mock_fire.assert_called_once_with(mock.ANY, command=None, name='xprof')
@@ -656,9 +657,9 @@ class XProfCliTest(parameterized.TestCase):
     )
 
   @mock.patch.object(
-      xprof_cli.fire,
+      fire,
       'Fire',
-      side_effect=xprof_cli.fire.core.FireError('Invalid flag'),
+      side_effect=fire.core.FireError('Invalid flag'),
   )
   @mock.patch('sys.stdout')
   @mock.patch('sys.stderr')
@@ -675,7 +676,7 @@ class XProfCliTest(parameterized.TestCase):
     self.assertIn('USAGE_ERROR', mock_stderr.write.call_args[0][0])
 
   @mock.patch.object(
-      xprof_cli.fire, 'Fire', side_effect=FileNotFoundError('Trace not found')
+      fire, 'Fire', side_effect=FileNotFoundError('Trace not found')
   )
   @mock.patch('sys.stdout')
   @mock.patch('sys.stderr')
@@ -692,7 +693,7 @@ class XProfCliTest(parameterized.TestCase):
     self.assertIn('PATH_ERROR', mock_stderr.write.call_args[0][0])
 
   @mock.patch.object(
-      xprof_cli.fire,
+      fire,
       'Fire',
       side_effect=PermissionError('Permission denied'),
   )
@@ -711,7 +712,7 @@ class XProfCliTest(parameterized.TestCase):
     self.assertIn('PATH_ERROR', mock_stderr.write.call_args[0][0])
 
   @mock.patch.object(
-      xprof_cli.fire,
+      fire,
       'Fire',
       side_effect=OSError(28, 'No space left on device'),
   )
@@ -730,7 +731,7 @@ class XProfCliTest(parameterized.TestCase):
     self.assertIn('PATH_ERROR', mock_stderr.write.call_args[0][0])
 
   @mock.patch.object(
-      xprof_cli.fire, 'Fire', side_effect=IsADirectoryError('Is a directory')
+      fire, 'Fire', side_effect=IsADirectoryError('Is a directory')
   )
   @mock.patch('sys.stdout')
   @mock.patch('sys.stderr')
@@ -746,7 +747,7 @@ class XProfCliTest(parameterized.TestCase):
     self.assertIn('PATH_ERROR', mock_stderr.write.call_args[0][0])
 
   @mock.patch.object(
-      xprof_cli.fire, 'Fire', side_effect=ValueError('Corrupt data')
+      fire, 'Fire', side_effect=ValueError('Corrupt data')
   )
   @mock.patch('sys.stdout')
   @mock.patch('sys.stderr')
@@ -763,7 +764,7 @@ class XProfCliTest(parameterized.TestCase):
     self.assertIn('INVALID_VALUE', mock_stderr.write.call_args[0][0])
 
   @mock.patch.object(
-      xprof_cli.fire, 'Fire', side_effect=RuntimeError('Unexpected failure')
+      fire, 'Fire', side_effect=RuntimeError('Unexpected failure')
   )
   @mock.patch('sys.stdout')
   @mock.patch('sys.stderr')
@@ -974,7 +975,7 @@ class XProfCliTest(parameterized.TestCase):
     """b/555254723: session-dir aliases normalize to the first positional."""
     self.assertEqual(xprof_cli._preprocess_argv(raw_argv), expected)
 
-  @mock.patch.object(xprof_cli.fire, 'Fire', autospec=True, spec_set=True)
+  @mock.patch.object(fire, 'Fire', autospec=True, spec_set=True)
   def test_d25_cli_argument_aliases_reach_fire(self, mock_fire):
     """b/555254723: aliased invocations reach Fire without usage errors."""
     xprof_cli.main(['xprof', 'get_overview', '--session_dir=/tmp/trace'])
@@ -982,7 +983,7 @@ class XProfCliTest(parameterized.TestCase):
         mock.ANY, command=['get_overview', '/tmp/trace'], name='xprof'
     )
 
-  @mock.patch.object(xprof_cli.fire, 'Fire', autospec=True, spec_set=True)
+  @mock.patch.object(fire, 'Fire', autospec=True, spec_set=True)
   def test_d25_cli_argument_aliases_console_script_argv_none(self, mock_fire):
     """b/555254723: console_scripts entry point (argv=None) preprocesses sys.argv."""
     with mock.patch.object(
@@ -1112,13 +1113,13 @@ class XProfCliTest(parameterized.TestCase):
     self.assertFalse(hasattr(get_kernel_stats_tool, 'compute_avg_step_time'))
 
   @mock.patch.object(
-      diff_sessions_tool.get_hlo_stats_tool,
+      get_hlo_stats_tool,
       'get_hlo_stats',
       autospec=True,
       spec_set=True,
   )
   @mock.patch.object(
-      diff_sessions_tool.get_kernel_stats_tool,
+      get_kernel_stats_tool,
       'get_kernel_stats',
       autospec=True,
       spec_set=True,
@@ -1171,6 +1172,54 @@ class XProfCliTest(parameterized.TestCase):
     self.assertEqual(
         res['hlo_stats']['optimized']['total_self_time_ms_all_records'], 0.04
     )
+
+  @mock.patch.object(
+      get_hlo_stats_tool,
+      'get_hlo_stats',
+      autospec=True,
+      spec_set=True,
+  )
+  @mock.patch.object(
+      get_kernel_stats_tool,
+      'get_kernel_stats',
+      autospec=True,
+      spec_set=True,
+  )
+  def test_oss_diff_sessions_sums_duplicates_and_tolerates_nulls(
+      self, mock_get_kernel_stats, mock_get_hlo_stats
+  ):
+    mock_get_kernel_stats.side_effect = [
+        json.dumps({
+            'total_device_duration_us': 100.0,
+            'kernel_records': [
+                {'kernel_name': 'matmul', 'total_duration_us': 30.0},
+                {'kernel_name': 'matmul', 'total_duration_us': 30.0},
+                {'kernel_name': 'conv', 'total_duration_us': None},
+                None,
+            ],
+        }),
+        json.dumps({
+            'total_device_duration_us': None,
+            'kernel_records': None,
+        }),
+    ]
+    mock_get_hlo_stats.return_value = json.dumps({})
+
+    res = json.loads(
+        diff_sessions_tool.diff_sessions(
+            baseline_session_id='/tmp/base',
+            optimized_session_id='/tmp/opt',
+        )
+    )
+
+    for kernel_stats_call in mock_get_kernel_stats.call_args_list:
+      self.assertEqual(kernel_stats_call.kwargs['limit'], 0)
+    self.assertEqual(res['total_device_duration_delta_us'], -100.0)
+    kernel_diffs = {d['kernel_name']: d for d in res['kernel_diffs']}
+    self.assertCountEqual(kernel_diffs, ['matmul', 'conv'])
+    self.assertEqual(kernel_diffs['matmul']['baseline_duration_us'], 60.0)
+    self.assertEqual(kernel_diffs['matmul']['optimized_duration_us'], 0.0)
+    self.assertEqual(kernel_diffs['conv']['baseline_duration_us'], 0.0)
 
 
 class MultiTraceSelectionTest(absltest.TestCase):
@@ -1303,7 +1352,7 @@ class MultiTraceSelectionTest(absltest.TestCase):
   def _fire(self, wrapped: Any, *command: str) -> Any:
     """Runs `wrapped` through Fire, as the CLI does."""
     with mock.patch('sys.stdout'):
-      return xprof_cli.fire.Fire(wrapped, command=list(command))
+      return fire.Fire(wrapped, command=list(command))
 
   def test_fire_native_host_bogus_is_rejected(self):
     wrapped = self._tool('get_llo_analysis', native_host=True)

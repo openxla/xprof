@@ -389,9 +389,11 @@ def _populate_roofline_fallback(
       op_key = (int(safe_float(row_dict.get("rank")) or 0), op_name)
       if op_key in seen_custom_call_keys:
         continue
-      if op_name.startswith("custom-call") or op_category.lower() in (
-          "custom-call",
-          "custom_call",
+      row_expr = str(
+          row_dict.get("expression") or row_dict.get("hlo_expression") or ""
+      )
+      if get_roofline_model_tool.is_custom_call_op(
+          op_name, op_category, row_expr
       ):
         seen_custom_call_keys.add(op_key)
         val = safe_float(row_dict.get("total_self_time_percent"))

@@ -5,7 +5,8 @@ from collections.abc import Callable
 import json
 import logging
 import time
-from typing import Any, Optional
+import types
+from typing import Any
 
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.tools import get_top_hlo_ops_tool
@@ -76,7 +77,7 @@ ZERO_COST_TIME_THRESHOLD_MS = 0.001
 
 _MAX_CONSUMER_HOPS = 1000
 
-_PRIMITIVE_TYPE_NAMES = {
+_PRIMITIVE_TYPE_NAMES = types.MappingProxyType({
     1: "pred",
     2: "s8",
     3: "s16",
@@ -91,9 +92,9 @@ _PRIMITIVE_TYPE_NAMES = {
     12: "f64",
     13: "tuple",
     14: "opaque",
-    15: "token",
+    15: "c64",
     16: "bf16",
-    17: "c64",
+    17: "token",
     18: "c128",
     19: "f8e5m2",
     20: "f8e4m3fn",
@@ -108,14 +109,24 @@ _PRIMITIVE_TYPE_NAMES = {
     29: "f8e3m4",
     30: "s1",
     31: "u1",
-    32: "bf8",
-    33: "f4e2m1fn",
-    34: "f8e8m0fnu",
-}
+    32: "f4e2m1fn",
+    33: "f8e8m0fnu",
+    34: "buffer",
+    35: "f6e3m2fn",
+    36: "f6e2m3fn",
+})
 
 
-def format_shape_proto(shape: Any) -> Optional[str]:
-  """Formats an xla.ShapeProto into a concise string representation."""
+def format_shape_proto(shape: Any) -> str | None:
+  """Formats an xla.ShapeProto into a concise string representation.
+
+  Args:
+    shape: An xla.ShapeProto-like object.
+
+  Returns:
+    The formatted shape string, or None if `shape` is empty, has no
+    `element_type`, or is an untyped shape without dimensions.
+  """
   if not shape or not hasattr(shape, "element_type"):
     return None
   element_type = getattr(shape, "element_type", 0)
@@ -124,7 +135,7 @@ def format_shape_proto(shape: Any) -> Optional[str]:
   ):
     elements = [format_shape_proto(s) or "unknown" for s in shape.tuple_shapes]
     return f"({', '.join(elements)})"
-  elif element_type == 15:
+  elif element_type == 17:
     return "token[]"
   elif element_type == 14:
     return "opaque[]"

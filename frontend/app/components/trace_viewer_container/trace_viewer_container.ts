@@ -437,6 +437,18 @@ export class TraceViewerContainer
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
   @Input() showHelpButton = false;
+  /**
+   * Whether to show the Settings button in the timeline toolbar. Only renders
+   * when `useTraceViewerV2` is true.
+   */
+  @Input() showSettingsButton = false;
+  /**
+   * Whether to show the color palette onboarding callout anchored to the
+   * Settings button. Only renders when both `useTraceViewerV2` and
+   * `showSettingsButton` are true, and suppresses the Settings button tooltip
+   * while visible.
+   */
+  @Input() showColorOnboarding = false;
   @Input() selectedEvent?: SelectedEvent | null;
   /**
    * The selected event rendered as an auto-traversed JSON tree in Trace
@@ -801,7 +813,12 @@ export class TraceViewerContainer
     new EventEmitter<EventsSelectedEventDetail | null>();
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
+  /** Emits when the user toggles the Trace Viewer settings dialog. */
   @Output() readonly toggleSettings = new EventEmitter<void>();
+  /** Emits when the user opens color settings from the color onboarding bubble. */
+  @Output() readonly openColorSettings = new EventEmitter<void>();
+  /** Emits when the user dismisses the color onboarding bubble. */
+  @Output() readonly dismissColorOnboarding = new EventEmitter<void>();
 
   @Output() readonly requestHoveredEventArgs =
     new EventEmitter<SelectedEvent>();
@@ -836,6 +853,8 @@ export class TraceViewerContainer
   @ViewChild('resetViewBtn') resetViewBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('zoomToSelectionBtn')
   zoomToSelectionBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('settingsButton', {read: ElementRef})
+  private readonly settingsButton?: ElementRef<HTMLButtonElement>;
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
     if (matSort) {
       this.selectedEventPropertiesDataSource.sort = matSort;
@@ -1627,5 +1646,10 @@ export class TraceViewerContainer
         dialog.open = true;
       }
     }
+  }
+
+  /** Moves keyboard focus to the toolbar Settings button, if rendered. */
+  focusSettingsButton(): void {
+    this.settingsButton?.nativeElement.focus();
   }
 }

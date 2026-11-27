@@ -476,3 +476,101 @@ export function resolveUseTraceViewerV2(
     return defaultWhenUnset;
   }
 }
+
+/** Minimal Document subset needed to exit fullscreen before opening a modal. */
+export type FullscreenDocument = Partial<
+  Pick<Document, 'fullscreenElement' | 'exitFullscreen'>
+>;
+
+/**
+ * Exits fullscreen mode if active so a modal overlay is not hidden behind the
+ * fullscreen top layer. Returns true once no fullscreen element remains active.
+ */
+export async function exitFullscreenForModal(
+  doc: FullscreenDocument = document,
+): Promise<boolean> {
+  if (!doc.fullscreenElement) {
+    return true;
+  }
+  if (typeof doc.exitFullscreen !== 'function') {
+    return false;
+  }
+  try {
+    await doc.exitFullscreen();
+  } catch {
+    // Ignore exitFullscreen rejections and verify actual fullscreen state
+    // below.
+  }
+  return !doc.fullscreenElement;
+}
+
+/**
+ * Coordinates opening a modal overlay across an optional fullscreen exit,
+ * deduplicating concurrent requests while `exitFullscreen()` is in flight.
+ */
+export class FullscreenModalOpener {
+  private pendingOpen: Promise<void> | null = null;
+
+  constructor(private readonly doc: FullscreenDocument = document) {}
+
+  /** Whether a fullscreen-exit transition is currently in flight. */
+  get isPending(): boolean {
+    return this.pendingOpen !== null;
+  }
+
+  /**
+   * Opens the modal immediately when not in fullscreen (returning `undefined`),
+   * or waits for fullscreen exit to settle before re-checking `canOpen()` and
+   * calling `openModal()` (returning the in-flight settlement promise).
+   */
+  open(
+    canOpen: () => boolean,
+    openModal: () => void,
+  ): Promise<void> | undefined {
+    if (this.pendingOpen) {
+      return this.pendingOpen;
+    }
+    if (!canOpen()) {
+      return undefined;
+    }
+
+    // Keep the non-fullscreen path synchronous so clicks/shortcuts open without
+    // yielding a microtask (preserving user-gesture context and sync callers).
+    if (!this.doc.fullscreenElement) {
+      openModal();
+      return undefined;
+    }
+
+    this.pendingOpen = this.exitFullscreenAndOpen(canOpen, openModal);
+    return this.pendingOpen;
+  }
+
+  private async exitFullscreenAndOpen(
+    canOpen: () => boolean,
+    openModal: () => void,
+  ) {
+    let exitedFullscreen = false;
+    try {
+      exitedFullscreen = await exitFullscreenForModal(this.doc);
+    } finally {
+      this.pendingOpen = null;
+    }
+
+    if (exitedFullscreen && canOpen()) {
+      openModal();
+    }
+  }
+}
+
+/**
+ * Returns true if the element is a form input or contenteditable surface where
+ * stealing keyboard focus would interrupt user typing.
+ */
+export function isEditableElement(element: Element | null): boolean {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement ||
+    (element instanceof HTMLElement && element.isContentEditable)
+  );
+}

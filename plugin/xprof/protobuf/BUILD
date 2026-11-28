@@ -251,6 +251,16 @@ xprof_proto_library(
     srcs = ["event_time_fraction_analyzer.proto"],
 )
 
+# Benchmark-item schema for the XLoop Engine. Deliberately not part of
+# :protos_all -- that aggregate is the profile-data schema the plugin frontend
+# consumes, while this is a benchmark *input* schema with a different audience
+# and lifecycle. Depend on it directly.
+xprof_proto_library(
+    name = "xloop_item_proto",
+    srcs = ["xloop_item.proto"],
+    visibility = ["//visibility:public"],
+)
+
 xprof_proto_library(
     name = "protos_all",
     create_go_proto = False,

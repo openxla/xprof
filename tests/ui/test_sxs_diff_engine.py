@@ -387,6 +387,11 @@ class SxsDiffEngineTest(unittest.TestCase):
         "<div><span>Deeply nested hidden</span></div>\n"
         "</div>\n"
         "<div style='display: none' aria-hidden='true' />\n"
+        '<div ARIA-HIDDEN="TRUE"'
+        ' STYLE="display: none; font-family: \'Roboto\', sans-serif;">'
+        "Quoted font hidden</div>\n"
+        '<div style="display: none; position: absolute;">'
+        "Chart hidden helper</div>\n"
         "<div><svg><rect></rect></svg>"
         '<div aria-label="A tabular representation of the data in the chart."'
         ' style="position: absolute; left: -10000px;">'
@@ -395,6 +400,8 @@ class SxsDiffEngineTest(unittest.TestCase):
     )
     clean = engine.sanitize_dom(dom)
     self.assertNotIn("Deeply nested hidden", clean)
+    self.assertNotIn("Quoted font hidden", clean)
+    self.assertNotIn("Chart hidden helper", clean)
     self.assertNotIn("display: none", clean)
     self.assertNotIn("tabular representation", clean)
     self.assertNotIn("Nested a11y", clean)
@@ -404,16 +411,247 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn("<svg><rect></rect></svg>", clean)
 
   def test_sanitize_dom_keeps_partially_hidden_divs(self):
-    """Verifies one hiding signal alone keeps a div, but cdk overlays go."""
+    """Verifies one hiding signal keeps a div while empty CDK overlays go."""
     engine = SxsDiffEngine()
     clean = engine.sanitize_dom(
-        '<div aria-hidden="true">aria-only</div>'
-        '<div style="position: absolute">chart-wrapper</div>'
+        '<div aria-hidden="true">aria-only</div>\n'
+        '<div style="display: none">style-only</div>\n'
+        '<div style="position: absolute">chart-wrapper</div>\n'
+        '<div class="cdk-overlay-pane" style="left: 5px;">outside-pane</div>\n'
+        '<div class="cdk-focused">outside-focused</div>\n'
+        "<div hidden />\n"
         '<div class="cdk-overlay-container">overlay</div>'
     )
     self.assertIn("aria-only", clean)
+    self.assertIn("style-only", clean)
     self.assertIn("chart-wrapper", clean)
-    self.assertNotIn("overlay", clean)
+    self.assertIn('<div class="cdk-overlay-pane" style="left: 5px;">', clean)
+    self.assertIn('<div class="cdk-focused">outside-focused</div>', clean)
+    self.assertIn("<div hidden />", clean)
+    self.assertNotIn("overlay\n", clean)
+    self.assertNotIn("cdk-overlay-container", clean)
+
+  def test_sanitize_dom_handles_unclosed_and_orphan_div_tags(self):
+    """Verifies malformed orphan closing and unclosed div tails stay safe."""
+    engine = SxsDiffEngine()
+    clean = engine.sanitize_dom(
+        "</div>\n"
+        "<div><span>Unclosed visible tail</span>\n"
+        '<div aria-hidden="true" style="display: none;">Unclosed hidden tail'
+    )
+    self.assertEqual(clean, "</div>\n<div><span>Unclosed visible tail</span>")
+
+  def test_sanitize_dom_strips_inactive_cdk_overlays_without_churn(self):
+    """Verifies empty, hidden, and tooltip CDK overlays produce zero diff."""
+    engine = SxsDiffEngine()
+    base = "<body>\n<main>Overview Page</main>\n</body>"
+    inactive_overlays = (
+        f'{base}\n<div class="cdk-overlay-container"></div>',
+        f'{base}\n<div class="cdk-overlay-container" />',
+        (
+            f'{base}\n<div class="cdk-overlay-container">\n'
+            '<div class="cdk-overlay-backdrop cdk-overlay-dark-backdrop"></div>'
+            '\n<div class="cdk-global-overlay-wrapper" style="top: 0px;">\n'
+            '<div id="cdk-overlay-0" class="cdk-overlay-pane">'
+            " <!--container--> "
+            '<div class="cdk-visually-hidden cdk-focus-trap-anchor"'
+            ' aria-hidden="true"></div></div>\n</div>\n</div>'
+        ),
+        (
+            f'{base}\n<div class="cdk-overlay-container">\n'
+            '<div id="cdk-overlay-1" class="cdk-overlay-pane"'
+            ' style="display: none;"><mat-dialog-container>Hidden'
+            "</mat-dialog-container></div>\n"
+            '<div id="cdk-overlay-2" class="cdk-overlay-pane"'
+            ' style="visibility: hidden;"><div>Invisible</div></div>\n'
+            '<div id="cdk-overlay-3" class="cdk-overlay-pane"'
+            ' style="opacity: 0;"><div>Transparent</div></div>\n'
+            '<div id="cdk-overlay-4" class="cdk-overlay-pane" hidden>'
+            "<div>Hidden attr</div></div>\n"
+            '<div id="cdk-overlay-5" class="cdk-overlay-pane"'
+            ' aria-hidden="true"><div>Aria hidden</div></div>\n</div>'
+        ),
+        (
+            f'{base}\n<div class="cdk-overlay-container">\n'
+            '<div class="cdk-overlay-connected-position-bounding-box"'
+            ' style="top: 32px; left: 64px;">\n'
+            '<div id="cdk-overlay-6" class="cdk-overlay-pane'
+            ' mat-mdc-tooltip-panel"><mat-tooltip-component>Tooltip text'
+            "</mat-tooltip-component></div>\n"
+            '<div id="cdk-overlay-7" class="cdk-overlay-pane">'
+            "<mat-tooltip-component>Standalone tooltip</mat-tooltip-component>"
+            "</div>\n"
+            '<div id="cdk-overlay-8" class="cdk-overlay-pane"'
+            ' style="display: none; font-family: \'Roboto\', sans-serif;">'
+            "<div>Font-quoted hidden pane</div></div>\n"
+            "</div>\n"
+            '<div class="cdk-global-overlay-wrapper">'
+            '<span data-class="cdk-overlay-pane"></span></div>\n</div>'
+        ),
+    )
+    for cand in inactive_overlays:
+      self.assertNotIn("cdk-overlay-container", engine.sanitize_dom(cand))
+      self.assertFalse(engine.compute_dom_diff(base, cand).has_changes)
+
+  def test_sanitize_dom_preserves_active_dialog_and_normalizes_cdk_ids(self):
+    """Verifies active dialogs inside .cdk-overlay-pane normalize cleanly."""
+    engine = SxsDiffEngine()
+    dialog_a = (
+        "<body>\n<main>Trace Viewer</main>\n"
+        '<div class="cdk-overlay-container">\n'
+        '<div class="cdk-overlay-backdrop cdk-overlay-dark-backdrop"></div>\n'
+        '<div class="cdk-overlay-connected-position-bounding-box"'
+        ' style="top: 12px;">\n'
+        '<div id="cdk-overlay-9" class="cdk-overlay-pane'
+        ' mat-mdc-tooltip-panel"><mat-tooltip-component>Hover tip'
+        "</mat-tooltip-component></div>\n</div>\n"
+        '<div class="cdk-global-overlay-wrapper"'
+        ' style="justify-content: center; align-items: center;">\n'
+        '<div data-style="compact" data-aria-hidden="true" id="cdk-overlay-0"'
+        ' class="cdk-overlay-pane mat-mdc-dialog-panel"'
+        ' style="width: 760px; top: 40.5px; overflow: hidden auto;'
+        " font-family: 'Roboto', sans-serif;\">\n"
+        '<div class="cdk-visually-hidden cdk-focus-trap-anchor"'
+        ' aria-hidden="true"></div>\n'
+        '<mat-dialog-container data-test-id="cdk-overlay-0"'
+        ' id="mat-mdc-dialog-0"'
+        ' aria-labelledby="mat-mdc-dialog-title-0"'
+        ' aria-describedby="mat-mdc-dialog-content-0" role="dialog">\n'
+        '<h2 id="mat-mdc-dialog-title-0">Trace Viewer Settings</h2>\n'
+        '<div id="mat-mdc-dialog-content-0"'
+        ' aria-label="Show hidden threads" title="Hidden columns"'
+        ' style="color: blue;">\n'
+        '<div role="tab">Color Palette</div>\n'
+        '<div class="divider" />\n'
+        "<div hidden />\n"
+        "<div hidden>Hidden dialog banner</div>\n"
+        '<span class=mdc-chip>Tag</span>\n'
+        '<span class="cdk-focused">Icon</span>\n'
+        "<span class=cdk-mouse-focused>Badge</span>\n"
+        '<input type="radio" name="mat-radio-group-0">\n'
+        "</div>\n"
+        '<div style="display: none;">Hidden dialog footer</div>\n'
+        '<button data-class="cdk-focused"'
+        ' class="mdc-button mat-mdc-button cdk-focused cdk-program-focused">'
+        "Close</button>\n"
+        '<button id="cancel-btn"'
+        "class='mdc-button cdk-keyboard-focused'>Cancel</button>\n"
+        "</mat-dialog-container>\n</div>\n</div>\n</div>\n"
+        '<div style="display: none;">Post-overlay style-only</div>\n</body>'
+    )
+    dialog_b = (
+        "<body>\n<main>Trace Viewer</main>\n"
+        '<div class="cdk-overlay-container">\n'
+        '<div class="cdk-global-overlay-wrapper"'
+        ' style="justify-content: center;">\n'
+        '<div data-style="compact" data-aria-hidden="true" id="cdk-overlay-4"'
+        ' class="cdk-overlay-pane mat-mdc-dialog-panel"'
+        " style='width: 760px; top: 41.0px; overflow: hidden;'>\n"
+        '<mat-dialog-container data-test-id="cdk-overlay-0"'
+        ' id="mat-mdc-dialog-2"'
+        ' aria-labelledby="mat-mdc-dialog-title-2"'
+        ' aria-describedby="mat-mdc-dialog-content-2" role="dialog">\n'
+        '<h2 id="mat-mdc-dialog-title-2">Trace Viewer Settings</h2>\n'
+        '<div id="mat-mdc-dialog-content-2"'
+        ' aria-label="Show hidden threads" title="Hidden columns"'
+        ' style="color: blue;">\n'
+        '<div role="tab">Color Palette</div>\n'
+        '<div class="divider" />\n'
+        "<span class=mdc-chip>Tag</span>\n"
+        "<span>Icon</span>\n"
+        "<span>Badge</span>\n"
+        '<input type="radio" name="mat-radio-group-3">\n'
+        "</div>\n"
+        '<button data-class="cdk-focused" class="mdc-button mat-mdc-button">'
+        "Close</button>\n"
+        '<button id="cancel-btn"'
+        "class='mdc-button'>Cancel</button>\n"
+        "</mat-dialog-container>\n</div>\n</div>\n</div>\n"
+        '<div style="display: none;">Post-overlay style-only</div>\n</body>'
+    )
+    clean_a = engine.sanitize_dom(dialog_a)
+    clean_b = engine.sanitize_dom(dialog_b)
+    self.assertEqual(clean_a, clean_b)
+    self.assertFalse(engine.compute_dom_diff(dialog_a, dialog_b).has_changes)
+    self.assertIn('<div class="cdk-overlay-container">', clean_a)
+    self.assertIn('data-style="compact"', clean_a)
+    self.assertIn('data-aria-hidden="true"', clean_a)
+    self.assertIn('data-test-id="cdk-overlay-0"', clean_a)
+    self.assertIn('data-class="cdk-focused"', clean_a)
+    self.assertIn('aria-label="Show hidden threads"', clean_a)
+    self.assertIn('style="color: blue;"', clean_a)
+    self.assertIn('<div class="divider" />', clean_a)
+    self.assertIn("<span class=mdc-chip>Tag</span>", clean_a)
+    self.assertIn("<span>Icon</span>", clean_a)
+    self.assertIn("<span>Badge</span>", clean_a)
+    self.assertIn('id="cancel-btn"class=\'mdc-button\'', clean_a)
+    self.assertIn('id="cdk-overlay-N"', clean_a)
+    self.assertIn('id="mat-mdc-dialog-N"', clean_a)
+    self.assertIn('aria-labelledby="mat-mdc-dialog-title-N"', clean_a)
+    self.assertIn('aria-describedby="mat-mdc-dialog-content-N"', clean_a)
+    self.assertIn('name="mat-radio-group-N"', clean_a)
+    self.assertIn("Trace Viewer Settings", clean_a)
+    self.assertIn("Post-overlay style-only", clean_a)
+    self.assertNotIn("cdk-overlay-backdrop", clean_a)
+    self.assertNotIn("cdk-overlay-connected-position-bounding-box", clean_a)
+    self.assertNotIn("cdk-focus-trap-anchor", clean_a)
+    self.assertNotIn("Hidden dialog banner", clean_a)
+    self.assertNotIn("Hidden dialog footer", clean_a)
+    self.assertNotIn("cdk-program-focused", clean_a)
+    self.assertNotIn("40.5px", clean_a)
+    self.assertNotIn("overflow: hidden", clean_a)
+    self.assertNotIn("Roboto", clean_a)
+
+  def test_compute_dom_diff_detects_dialog_title_and_tab_changes(self):
+    """Verifies dialog title or tab mutations inside active overlays diff."""
+    engine = SxsDiffEngine()
+    base_dialog = (
+        "<body>\n"
+        '<div class="cdk-overlay-container">\n'
+        '<div class="cdk-global-overlay-wrapper">\n'
+        '<div id="cdk-overlay-0" class="cdk-overlay-pane">\n'
+        '<mat-dialog-container id="mat-mdc-dialog-0"'
+        ' aria-labelledby="mat-mdc-dialog-title-0">\n'
+        '<h2 id="mat-mdc-dialog-title-0">Trace Viewer Help</h2>\n'
+        '<div role="tab">Navigation Shortcuts</div>\n'
+        "</mat-dialog-container>\n</div>\n</div>\n</div>\n</body>"
+    )
+    changed_title = base_dialog.replace(
+        "Trace Viewer Help", "Profiler Help Dialog"
+    )
+    changed_tab = base_dialog.replace(
+        "Navigation Shortcuts", "Mouse Mode Controls"
+    )
+
+    title_diff = engine.compute_dom_diff(base_dialog, changed_title)
+    self.assertTrue(title_diff.has_changes)
+    self.assertIn("Trace Viewer Help", title_diff.unified_diff)
+    self.assertIn("Profiler Help Dialog", title_diff.unified_diff)
+
+    tab_diff = engine.compute_dom_diff(base_dialog, changed_tab)
+    self.assertTrue(tab_diff.has_changes)
+    self.assertIn("Navigation Shortcuts", tab_diff.unified_diff)
+    self.assertIn("Mouse Mode Controls", tab_diff.unified_diff)
+
+  def test_normalize_generated_attr_ids_handles_dialogs_and_tab_indices(self):
+    """Verifies exported normalize_generated_attr_ids is idempotent."""
+    cases = {
+        "cdk-overlay-4": "cdk-overlay-N",
+        "mat-mdc-dialog-2": "mat-mdc-dialog-N",
+        "mat-mdc-dialog-title-2": "mat-mdc-dialog-title-N",
+        "mat-radio-group-3": "mat-radio-group-N",
+        "mat-mdc-checkbox-5-input": "mat-mdc-checkbox-N-input",
+        "mat-tab-label-0-1": "mat-tab-label-N-1",
+        "google-visualization-errors-all-7": (
+            "google-visualization-errors-all-N"
+        ),
+    }
+    for raw, expected in cases.items():
+      once = sxs_diff_engine.normalize_generated_attr_ids(raw)
+      self.assertEqual(once, expected)
+      self.assertEqual(
+          sxs_diff_engine.normalize_generated_attr_ids(once), expected
+      )
 
   def test_compute_dom_diff_separates_changed_final_line(self):
     """Verifies a changed final DOM line renders as separate -/+ lines."""

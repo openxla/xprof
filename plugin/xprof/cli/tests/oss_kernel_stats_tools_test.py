@@ -81,6 +81,10 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     result = kernel_stats_tools.compute_disjoint_interval_union_ns([])
     self.assertEqual(result, 0)
 
+    # An inverted interval adds nothing instead of a negative duration.
+    result = kernel_stats_tools.compute_disjoint_interval_union_ns([(100, 50)])
+    self.assertEqual(result, 0)
+
   def test_get_kernel_stats_with_include_summary(self):
     """Tests that include_summary returns ground-truth timing as JSON."""
     # Create two overlapping events on the same XLA Ops line
@@ -1412,6 +1416,356 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertIn("pass a host-specific session.", note)
     # Only the default call notes it; device_to_use='all' asked for all.
     self.assertEqual(note.count("xprof-note:"), 1)
+
+  def test_parse_kernel_details(self):
+    self.assertEqual(
+        kernel_stats_tools.parse_kernel_details(
+            "regs:128 static_shared:16 dynamic_shared:12288 grid:2176,16,1"
+            " block:64,1,1 occ_pct:25 junk bad:token:x grid:1,2"
+        ),
+        {
+            "registers_per_thread": 128,
+            "static_shmem_bytes": 16,
+            "dynamic_shmem_bytes": 12288,
+            "block_dim": (64, 1, 1),
+            "grid_dim": (2176, 16, 1),
+            "occupancy_pct": 25.0,
+        },
+    )
+    self.assertEqual(
+        kernel_stats_tools.parse_kernel_details("")["block_dim"], (1, 1, 1)
+    )
+
+  def test_tensor_core_heuristics_mirror_kernel_stats_converter(self):
+    self.assertTrue(
+        kernel_stats_tools.is_kernel_using_tensor_core("volta_h884gemm_64x64")
+    )
+    self.assertTrue(
+        kernel_stats_tools.is_kernel_using_tensor_core(
+            "sm90_xmma_gemm_bf16bf16_bf16f32"
+        )
+    )
+    self.assertFalse(
+        kernel_stats_tools.is_kernel_using_tensor_core("loop_add_fusion")
+    )
+    self.assertTrue(kernel_stats_tools.is_op_tensor_core_eligible("a/MatMul"))
+    self.assertTrue(
+        kernel_stats_tools.is_op_tensor_core_eligible("jit(f)/dot_general")
+    )
+    self.assertFalse(kernel_stats_tools.is_op_tensor_core_eligible("XlaModule"))
+
+  def test_tensor_core_flag_kept_when_later_launch_does_not_use_it(self):
+    aggregate = kernel_stats_tools._GpuKernelAggregate()
+    details = {"kernel_details": "regs:32 grid:1,1,1 block:128,1,1"}
+    aggregate.add("sm90_xmma_gemm_bf16", 1_000, details, is_nvidia=True)
+    aggregate.add("loop_add_fusion", 1_000, details, is_nvidia=True)
+    self.assertTrue(aggregate.to_fields()["is_kernel_using_tensor_core"])
+
+  def _gpu_event(self, name, start_ns, duration_ns, stats):
+    ev = mock.MagicMock(start_ns=start_ns, duration_ns=duration_ns, stats=stats)
+    ev.name = name
+    return ev
+
+  def _gpu_launch_plane(self):
+    """Returns an Nvidia GPU plane with two kernels and one memcpy."""
+    gemm_stats = [
+        (
+            "kernel_details",
+            (
+                "regs:168 static_shared:0 dynamic_shared:65536 grid:132,1,1"
+                " block:384,1,1 occ_pct:12.5"
+            ),
+        ),
+        ("hlo_op", "dot.3"),
+        ("tf_op", "jit(f)/dot_general:dot_general"),
+    ]
+    events = [
+        # 3 launches of one GEMM: two share the dominant launch config.
+        self._gpu_event("sm90_xmma_gemm_bf16", 0, 40_000, gemm_stats),
+        self._gpu_event("sm90_xmma_gemm_bf16", 50_000, 40_000, gemm_stats),
+        self._gpu_event(
+            "sm90_xmma_gemm_bf16",
+            100_000,
+            20_000,
+            [(
+                "kernel_details",
+                (
+                    "regs:168 dynamic_shared:65536 grid:66,1,1 block:384,1,1"
+                    " occ_pct:12.5"
+                ),
+            )],
+        ),
+        # occ_pct:0 means the tracer did not compute occupancy.
+        self._gpu_event(
+            "loop_add_fusion",
+            130_000,
+            10_000,
+            [
+                (
+                    "kernel_details",
+                    "regs:16 grid:4,1,1 block:256,1,1 occ_pct:0",
+                ),
+                ("tf_op", "XlaModule:"),
+            ],
+        ),
+        self._gpu_event(
+            "MemcpyD2H", 200_000, 500_000, [("memcpy_details", "size:4096")]
+        ),
+    ]
+    line = mock.MagicMock(events=events)
+    line.name = "Stream #13(Compute,Memset,MemcpyD2H)"
+    plane = mock.MagicMock(lines=[line], stats=[("device_vendor", "Nvidia")])
+    plane.name = "/device:GPU:0"
+    return plane
+
+  def test_gpu_kernel_launch_columns(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[self._gpu_launch_plane()]
+    ):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              _FAKE_XSPACE, include_summary=True
+          )
+      )
+
+    records = {r["kernel_name"]: r for r in summary["kernel_records"]}
+    self.assertEqual(set(records), {"sm90_xmma_gemm_bf16", "loop_add_fusion"})
+    gemm = records["sm90_xmma_gemm_bf16"]
+    self.assertEqual(gemm["execution_count"], 3)
+    self.assertEqual(gemm["total_duration_us"], 100.0)
+    self.assertEqual(gemm["hlo_op_name"], "dot.3")
+    self.assertEqual(gemm["registers_per_thread"], 168)
+    self.assertEqual(gemm["shmem_bytes"], 65536)
+    self.assertEqual(gemm["block_dim"], [384, 1, 1])
+    self.assertEqual(gemm["grid_dim"], [132, 1, 1])
+    self.assertEqual(gemm["occupancy_pct"], 12.5)
+    self.assertEqual(gemm["num_launch_configs"], 2)
+    self.assertEqual(gemm["launch_config_share_pct"], 80.0)
+    self.assertTrue(gemm["is_kernel_using_tensor_core"])
+    self.assertTrue(gemm["is_op_tensor_core_eligible"])
+    fusion = records["loop_add_fusion"]
+    self.assertIsNone(fusion["occupancy_pct"])
+    self.assertFalse(fusion["is_kernel_using_tensor_core"])
+    self.assertFalse(fusion["is_op_tensor_core_eligible"])
+    # The memcpy is neither ranked nor counted as device kernel time.
+    self.assertEqual(summary["total_device_duration_us"], 110.0)
+    self.assertEqual(
+        summary["excluded_gpu_non_kernel_events"],
+        {
+            "count": 1,
+            "total_duration_us": 500.0,
+            "wall_duration_us": 500.0,
+            # The memcpy starts after the last kernel ends.
+            "kernel_span_us": 140.0,
+            "wall_duration_in_kernel_span_us": 0.0,
+            "by_kind": {
+                "memcpy": {
+                    "count": 1,
+                    "total_duration_us": 500.0,
+                    "wall_duration_us": 500.0,
+                }
+            },
+            "note": mock.ANY,
+        },
+    )
+    self.assertNotIn("excluded_gpu_derived_lines", summary)
+
+  def _kernel_stats(self, name, start_ns, duration_ns, hlo_op=None):
+    stats = [("kernel_details", "regs:32 grid:1,1,1 block:128,1,1 occ_pct:50")]
+    if hlo_op:
+      stats.append(("hlo_op", hlo_op))
+    return self._gpu_event(name, start_ns, duration_ns, stats)
+
+  def _gpu_plane(self, lines_by_name):
+    lines = []
+    for line_name, events in lines_by_name.items():
+      line = mock.MagicMock(events=events)
+      line.name = line_name
+      lines.append(line)
+    plane = mock.MagicMock(lines=lines, stats=[("device_vendor", "Nvidia")])
+    plane.name = "/device:GPU:0"
+    return plane
+
+  def _processed_gpu_plane(self):
+    """Returns a GPU plane as a processed session has it.
+
+    It has 2 streams with overlapping memcpys, a memset with the capitalized
+    `Memset_details` stat, an event with no stats, and derived lines whose
+    events cover the stream events again.
+    """
+    return self._gpu_plane({
+        "Stream #13(Compute,MemcpyD2H)": [
+            self._kernel_stats("gemm_kernel", 0, 100_000),
+            self._gpu_event(
+                "MemcpyD2H", 200_000, 300_000, [("memcpy_details", "size:8")]
+            ),
+            self._gpu_event("cuEventRecord", 600_000, 50_000, []),
+        ],
+        "Stream #14(MemcpyD2H,Memset)": [
+            self._kernel_stats("late_kernel", 440_000, 10_000),
+            self._gpu_event(
+                "MemcpyD2H", 300_000, 300_000, [("memcpy_details", "size:8")]
+            ),
+            self._gpu_event(
+                "Memset", 700_000, 10_000, [("Memset_details", "size:8")]
+            ),
+        ],
+        "XLA Ops": [self._gpu_event("dot.1", 0, 900_000, [])],
+        "Steps - from #13": [self._gpu_event("0", 0, 900_000, [])],
+        "Framework Name Scope": [self._gpu_event("jit(f)", 0, 900_000, [])],
+    })
+
+  def test_gpu_derived_lines_and_unlabeled_events_are_not_counted(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[self._processed_gpu_plane()]
+    ):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              _FAKE_XSPACE, include_summary=True
+          )
+      )
+
+    self.assertEqual(
+        [r["kernel_name"] for r in summary["kernel_records"]],
+        ["gemm_kernel", "late_kernel"],
+    )
+    self.assertEqual(summary["total_device_duration_us"], 110.0)
+    self.assertEqual(
+        summary["excluded_gpu_derived_lines"],
+        ["Framework Name Scope", "Steps - from #13", "XLA Ops"],
+    )
+    excluded = summary["excluded_gpu_non_kernel_events"]
+    # The memcpys overlap from 300 us to 500 us: they sum to 600 us and
+    # cover 400 us of wall time. The event with no stats is not counted.
+    self.assertEqual(excluded["count"], 3)
+    self.assertEqual(excluded["total_duration_us"], 610.0)
+    self.assertEqual(excluded["wall_duration_us"], 410.0)
+    # The kernels span 0 to 450 us. Inside it, the memcpys cover 200 to
+    # 450 us, and the memset at 700 us is outside it.
+    self.assertEqual(excluded["kernel_span_us"], 450.0)
+    self.assertEqual(excluded["wall_duration_in_kernel_span_us"], 250.0)
+    self.assertEqual(
+        excluded["by_kind"],
+        {
+            "memcpy": {
+                "count": 2,
+                "total_duration_us": 600.0,
+                "wall_duration_us": 400.0,
+            },
+            "memset": {
+                "count": 1,
+                "total_duration_us": 10.0,
+                "wall_duration_us": 10.0,
+            },
+        },
+    )
+
+  def test_is_gpu_derived_line(self):
+    self.assertTrue(kernel_stats_tools.is_gpu_derived_line("XLA Ops"))
+    self.assertTrue(
+        kernel_stats_tools.is_gpu_derived_line("Source code - from #7")
+    )
+    self.assertTrue(kernel_stats_tools.is_gpu_derived_line("Command Buffers"))
+    self.assertFalse(
+        kernel_stats_tools.is_gpu_derived_line("Stream #13(Compute)")
+    )
+
+  def test_gpu_name_filters_omit_non_kernel_totals(self):
+    for kwargs in (
+        {"kernel_name": "gemm_kernel"},
+        {"trace_matchers": ["gemm"]},
+    ):
+      with self.subTest(**kwargs):
+        with mock.patch.object(
+            xplane_tools,
+            "iter_planes",
+            return_value=[self._processed_gpu_plane()],
+        ):
+          summary = json.loads(
+              kernel_stats_tools.get_kernel_stats(
+                  _FAKE_XSPACE, include_summary=True, **kwargs
+              )
+          )
+
+        self.assertEqual(summary["total_device_duration_us"], 100.0)
+        self.assertNotIn("excluded_gpu_non_kernel_events", summary)
+        self.assertIn(
+            "Run without these filters",
+            summary["excluded_gpu_non_kernel_events_note"],
+        )
+
+  def test_gpu_non_kernel_kind_uses_profiler_stat_names(self):
+    self.assertEqual(
+        kernel_stats_tools.gpu_non_kernel_kind({"memcpy_details": "size:8"}),
+        "memcpy",
+    )
+    self.assertEqual(
+        kernel_stats_tools.gpu_non_kernel_kind({"Memset_details": "size:8"}),
+        "memset",
+    )
+    self.assertIsNone(
+        kernel_stats_tools.gpu_non_kernel_kind({"memcpy_details": ""})
+    )
+    self.assertIsNone(kernel_stats_tools.gpu_non_kernel_kind({}))
+
+  def test_launch_config_tie_breaks_on_config(self):
+    first, second = (
+        kernel_stats_tools._GpuKernelAggregate(),
+        kernel_stats_tools._GpuKernelAggregate(),
+    )
+    small = {"kernel_details": "regs:32 grid:1,1,1 block:128,1,1"}
+    large = {"kernel_details": "regs:64 grid:1,1,1 block:128,1,1"}
+    first.add("k", 1_000, small, is_nvidia=True)
+    first.add("k", 1_000, large, is_nvidia=True)
+    second.add("k", 1_000, large, is_nvidia=True)
+    second.add("k", 1_000, small, is_nvidia=True)
+
+    self.assertEqual(first.to_fields(), second.to_fields())
+    self.assertEqual(first.to_fields()["registers_per_thread"], 64)
+
+  def test_hlo_op_is_the_op_with_most_launch_time(self):
+    plane = self._gpu_plane({
+        "Stream #7(Compute)": [
+            self._kernel_stats("nvjet_gemm", 0, 10_000, hlo_op="dot.1"),
+            self._kernel_stats("nvjet_gemm", 20_000, 30_000, hlo_op="dot.2"),
+            self._kernel_stats("nvjet_gemm", 60_000, 10_000, hlo_op="dot.1"),
+            self._kernel_stats("nvjet_gemm", 80_000, 25_000, hlo_op="dot.2"),
+        ],
+    })
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=[plane]):
+      records = json.loads(kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE))
+
+    self.assertEqual(records[0]["hlo_op_name"], "dot.2")
+    self.assertEqual(records[0]["num_hlo_ops"], 2)
+
+  def test_gpu_markdown_has_launch_columns(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[self._gpu_launch_plane()]
+    ):
+      md = kernel_stats_tools.get_kernel_stats(
+          _FAKE_XSPACE, output_format="markdown"
+      )
+
+    self.assertIn("| Occupancy (%) | Regs/Thread | Shared Mem (B) |", md)
+    self.assertIn(
+        "| `sm90_xmma_gemm_bf16` | 100.00 | 3 | 33.33 | 12.5 | 168 | 65536 |"
+        " 384x1x1 (+1 configs) | 132x1x1 | yes | yes |",
+        md,
+    )
+    self.assertIn(
+        "| `loop_add_fusion` | 10.00 | 1 | 10.00 | n/a | 16 | 0 | 256x1x1 |"
+        " 4x1x1 | no | no |",
+        md,
+    )
+
+  def test_tpu_markdown_has_no_gpu_columns(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[self._three_kernel_plane()]
+    ):
+      md = kernel_stats_tools.get_kernel_stats(
+          _FAKE_XSPACE, output_format="markdown"
+      )
+    self.assertNotIn("Occupancy", md)
 
 
 if __name__ == "__main__":

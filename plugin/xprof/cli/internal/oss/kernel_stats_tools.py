@@ -2,6 +2,7 @@
 
 import collections
 import dataclasses
+import functools
 import json
 import logging
 import os
@@ -71,6 +72,15 @@ _DEVICE_LINE_EXCLUDE = (
 # how the kernel stats converter tells kernels apart (GpuEventStats::IsKernel).
 _KERNEL_DETAILS_STAT = "kernel_details"
 
+# Stat names that mark a GPU stream event as a memory transfer or fill, mapped
+# to the kind. The profiler writes "memcpy_details" and "Memset_details"
+# (GetStatTypeStr in xplane_schema.cc); "memset_details" is also accepted.
+_GPU_NON_KERNEL_STATS = {
+    "memcpy_details": "memcpy",
+    "Memset_details": "memset",
+    "memset_details": "memset",
+}
+
 # Lower-case names of the derived timeline lines (GetDerivedLineName in
 # xplane_schema and derived_timeline). Processed sessions add them to GPU
 # device planes next to the `Stream #N` lines. Their events summarize the
@@ -96,6 +106,245 @@ def is_gpu_derived_line(line_name: str) -> bool:
   """Returns whether a GPU device line is a derived timeline line."""
   base = line_name.split(_DERIVED_LINE_SOURCE_SUFFIX, 1)[0].strip().lower()
   return base in _GPU_DERIVED_LINE_NAMES
+
+
+def gpu_non_kernel_kind(stats: dict[str, Any]) -> str | None:
+  """Returns 'memcpy' or 'memset' for a GPU transfer or fill event, else None."""
+  for stat_name, kind in _GPU_NON_KERNEL_STATS.items():
+    if stats.get(stat_name):
+      return kind
+  return None
+
+
+# Kernel name substrings that mark a kernel as running on TensorCores. Mirrors
+# kTensorCoreKernelNamePatterns in utils/cuda_type_utils.cc so the flags match
+# the Kernel Stats tool. The list predates cuBLASLt `nvjet`, Triton
+# `gemm_fusion` and cuDNN fused-attention kernels, so it reports False for them.
+_TENSOR_CORE_KERNEL_NAME_PATTERNS = (
+    "16816",
+    "c1688",
+    "conv1x1",
+    "conv2d_c1_k1",
+    "dgrad_1x1_stride_2x2",
+    "direct_group",
+    "first_layer_wgrad_kernel",
+    "h1688",
+    "h884",
+    "hmma",
+    "i16832",
+    "i8816",
+    "s884",
+    "s1688",
+    "xmma_gemm",
+    "xmma_implicit_gemm",
+    "xmma_sparse_conv",
+    "xmma_sparse_gemm",
+    "xmma_warp_specialized_implicit_gemm",
+)
+
+# Framework op name suffixes and substrings that can use TensorCores. Mirrors
+# IsOpTensorCoreEligible in utils/kernel_stats_utils.cc.
+_TENSOR_CORE_ELIGIBLE_OP_SUFFIXES = (
+    "Conv2D",
+    "Conv2DBackpropFilter",
+    "Conv2DBackpropInput",
+    "Conv3D",
+    "DepthwiseConv2dNative",
+    "DepthwiseConv2dNativeBackpropFilter",
+    "DepthwiseConv2dNativeBackpropInput",
+    "/MatMul",
+    "FusedMatMul",
+    "/CudnnRNN",
+    "XlaDot",
+    "XlaDotV2",
+)
+_TENSOR_CORE_ELIGIBLE_OP_SUBSTRINGS = (
+    "BatchMatMul",
+    "CudnnRNNV",
+    "CudnnRNNForward",
+    "CudnnRNNBackprop",
+    "dot_general",
+    "conv_general_dilated",
+)
+
+
+def _safe_stats(obj: Any) -> list[tuple[str, Any]]:
+  """Returns (name, value) stat pairs, or [] when the object has none."""
+  try:
+    return [tuple(stat) for stat in obj.stats if len(tuple(stat)) == 2]
+  except (AttributeError, TypeError):
+    return []
+
+
+def _parse_dim3(value: str) -> tuple[int, int, int] | None:
+  parts = value.split(",")
+  if len(parts) != 3 or not all(p.isdigit() for p in parts):
+    return None
+  return (int(parts[0]), int(parts[1]), int(parts[2]))
+
+
+def parse_kernel_details(kernel_details: str) -> dict[str, Any]:
+  """Parses a GPU `kernel_details` stat into launch parameters.
+
+  Mirrors ParseKernelLaunchParams in utils/kernel_stats_utils.cc: unknown or
+  malformed tokens are skipped and dimensions default to 1.
+
+  Args:
+    kernel_details: The stat value, e.g. "regs:32 static_shared:0
+      dynamic_shared:0 grid:1,1,1 block:128,1,1 occ_pct:50".
+
+  Returns:
+    A dict with registers_per_thread, static_shmem_bytes, dynamic_shmem_bytes,
+    block_dim, grid_dim and occupancy_pct (0.0 when absent).
+  """
+  params: dict[str, Any] = {
+      "registers_per_thread": 0,
+      "static_shmem_bytes": 0,
+      "dynamic_shmem_bytes": 0,
+      "block_dim": (1, 1, 1),
+      "grid_dim": (1, 1, 1),
+      "occupancy_pct": 0.0,
+  }
+  int_keys = {
+      "regs": "registers_per_thread",
+      "static_shared": "static_shmem_bytes",
+      "dynamic_shared": "dynamic_shmem_bytes",
+  }
+  for token in kernel_details.split():
+    key_value = token.split(":")
+    if len(key_value) != 2:
+      continue
+    key, value = key_value
+    if key in int_keys and value.isdigit():
+      params[int_keys[key]] = int(value)
+    elif key in ("block", "grid"):
+      dims = _parse_dim3(value)
+      if dims is not None:
+        params[f"{key}_dim"] = dims
+    elif key == "occ_pct":
+      try:
+        params["occupancy_pct"] = float(value)
+      except ValueError:
+        pass
+  return params
+
+
+@functools.lru_cache(maxsize=4096)
+def is_kernel_using_tensor_core(kernel_name: str) -> bool:
+  """Returns whether an NVIDIA kernel name marks a TensorCore kernel."""
+  return any(p in kernel_name for p in _TENSOR_CORE_KERNEL_NAME_PATTERNS)
+
+
+@functools.lru_cache(maxsize=4096)
+def is_op_tensor_core_eligible(op_name: str) -> bool:
+  """Returns whether a framework op can use TensorCores."""
+  return op_name.endswith(_TENSOR_CORE_ELIGIBLE_OP_SUFFIXES) or any(
+      s in op_name for s in _TENSOR_CORE_ELIGIBLE_OP_SUBSTRINGS
+  )
+
+
+@functools.lru_cache(maxsize=1024)
+def _is_einsum_tensor_core_eligible(equation: str) -> bool:
+  # Cached because each launch of a kernel repeats the same HLO equation.
+  inputs, sep, _ = equation.partition("->")
+  return bool(sep) and len(inputs.split(",")) == 2
+
+
+class _GpuKernelAggregate:
+  """Accumulates launch parameters of one GPU kernel across launches."""
+
+  def __init__(self):
+    # Launch parameter tuple -> [total duration ns, launches].
+    self.launch_configs: dict[tuple[Any, ...], list[int]] = (
+        collections.defaultdict(lambda: [0, 0])
+    )
+    # HLO op name -> total duration ns of the launches it made.
+    self.hlo_op_ns: dict[str, int] = collections.defaultdict(int)
+    self.uses_tensor_core = False
+    self.tensor_core_eligible: bool | None = None
+
+  def add(
+      self,
+      kernel_name: str,
+      duration_ns: int,
+      stats: dict[str, Any],
+      is_nvidia: bool,
+  ) -> None:
+    """Adds one launch with its event stats."""
+    params = parse_kernel_details(str(stats[_KERNEL_DETAILS_STAT]))
+    occupancy_pct = params["occupancy_pct"]
+    if not occupancy_pct:
+      try:
+        occupancy_pct = float(stats.get("theoretical_occupancy_pct") or 0.0)
+      except ValueError:
+        occupancy_pct = 0.0
+    config = (
+        params["registers_per_thread"],
+        params["static_shmem_bytes"],
+        params["dynamic_shmem_bytes"],
+        params["block_dim"],
+        params["grid_dim"],
+        occupancy_pct,
+    )
+    entry = self.launch_configs[config]
+    entry[0] += duration_ns
+    entry[1] += 1
+    if stats.get("hlo_op"):
+      self.hlo_op_ns[str(stats["hlo_op"])] += duration_ns
+    # Launches grouped under one name can come from different kernels, so a
+    # single TensorCore launch marks the whole group.
+    self.uses_tensor_core = self.uses_tensor_core or (
+        is_nvidia and is_kernel_using_tensor_core(kernel_name)
+    )
+    tf_op = str(stats.get("tf_op") or "")
+    if tf_op:
+      op_name = tf_op.split(":", 1)[0]
+      self.tensor_core_eligible = bool(
+          self.tensor_core_eligible
+          or is_op_tensor_core_eligible(op_name)
+          or _is_einsum_tensor_core_eligible(str(stats.get("equation") or ""))
+          or self.uses_tensor_core
+      )
+
+  @property
+  def hlo_op(self) -> str:
+    """Returns the HLO op with the most launch time, or "" when unknown.
+
+    Several HLO ops can launch the same library kernel (e.g. one cuBLAS GEMM
+    for two `dot` ops), and their launches share one record when no
+    `tf_op_name` tells them apart.
+    """
+    if not self.hlo_op_ns:
+      return ""
+    return max(self.hlo_op_ns.items(), key=lambda item: (item[1], item[0]))[0]
+
+  def to_fields(self) -> dict[str, Any]:
+    """Returns record fields for the launch config with the most time."""
+    config, (config_ns, _) = max(
+        self.launch_configs.items(), key=lambda item: (item[1][0], item[0])
+    )
+    regs, static_shmem, dynamic_shmem, block, grid, occupancy_pct = config
+    total_ns = sum(ns for ns, _ in self.launch_configs.values())
+    fields = {
+        "registers_per_thread": regs,
+        "static_shmem_bytes": static_shmem,
+        "dynamic_shmem_bytes": dynamic_shmem,
+        "shmem_bytes": static_shmem + dynamic_shmem,
+        "block_dim": list(block),
+        "grid_dim": list(grid),
+        # The tracer writes 0 when it did not compute occupancy (e.g. on
+        # newer GPUs), so 0 means unknown rather than idle.
+        "occupancy_pct": occupancy_pct or None,
+        "num_launch_configs": len(self.launch_configs),
+        "launch_config_share_pct": (
+            round(100.0 * config_ns / total_ns, 2) if total_ns else 100.0
+        ),
+        "is_kernel_using_tensor_core": self.uses_tensor_core,
+        "is_op_tensor_core_eligible": self.tensor_core_eligible,
+    }
+    if len(self.hlo_op_ns) > 1:
+      fields["num_hlo_ops"] = len(self.hlo_op_ns)
+    return fields
 
 
 def classify_tpu_line(line_name: str) -> str:
@@ -406,7 +655,20 @@ def compute_disjoint_interval_union_ns(intervals: list[tuple[int, int]]) -> int:
       merged.append((curr_start, curr_end))
       curr_start, curr_end = start, end
   merged.append((curr_start, curr_end))
-  return sum(end - start for start, end in merged)
+  return sum(max(0, end - start) for start, end in merged)
+
+
+def _interval_totals(intervals: list[tuple[int, int]]) -> dict[str, Any]:
+  """Returns the count, summed duration and union duration of intervals."""
+  return {
+      "count": len(intervals),
+      "total_duration_us": round(
+          sum(max(0, end - start) for start, end in intervals) / 1000.0, 4
+      ),
+      "wall_duration_us": round(
+          compute_disjoint_interval_union_ns(intervals) / 1000.0, 4
+      ),
+  }
 
 
 def format_markdown_table(
@@ -434,18 +696,56 @@ def format_markdown_table(
   if device:
     lines.append(f"Device: `{device}`")
     lines.append("")
-  lines.append(
+  has_gpu = any("registers_per_thread" in row for row in df_records)
+  header = (
       "| Kernel | Total Duration (us) | Execution Count | Avg Duration (us) |"
   )
-  lines.append("| :--- | ---: | ---: | ---: |")
+  align = "| :--- | ---: | ---: | ---: |"
+  if has_gpu:
+    header += (
+        " Occupancy (%) | Regs/Thread | Shared Mem (B) | Block | Grid |"
+        " TensorCore Used | TC Eligible |"
+    )
+    align += " ---: | ---: | ---: | :--- | :--- | :--- | :--- |"
+  lines.append(header)
+  lines.append(align)
   for row in df_records:
     total_dur = float(row.get("total_duration_us", 0.0) or 0.0)
     avg_dur = float(row.get("avg_duration_us", 0.0) or 0.0)
-    lines.append(
+    line = (
         f"| `{row.get('kernel_name', 'unknown')}` | {total_dur:.2f} |"
         f" {row.get('execution_count', 0)} | {avg_dur:.2f} |"
     )
+    if has_gpu:
+      line += _format_gpu_columns(row)
+    lines.append(line)
   return "\n".join(lines)
+
+
+def _format_gpu_columns(row: Dict[str, Any]) -> str:
+  """Formats the GPU launch columns of one markdown row."""
+  if "registers_per_thread" not in row:
+    return " | | | | | | |"
+
+  def dims(value: Any) -> str:
+    return "x".join(str(v) for v in value) if value else ""
+
+  def flag(value: Any) -> str:
+    return "" if value is None else ("yes" if value else "no")
+
+  occupancy = row.get("occupancy_pct")
+  configs = row.get("num_launch_configs", 1)
+  block = dims(row.get("block_dim"))
+  if configs and configs > 1:
+    block += f" (+{configs - 1} configs)"
+  return (
+      f" {'n/a' if occupancy is None else f'{occupancy:g}'} |"
+      f" {row.get('registers_per_thread', '')} |"
+      f" {row.get('shmem_bytes', '')} | {block} |"
+      f" {dims(row.get('grid_dim'))} |"
+      f" {flag(row.get('is_kernel_using_tensor_core'))} |"
+      f" {flag(row.get('is_op_tensor_core_eligible'))} |"
+  )
 
 
 def _apply_kernel_truncation(
@@ -679,6 +979,17 @@ def get_kernel_stats(
     custom_call_intervals: list[tuple[int, int]] = []
     step_durations_us: list[float] = []
     excluded_region_lines: set[str] = set()
+    gpu_kernels: dict[str, _GpuKernelAggregate] = collections.defaultdict(
+        _GpuKernelAggregate
+    )
+    # Memcpy or memset kind -> (start_ns, end_ns) of each event.
+    non_kernel_intervals: dict[str, list[tuple[int, int]]] = (
+        collections.defaultdict(list)
+    )
+    excluded_derived_lines: set[str] = set()
+    # The non-kernel totals cover the whole device, so they are not comparable
+    # with a total that a name filter limited to some kernels.
+    filters_active = bool(kernel_name or trace_matchers)
 
     planes, host, num_hosts = load_host_planes(
         source, all_hosts=is_all_devices(device_to_use)
@@ -718,6 +1029,10 @@ def get_kernel_stats(
 
       is_tpu = "TPU" in plane.name.upper()
       is_gpu = "GPU" in plane.name.upper()
+      is_nvidia = is_gpu and any(
+          name == "device_vendor" and str(value).lower() == "nvidia"
+          for name, value in _safe_stats(plane)
+      )
 
       for line in plane.lines:
         line_name_upper = line.name.upper()
@@ -747,7 +1062,8 @@ def get_kernel_stats(
           continue
         elif is_gpu and is_gpu_derived_line(line.name):
           # Derived lines repeat the stream events at op, module or step
-          # granularity, so their events are not kernels.
+          # granularity, so their events are neither kernels nor transfers.
+          excluded_derived_lines.add(line.name)
           continue
 
         # Per (plane, line): an event is outermost unless an earlier event on
@@ -762,10 +1078,17 @@ def get_kernel_stats(
           end_ns = start_ns + int(event.duration_ns)
           # Materialize the stats once: they are scanned several times below.
           event_stats = tuple(event.stats)
-          if is_gpu and not dict(event_stats).get(_KERNEL_DETAILS_STAT):
-            # Memcpy and memset activity share streams with kernels but are
-            # not kernels. The kernel stats converter skips them too.
-            continue
+          gpu_stats = None
+          if is_gpu:
+            gpu_stats = dict(event_stats)
+            if not gpu_stats.get(_KERNEL_DETAILS_STAT):
+              # Memcpy and memset activity share streams with kernels but are
+              # not kernels; the kernel stats converter skips them too. Other
+              # events without launch parameters are skipped without a count.
+              kind = gpu_non_kernel_kind(gpu_stats)
+              if kind is not None and not filters_active:
+                non_kernel_intervals[kind].append((start_ns, end_ns))
+              continue
           name_info = event.name
           tf_op_name = None
           for stat_name, stat_val in event_stats:
@@ -795,6 +1118,10 @@ def get_kernel_stats(
 
           dur_us = float(event.duration_ns) / 1000.0
           kernel_durations_us[(name_info, is_region_line)].append(dur_us)
+          if gpu_stats is not None:
+            gpu_kernels[name_info].add(
+                event.name, int(event.duration_ns), gpu_stats, is_nvidia
+            )
           if not is_region_line and start_ns >= cover_end_ns:
             top_level_total_us += dur_us
           cover_end_ns = max(cover_end_ns, end_ns)
@@ -829,7 +1156,7 @@ def get_kernel_stats(
       avg_us = total_us / count if count > 0 else 0.0
       # Extract compact canonical name (e.g. 'fusion.668')
       canonical = name.strip().split(":")[0].strip().split()[0] if name else ""
-      records.append({
+      record = {
           "kernel_name": name,
           "canonical_name": canonical,
           "short_name": canonical,
@@ -839,7 +1166,13 @@ def get_kernel_stats(
           "execution_count": count,
           "avg_duration_us": round(avg_us, 4),
           "is_intra_kernel_region": is_region,
-      })
+      }
+      gpu_kernel = gpu_kernels.get(name)
+      if gpu_kernel is not None:
+        if gpu_kernel.hlo_op:
+          record["hlo_op_name"] = gpu_kernel.hlo_op
+        record.update(gpu_kernel.to_fields())
+      records.append(record)
 
     records.sort(key=lambda x: x["total_duration_us"], reverse=True)
     # `top_level_total_us` sums outermost kernel events per (plane, line)
@@ -887,6 +1220,59 @@ def get_kernel_stats(
           "num_hosts": num_hosts,
           **truncation_fields,
       }
+      if non_kernel_intervals:
+        by_kind = {
+            kind: _interval_totals(intervals)
+            for kind, intervals in sorted(non_kernel_intervals.items())
+        }
+        every_interval = []
+        for intervals in non_kernel_intervals.values():
+          every_interval.extend(intervals)
+        # Transfers can run long before or after the kernels (e.g. weight
+        # loads), so only the part inside the kernel span is comparable with
+        # total_device_duration_us.
+        kernel_start_ns = min((s for s, _ in all_intervals), default=0)
+        kernel_end_ns = max((e for _, e in all_intervals), default=0)
+        # Clipping keeps start <= end because only intervals that overlap
+        # [kernel_start_ns, kernel_end_ns] are kept.
+        in_kernel_span = [
+            (max(start, kernel_start_ns), min(end, kernel_end_ns))
+            for start, end in every_interval
+            if start < kernel_end_ns and end > kernel_start_ns
+        ]
+        summary["excluded_gpu_non_kernel_events"] = {
+            **_interval_totals(every_interval),
+            "kernel_span_us": round(
+                max(0, kernel_end_ns - kernel_start_ns) / 1000.0, 4
+            ),
+            "wall_duration_in_kernel_span_us": round(
+                compute_disjoint_interval_union_ns(in_kernel_span) / 1000.0, 4
+            ),
+            "by_kind": by_kind,
+            "note": (
+                "Memcpy and memset events on GPU streams carry no kernel"
+                " launch parameters and are not kernels, so they are not"
+                " ranked or counted in total_device_duration_us."
+                " total_duration_us sums events on every stream, so"
+                " overlapping streams count more than once. wall_duration_us"
+                " is their union in time over the whole capture, which can"
+                " be much longer than the kernel span. Compare"
+                " wall_duration_in_kernel_span_us (the union between the"
+                " first kernel start and the last kernel end) with"
+                " total_device_duration_us."
+            ),
+        }
+      elif filters_active and any(
+          "GPU" in name.upper() for name in device_plane_names
+      ):
+        summary["excluded_gpu_non_kernel_events_note"] = (
+            "excluded_gpu_non_kernel_events is omitted because kernel_name"
+            " or trace_matchers limits total_device_duration_us to some"
+            " kernels, while memcpy and memset totals cover the whole device."
+            " Run without these filters to compare transfers with kernels."
+        )
+      if excluded_derived_lines:
+        summary["excluded_gpu_derived_lines"] = sorted(excluded_derived_lines)
       if excluded_region_lines:
         summary["excluded_intra_kernel_region_lines"] = sorted(
             excluded_region_lines

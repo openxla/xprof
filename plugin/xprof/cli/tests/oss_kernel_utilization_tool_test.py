@@ -335,8 +335,70 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
         "session_v7x",
         kernel_name="matmul_optimized.1",
         limit=0,
+        device_to_use=None,
         bypass_cache=True,
     )
+
+  @parameterized.named_parameters(
+      dict(testcase_name="first_chip", device=None, expected_device=None),
+      dict(testcase_name="device_filter", device=3, expected_device="TPU:3"),
+  )
+  @mock.patch.object(
+      get_kernel_utilization_tool.kernel_stats_tools,
+      "get_kernel_stats",
+      autospec=True,
+      spec_set=True,
+  )
+  def test_get_kernel_utilization_fallback_reads_one_chip(
+      self, mock_get_kernel_stats, device, expected_device
+  ):
+    # The viewer applies the fallback duration to each chip, so the lookup
+    # must not sum the kernel time of every chip.
+    def response(duration_us):
+      return json.dumps({
+          "status": "SUCCESS",
+          "devices": [
+              {
+                  "device_id": device_id,
+                  "device_type": "TPU v7x",
+                  "kernels": [{
+                      "kernel_name": "matmul",
+                      "duration_us": duration_us,
+                      "mxu_utilization": 10.0,
+                      "other_metrics": {},
+                  }],
+              }
+              for device_id in (2, 3)
+          ],
+      }).encode("utf-8")
+
+    self.mock_client.fetch.side_effect = [
+        (None, response(0.0)),
+        (None, response(50.0)),
+    ]
+    mock_get_kernel_stats.return_value = json.dumps([{
+        "kernel_name": "matmul",
+        "total_duration_us": 50.0,
+        "avg_duration_us": 50.0,
+        "execution_count": 1,
+    }])
+
+    get_kernel_utilization_tool.get_kernel_utilization(
+        session_id="session_multi_chip",
+        kernel_name="matmul",
+        device=device,
+        bypass_cache=True,
+    )
+
+    mock_get_kernel_stats.assert_called_once_with(
+        "session_multi_chip",
+        kernel_name="matmul",
+        limit=0,
+        device_to_use=expected_device,
+        bypass_cache=True,
+    )
+    _, second_fetch_kwargs = self.mock_client.fetch.call_args
+    self.assertEqual(second_fetch_kwargs["duration_us"], "50.0")
 
   @mock.patch.object(
       get_kernel_utilization_tool.kernel_stats_tools,

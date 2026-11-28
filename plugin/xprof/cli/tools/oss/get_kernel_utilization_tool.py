@@ -109,12 +109,28 @@ def _clamp_utilization_metrics(parsed: dict[str, Any]) -> dict[str, Any]:
   return parsed
 
 
+def _fallback_device(device: int | None) -> str | None:
+  """Returns the `device_to_use` for the fallback duration lookup.
+
+  The utilization viewer converts the fallback duration to nominal cycles for
+  each chip, so the duration must come from one chip, not a sum over chips.
+
+  Args:
+    device: The device filter passed by the caller.
+
+  Returns:
+    "TPU:<device>", or None (the first chip) if `device` is None.
+  """
+  return None if device is None else f"TPU:{device}"
+
+
 def _lookup_fallback_duration_us(
     source: Any,
     kernel_name: str | None,
+    device_to_use: str | None,
     bypass_cache: bool,
 ) -> float:
-  """Queries kernel_stats for total kernel duration in microseconds."""
+  """Queries kernel_stats for one chip's kernel duration in microseconds."""
   records = None
   if kernel_name:
     try:
@@ -123,6 +139,7 @@ def _lookup_fallback_duration_us(
               source,
               kernel_name=kernel_name,
               limit=0,
+              device_to_use=device_to_use,
               bypass_cache=bypass_cache,
           )
       )
@@ -144,6 +161,7 @@ def _lookup_fallback_duration_us(
               source,
               kernel_name=None,
               limit=0,
+              device_to_use=device_to_use,
               bypass_cache=bypass_cache,
           )
       )
@@ -320,7 +338,10 @@ def get_kernel_utilization(
           if target_kernel is not None:
             break
       fallback_duration_us = _lookup_fallback_duration_us(
-          source, target_kernel, bypass_cache
+          source,
+          target_kernel,
+          _fallback_device(device),
+          bypass_cache,
       )
       if fallback_duration_us > 0.0:
         return get_kernel_utilization(

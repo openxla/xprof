@@ -8,6 +8,9 @@ from xprof.cli.internal import decorators
 
 from xprof.cli.internal.oss import kernel_stats_tools
 
+# The `device_to_use` value that aggregates every device on every host.
+ALL_DEVICES = kernel_stats_tools.ALL_DEVICES
+
 
 def compute_kernel_stats(
     source: Any = None,
@@ -17,7 +20,7 @@ def compute_kernel_stats(
     limit: int = 10,
     output_format: Literal["json", "markdown", "dict"] = "json",
     include_summary: bool = False,
-    device_to_use: str | None = "TPU:0",
+    device_to_use: str | None = None,
     trace_matchers: tuple[str, ...] | None = None,
     include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
@@ -39,7 +42,10 @@ def compute_kernel_stats(
         returns the parsed 'json' output.
       include_summary: If True, computes ground-truth timing via Disjoint
         Interval Union alongside per-kernel records.
-      device_to_use: Device plane to target (e.g., "TPU:0").
+      device_to_use: Device to aggregate. None (default) picks the first
+        accelerator chip in the profile, TPU before GPU and then by index (e.g.
+        "/device:GPU:0" on a GPU profile). Pass a device such as "TPU:1" or
+        "GPU:3" to select it, or "all" to sum every device.
       trace_matchers: Optional tuple of event name matchers for filtering.
       include_intra_kernel_regions: If True, also emits events from TPU lines
         holding regions *inside* a kernel ("LLO Ops", "Pallas Primitives",
@@ -92,7 +98,7 @@ def get_kernel_stats(
     limit: int = 10,
     output_format: Literal["json", "markdown"] = "json",
     include_summary: bool = False,
-    device_to_use: str | None = "TPU:0",
+    device_to_use: str | None = None,
     trace_matchers: tuple[str, ...] | None = None,
     include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
@@ -113,7 +119,10 @@ def get_kernel_stats(
         (markdown table string).
       include_summary: If True, computes ground-truth timing via Disjoint
         Interval Union alongside per-kernel records.
-      device_to_use: Device plane to target (e.g., "TPU:0").
+      device_to_use: Device to aggregate. None (default) picks the first
+        accelerator chip in the profile, TPU before GPU and then by index (e.g.
+        "/device:GPU:0" on a GPU profile). Pass a device such as "TPU:1" or
+        "GPU:3" to select it, or "all" to sum every device.
       trace_matchers: Optional tuple of event name matchers for filtering.
       include_intra_kernel_regions: If True, also emits events from TPU lines
         holding regions *inside* a kernel ("LLO Ops", "Pallas Primitives",

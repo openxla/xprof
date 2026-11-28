@@ -60,6 +60,7 @@ def diff_sessions(
         get_kernel_stats_tool.get_kernel_stats(
             baseline_session_id,
             include_summary=True,
+            device_to_use=get_kernel_stats_tool.ALL_DEVICES,
             bypass_cache=bypass_cache,
         )
     )
@@ -67,6 +68,7 @@ def diff_sessions(
         get_kernel_stats_tool.get_kernel_stats(
             optimized_session_id,
             include_summary=True,
+            device_to_use=get_kernel_stats_tool.ALL_DEVICES,
             bypass_cache=bypass_cache,
         )
     )

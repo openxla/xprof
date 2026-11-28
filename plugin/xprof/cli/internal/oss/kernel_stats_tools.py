@@ -1,6 +1,7 @@
 """OSS hermetic backend to compute kernel stats from local XPlane traces."""
 
 import collections
+import dataclasses
 import json
 import logging
 import os
@@ -21,6 +22,25 @@ _ACCELERATOR_PLANE_RE = re.compile(r"^/device:(TPU|GPU):(\d+)$", re.IGNORECASE)
 
 # `device_to_use` value that aggregates every device plane on every host.
 ALL_DEVICES = "all"
+
+
+@dataclasses.dataclass(frozen=True)
+class SourceHost:
+  """The host of a single-host source that comes from a larger session.
+
+  Attributes:
+    name: The host name, or "" when it is unknown.
+    num_hosts: The number of hosts in the session.
+    hint: How to select another host, shown in stderr notes.
+    all_reads_every_host: Whether `device_to_use='all'` on the session reads
+      every host. False when the caller reads the same single host for 'all'.
+  """
+
+  name: str
+  num_hosts: int
+  hint: str
+  all_reads_every_host: bool = False
+
 
 # Exact XLine names carrying *top-level* device kernels. Substring matching is
 # unsafe here: with --xla_xprof_enable_custom_call_tracing=true the TPU tracer
@@ -119,8 +139,10 @@ def resolve_device_planes(
     and the de-duplicated device plane names to aggregate.
 
   Raises:
-    ValueError: If `device_to_use` names a device that is not in the profile.
+    ValueError: If `device_to_use` is not None or a string, or names a device
+      that is not in the profile.
   """
+  check_device_to_use(device_to_use)
   device_names = list(
       dict.fromkeys(n for n in plane_names if _DEVICE_PLANE_RE.search(n))
   )
@@ -157,8 +179,44 @@ def resolve_device_planes(
   return chosen, selected
 
 
+def check_device_to_use(device_to_use: object) -> None:
+  """Checks that `device_to_use` is None or a non-empty device name.
+
+  The CLI parses `--device_to_use=0` as an int and a bare `--device_to_use` as
+  a bool, so a non-string value is a usage error, not a defect. An empty
+  string, or one that is only the "/device:" prefix, names no device.
+
+  Args:
+    device_to_use: The value passed by the caller.
+
+  Raises:
+    ValueError: If `device_to_use` is not None or a string, or names no device.
+  """
+  if device_to_use is not None and not isinstance(device_to_use, str):
+    raise ValueError(
+        f"device_to_use={device_to_use!r} ({type(device_to_use).__name__}) is"
+        " not a device name. Pass a device such as 'TPU:0' or 'GPU:3',"
+        f" {ALL_DEVICES!r}, or omit it."
+    )
+  if device_to_use is not None and not re.sub(
+      r"(?i)^/device:", "", device_to_use.strip()
+  ):
+    raise ValueError(
+        f"device_to_use={device_to_use!r} names no device. Pass a device such"
+        f" as 'TPU:0' or 'GPU:3', {ALL_DEVICES!r}, or omit it."
+    )
+
+
 def is_all_devices(device_to_use: str | None) -> bool:
-  """Returns True if `device_to_use` asks for every device on every host."""
+  """Returns True if `device_to_use` asks for every device on every host.
+
+  Args:
+    device_to_use: The value passed by the caller.
+
+  Raises:
+    ValueError: If `device_to_use` is not None or a string.
+  """
+  check_device_to_use(device_to_use)
   return (
       device_to_use is not None and device_to_use.strip().lower() == ALL_DEVICES
   )
@@ -172,6 +230,7 @@ def note_default_device(
     host: str | None = None,
     num_hosts: int = 1,
     host_hint: str = "--host=<name> for another host",
+    all_reads_every_host: bool = True,
 ) -> None:
   """Writes a stderr note when the result covers one of several chips or hosts.
 
@@ -182,8 +241,19 @@ def note_default_device(
     host: The label of the host that was read, if known.
     num_hosts: The number of hosts in the profile.
     host_hint: How to select another host, shown in the note.
+    all_reads_every_host: Whether `device_to_use='all'` reads every host. It is
+      False for a single-host source that comes from a larger session.
   """
   if device == ALL_DEVICES:
+    if device_to_use is None and num_hosts > 1:
+      # The host has no accelerator chip plane, so every plane of that one
+      # host was read. Still say that the result covers one host only.
+      host_text = f"host {host}" if host else "the first host"
+      decorators.emit_stderr_note(
+          f"xprof-note: device_to_use=None found no accelerator device on"
+          f" {host_text} (host 1 of {num_hosts}), so it read every device"
+          f" plane of that host only; pass {host_hint}.\n"
+      )
     return
   num_chips = len({n for n in plane_names if _ACCELERATOR_PLANE_RE.match(n)})
   picked_chip = device_to_use is None and num_chips > 1
@@ -195,9 +265,10 @@ def note_default_device(
         f"{host_text} (host 1 of {num_hosts}; {num_chips} accelerator"
         " devices on that host)"
     )
+    all_scope = "every host" if all_reads_every_host else "that host"
     hint = (
         f"pass device_to_use='<TYPE>:<N>' for another device, {host_hint},"
-        " or device_to_use='all' to sum every device on every host."
+        f" or device_to_use='all' to sum every device on {all_scope}."
     )
   else:
     scope = f" of {num_chips} accelerator devices"
@@ -339,15 +410,30 @@ def compute_disjoint_interval_union_ns(intervals: list[tuple[int, int]]) -> int:
 
 
 def format_markdown_table(
-    df_records: List[Dict[str, Any]], kernel_name: str | None
+    df_records: List[Dict[str, Any]],
+    kernel_name: str | None,
+    device: str | None = None,
 ) -> str:
-  """Formats kernel stats as a markdown table."""
+  """Formats kernel stats as a markdown table.
+
+  Args:
+    df_records: Kernel records to render.
+    kernel_name: The kernel the records were filtered to, if any.
+    device: The device the records were aggregated over, if known; shown under
+      the heading.
+
+  Returns:
+    The markdown table.
+  """
   lines = []
   if kernel_name:
     lines.append(f"# Kernel Stats for `{kernel_name}`")
   else:
     lines.append("# Top Kernels by Duration")
   lines.append("")
+  if device:
+    lines.append(f"Device: `{device}`")
+    lines.append("")
   lines.append(
       "| Kernel | Total Duration (us) | Execution Count | Avg Duration (us) |"
   )
@@ -392,6 +478,7 @@ def _format_kernel_records_output(
     kernel_name: str | None,
     limit: int,
     output_format: Literal["json", "markdown"],
+    device: str | None = None,
 ) -> str:
   """Formats kernel records as markdown or JSON and emits truncation notes."""
   truncated = bool(truncation_fields["truncated"])
@@ -399,7 +486,7 @@ def _format_kernel_records_output(
   raw_total_dur = truncation_fields.get("total_duration_us_all_records")
   total_dur_all = float(raw_total_dur) if raw_total_dur is not None else None
   if output_format == "markdown":
-    table = format_markdown_table(records, kernel_name)
+    table = format_markdown_table(records, kernel_name, device)
     if truncated:
       if total_dur_all is not None:
         table += (
@@ -482,10 +569,11 @@ def get_kernel_stats(
     limit: int = 10,
     output_format: Literal["json", "markdown"] = "json",
     include_summary: bool = False,
-    device_to_use: str | None = "TPU:0",  # pylint: disable=unused-argument
+    device_to_use: str | None = None,
     trace_matchers: tuple[str, ...] | None = None,
     include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
+    source_host: SourceHost | None = None,
 ) -> Any:
   """Computes performance metrics for operations from local XPlanes in OSS.
 
@@ -503,7 +591,16 @@ def get_kernel_stats(
       table string).
     include_summary: If True, computes and returns ground-truth timing via
       Disjoint Interval Union alongside per-kernel records.
-    device_to_use: Device plane to target (e.g., "TPU:0").
+    device_to_use: Device to aggregate. None (default) picks the first
+      accelerator chip plane of the first host, TPU before GPU and then by index
+      (e.g. "/device:GPU:0" on a GPU profile). Pass a device such as "TPU:1" or
+      "GPU:3" to select that device on the first host, or "all" to sum every
+      device plane on every host. The first host is the first trace file in
+      sorted order for a directory or session, and the first copy of each device
+      plane for a single XSpace that holds several hosts; use a single trace
+      file (or the CLI `--host=<name>`) for another host. Raises ValueError if
+      the named device is not in the profile. Ignored for pre-computed record
+      inputs.
     trace_matchers: Optional tuple of event name matchers for filtering.
     include_intra_kernel_regions: If True, also emits events from TPU lines that
       carry regions *inside* a kernel ("LLO Ops", "Pallas Primitives", "<unit>
@@ -512,9 +609,13 @@ def get_kernel_stats(
       Included records are tagged with is_intra_kernel_region=True. Pre-computed
       record inputs keep all supplied rows unchanged.
     bypass_cache: Whether to bypass cache.
+    source_host: The host and host count of the session that a single-host
+      source (for example the serialized XSpace of one host) comes from. The
+      summary `host` and `num_hosts`, the markdown device header and the stderr
+      notes then report that host. Ignored when the source itself holds several
+      hosts.
 
   Returns:
-      A JSON string (a list of kernel records, or a summary object when
       include_summary=True) or a markdown table string. The summary object
       also has `truncated`, `total_records`, `top_level_records` (count of
       kernel records excluding intra-kernel regions), `returned_records`, and
@@ -525,7 +626,9 @@ def get_kernel_stats(
       timestamps; see `total_device_duration_us` for wall-clock device time).
       When `limit` drops rows, the list form writes an `xprof-note: truncated`
       line to stderr and the markdown form appends a "Showing N of M kernels"
-      line.
+      line. The summary object also has `device`, `device_planes`, `host`
+      (the label of the host read, "all" when every host of several was read,
+      or None when unknown) and `num_hosts`.
   """
   del bypass_cache
   if isinstance(source, (int, float)):
@@ -577,8 +680,40 @@ def get_kernel_stats(
     step_durations_us: list[float] = []
     excluded_region_lines: set[str] = set()
 
-    for plane in xplane_tools.iter_planes(source):
-      if not _DEVICE_PLANE_RE.search(plane.name):
+    planes, host, num_hosts = load_host_planes(
+        source, all_hosts=is_all_devices(device_to_use)
+    )
+    plane_names = [plane.name for plane in planes]
+    device, device_plane_names = resolve_device_planes(
+        plane_names, device_to_use
+    )
+    selected_planes = frozenset(device_plane_names)
+    all_reads_every_host = True
+    if source_host is not None and num_hosts <= 1:
+      # The source is one host of a larger session, so report that host.
+      host = source_host.name or None
+      num_hosts = max(source_host.num_hosts, 1)
+      host_hint = source_host.hint
+      all_reads_every_host = source_host.all_reads_every_host
+    elif host is not None:
+      host_hint = "--host=<name> for another host"
+    else:
+      host_hint = (
+          "a single-host source for another host (this XSpace holds every"
+          " host, and only the first copy of each device plane is read)"
+      )
+    note_default_device(
+        plane_names,
+        device_to_use,
+        device,
+        host=host,
+        num_hosts=num_hosts,
+        host_hint=host_hint,
+        all_reads_every_host=all_reads_every_host,
+    )
+
+    for plane in planes:
+      if plane.name not in selected_planes:
         continue
 
       is_tpu = "TPU" in plane.name.upper()
@@ -681,6 +816,8 @@ def get_kernel_stats(
       msg = f"No kernel stats found for source {_source_label(source)}"
       if kernel_name:
         msg += f" and kernel {kernel_name}"
+      if device != ALL_DEVICES:
+        msg += f" on device {device_label(device, host, num_hosts)}"
       if output_format == "markdown":
         return f"# Info\n{msg}\n"
       return json.dumps({"info": msg}, indent=2)
@@ -744,6 +881,10 @@ def get_kernel_stats(
           "kernel_records": records,
           "step_durations_us": step_durations_us,
           "stats": {"mean_us": round(mean_us, 4), "std_us": round(std_us, 4)},
+          "device": device,
+          "device_planes": device_plane_names,
+          "host": host,
+          "num_hosts": num_hosts,
           **truncation_fields,
       }
       if excluded_region_lines:
@@ -765,6 +906,11 @@ def get_kernel_stats(
         kernel_name=kernel_name,
         limit=limit,
         output_format=output_format,
+        device=(
+            None
+            if is_all_devices(device)
+            else device_label(device, host, num_hosts)
+        ),
     )
 
   except (FileNotFoundError, ValueError):

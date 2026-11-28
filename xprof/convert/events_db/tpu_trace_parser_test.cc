@@ -846,5 +846,68 @@ TEST(TpuTraceParserTest, ParsesSparseCoreOpContextAndSelfTime) {
       expect_op("tec_op.1", "tec_op.1", "step:1", "sc_mod(43)", 500));
 }
 
+TEST(TpuTraceParserTest, SkipsSparseCoreLloOpsLines) {
+  tensorflow::profiler::XPlane plane;
+  plane.set_name("/device:TPU:0 SparseCore 0");
+  tsl::profiler::XPlaneBuilder plane_builder(&plane);
+
+  auto add_event = [&](tsl::profiler::XLineBuilder& line,
+                       absl::string_view name, int64_t timestamp_ns,
+                       int64_t duration_ns) {
+    tsl::profiler::XEventBuilder event =
+        line.AddEvent(*plane_builder.GetOrCreateEventMetadata(name));
+    event.SetTimestampNs(timestamp_ns);
+    event.SetDurationNs(duration_ns);
+  };
+
+  tsl::profiler::XLineBuilder step_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreStepCounter);
+  step_line.SetName(tsl::profiler::kSparseCoreStepLineName);
+  add_event(step_line, "0", 1000, 4000);
+
+  tsl::profiler::XLineBuilder mod_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreModule);
+  mod_line.SetName(tsl::profiler::kSparseCoreModuleLineName);
+  add_event(mod_line, "sc_mod(42)", 1000, 4000);
+
+  tsl::profiler::XLineBuilder op_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreOps);
+  op_line.SetName(tsl::profiler::kSparseCoreOpLineName);
+  add_event(op_line, "fusion.1", 1500, 1000);
+
+  tsl::profiler::XLineBuilder scs_llo_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreScsLlo);
+  scs_llo_line.SetName("SparseCore SCS LLO Ops");
+  add_event(scs_llo_line, "scVLDri | scADD", 1600, 100);
+
+  tsl::profiler::XLineBuilder tec_llo_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreTecLloBase);
+  tec_llo_line.SetName("SparseCore TEC 0 LLO Ops");
+  add_event(tec_llo_line, "vld", 1700, 100);
+
+  tensorflow::profiler::HloModuleMap hlo_module_map;
+  Schema schema;
+  FieldIndices indices(schema);
+  std::vector<Record> parsed_records;
+
+  EXPECT_THAT(ParseTpuTrace(plane, hlo_module_map, indices,
+                            [&](Record& record) -> absl::StatusOr<StepControl> {
+                              parsed_records.push_back(record);
+                              return StepControl::kContinue;
+                            }),
+              IsOkAndHolds(ParseStatus::kComplete));
+
+  // Only step ("0"), module ("sc_mod(42)"), and HLO op ("fusion.1") are
+  // emitted; both "* LLO Ops" lines are skipped.
+  std::vector<std::string> kernel_names;
+  for (const Record& record : parsed_records) {
+    if (const std::string* name = record.TryGet(indices.kernel_name)) {
+      kernel_names.push_back(*name);
+    }
+  }
+  EXPECT_THAT(kernel_names, ::testing::ElementsAre(
+                                "step:0", "HLO Module:sc_mod(42)", "fusion.1"));
+}
+
 }  // namespace
 }  // namespace xprof::events_db::internal

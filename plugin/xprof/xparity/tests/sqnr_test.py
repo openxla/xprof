@@ -526,6 +526,24 @@ class PrecisionFromDtypesTest(parameterized.TestCase):
           sqnr.PrecisionSpec(reduction_length=8),
       )
 
+  def test_non_numeric_input_dtypes_add_no_operand_source(self):
+    # The names of structured and subarray dtypes are not valid np.dtype
+    # arguments. Such inputs, like object and str inputs, add no rounding
+    # source.
+    non_numeric = (
+        np.dtype([("a", "<f2")]),
+        np.dtype(("<f2", (4,))),
+        np.dtype((ml_dtypes.bfloat16, (2,))),
+        np.dtype(object),
+        np.dtype("<U3"),
+    )
+    spec = sqnr.precision_from_dtypes(
+        np.float32,
+        np.float32,
+        input_dtypes=(np.float16, *non_numeric, ml_dtypes.bfloat16),
+    )
+    self.assertEqual(spec.operand_dtypes, ("float16", "bfloat16"))
+
   @parameterized.named_parameters(
       ("operand", dict(operand_dtypes=(np.dtype(np.int8),))),
       ("output", dict(output_dtype=ml_dtypes.bfloat16)),

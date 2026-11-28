@@ -1524,6 +1524,182 @@ class SqnrDiagnosticsTest(parameterized.TestCase):
         (True, True, 0, 0),
     )
 
+  @parameterized.parameters(
+      ("float8_e4m3fnuz", 8),
+      ("float8_e5m2fnuz", 4),
+      ("float6_e2m3fn", 8),
+  )
+  def test_zero_ulp_probe_measures_unsupported_float_run_dtype(
+      self, dtype_name: str, want_ulp: int
+  ):
+    dtype = np.dtype(getattr(ml_dtypes, dtype_name))
+    x = np.random.default_rng(0).choice([1.0, 2.0, 4.0], size=(64, 64))
+    x = x.astype(dtype)
+
+    def lossy(inputs: np.ndarray) -> np.ndarray:
+      # Adds 1/16 sixteen times. In the run dtype each step rounds back, so
+      # the result stays at the input. In float64 the result is input + 1.
+      wide = np.asarray(inputs).dtype == np.float64
+      acc = np.asarray(inputs, dtype=np.float64 if wide else np.float32)
+      for _ in range(16):
+        acc = acc + 1 / 16
+        if not wide:
+          acc = acc.astype(dtype).astype(np.float32)
+      return acc if wide else acc.astype(dtype)
+
+    suite = [{"name": "powers", "args": (x,), "kwargs": {}, "regime": "normal"}]
+    report = numerical_validator.validate_kernels(
+        lossy,
+        lossy,
+        shapes=(64, 64),
+        dtype_str=dtype_name,
+        test_suite=suite,
+        contract=_SQNR,
+    )
+    # The kernels agree exactly, but the reference is many steps of the run
+    # dtype away from its float64 result. The probe reports it.
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertEqual(
+        report.run_config.get("probed_baseline_oracle_ulp"), want_ulp
+    )
+    self.assertNotIn("zero_ulp_probe_skip_reason", report.run_config)
+    self.assertStartsWith(
+        report.summary_message, "⚠️ 0-ULP AGREEMENT WITH LOSSY BASELINE"
+    )
+    exact = numerical_validator.validate_kernels(
+        lambda inputs: inputs,
+        lambda inputs: inputs,
+        shapes=(64, 64),
+        dtype_str=dtype_name,
+        test_suite=suite,
+        contract=_SQNR,
+    )
+    self.assertNotIn("probed_baseline_oracle_ulp", exact.run_config)
+    self.assertNotIn("zero_ulp_probe_skip_reason", exact.run_config)
+    self.assertNotIn("0-ULP AGREEMENT", exact.summary_message)
+
+  def test_zero_ulp_probe_records_why_it_was_skipped(self):
+    x = np.random.default_rng(0).standard_normal((16, 16)).astype(np.float32)
+
+    def ref(inputs: np.ndarray) -> np.ndarray:
+      if np.asarray(inputs).dtype == np.float64:
+        raise TypeError("float64 inputs are not supported")
+      return inputs
+
+    report = numerical_validator.validate_kernels(
+        ref,
+        lambda inputs: inputs,
+        shapes=(16, 16),
+        dtype_str="float32",
+        test_suite=[
+            {"name": "normal", "args": (x,), "kwargs": {}, "regime": "normal"}
+        ],
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertEqual(
+        report.run_config.get("zero_ulp_probe_skip_reason"),
+        "TypeError: float64 inputs are not supported",
+    )
+
+  def test_zero_ulp_probe_records_a_non_float64_oracle(self):
+    x = np.random.default_rng(0).standard_normal((16, 16)).astype(np.float32)
+
+    def ref(inputs: np.ndarray) -> np.ndarray:
+      return np.asarray(inputs).astype(np.float32)
+
+    report = numerical_validator.validate_kernels(
+        ref,
+        ref,
+        shapes=(16, 16),
+        dtype_str="float32",
+        test_suite=[
+            {"name": "normal", "args": (x,), "kwargs": {}, "regime": "normal"}
+        ],
+    )
+    self.assertEqual(
+        report.run_config.get("zero_ulp_probe_skip_reason"),
+        "kernel_ref returned dtype 'float32' on float64 inputs, not float64.",
+    )
+
+  @parameterized.named_parameters(
+      # Cancellation: 2**-6 is many steps from 0 in a one-byte float, but
+      # small next to the output scale, as in compute_ulp_distance.
+      (
+          "near_zero_fnuz",
+          "float8_e4m3fnuz",
+          [64.0, -64.0, 2**-6],
+          [64.0, -64.0, 0.0],
+          1,
+      ),
+      (
+          "near_zero_supported",
+          "float8_e4m3fn",
+          [64.0, -64.0, 2**-6],
+          [64.0, -64.0, 0.0],
+          1,
+      ),
+      # A fnuz reference that overflows to NaN against a finite oracle.
+      (
+          "overflow_to_nan",
+          "float8_e4m3fnuz",
+          [64.0, 1e6, 1.0],
+          [64.0, 64.0, 1.0],
+          255,
+      ),
+      # float6 has no NaN, so a NaN oracle rounds to -0.0. It is not a 0-step
+      # match for a zero reference.
+      (
+          "nan_oracle",
+          "float6_e2m3fn",
+          [64.0, 0.0, 1.0],
+          [64.0, np.nan, 1.0],
+          63,
+      ),
+      # Two NaN values match.
+      (
+          "nan_both",
+          "float8_e4m3fnuz",
+          [64.0, np.nan, 1.0],
+          [64.0, np.nan, 1.0],
+          0,
+      ),
+  )
+  def test_baseline_probe_ulp_one_byte_steps(
+      self,
+      dtype_name: str,
+      values: list[float],
+      oracle: list[float],
+      want_ulp: int,
+  ):
+    reference = np.array(values).astype(getattr(ml_dtypes, dtype_name))
+    probe = numerical_validator._baseline_probe_ulp  # pylint: disable=protected-access
+    self.assertEqual(
+        probe(reference, np.array(oracle), dtype_name), (want_ulp, dtype_name)
+    )
+
+  def test_baseline_probe_ulp_uses_run_dtype_steps_for_wide_output(self):
+    # An fp8 kernel with a float32 output: float32 rounding is not a step of
+    # the run dtype.
+    oracle = np.array([1.0, 2.0, 3.0])
+    reference = (oracle + 1e-7).astype(np.float32)
+    probe = numerical_validator._baseline_probe_ulp  # pylint: disable=protected-access
+    self.assertEqual(
+        probe(reference, oracle, "float8_e4m3fnuz"), (0, "float8_e4m3fnuz")
+    )
+    # fnuz rounds overflow of both signs to its one NaN. Opposite signs must
+    # still count as a full-grid difference.
+    overflow = np.array([1e6, -1e6, 1e6], dtype=np.float32)
+    self.assertEqual(
+        probe(overflow, np.array([-1e6, 1e6, 1e6]), "float8_e4m3fnuz"),
+        (255, "float8_e4m3fnuz"),
+    )
+
+  def test_baseline_probe_ulp_raises_without_a_unit(self):
+    reference = np.zeros(4, dtype=np.complex64)
+    probe = numerical_validator._baseline_probe_ulp  # pylint: disable=protected-access
+    with self.assertRaisesRegex(ValueError, "No ULP unit for run dtype"):
+      probe(reference, np.zeros(4), "complex64")
+
   def test_ulp_table_dtypes_give_zero_distance_on_equal_arrays(self):
     values = np.array([0.5, 1.0, 2.0], dtype=np.float32)
     for name in sorted(xparity.ulp.DTYPE_TOLERANCES):

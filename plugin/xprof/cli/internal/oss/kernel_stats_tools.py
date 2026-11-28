@@ -45,6 +45,38 @@ _DEVICE_LINE_EXCLUDE = (
     "SENSOR",
 )
 
+# GPU kernel launch events carry their launch parameters in this stat, e.g.
+# "regs:128 static_shared:0 dynamic_shared:12288 grid:2176,16,1 block:64,1,1
+# occ_pct:25". Memcpy and memset events on the same streams do not, which is
+# how the kernel stats converter tells kernels apart (GpuEventStats::IsKernel).
+_KERNEL_DETAILS_STAT = "kernel_details"
+
+# Lower-case names of the derived timeline lines (GetDerivedLineName in
+# xplane_schema and derived_timeline). Processed sessions add them to GPU
+# device planes next to the `Stream #N` lines. Their events summarize the
+# stream events again, so they are not kernels, memcpy or memset. A line from
+# another thread can have a " - from #N" suffix.
+_GPU_DERIVED_LINE_NAMES = frozenset((
+    "steps",
+    "framework name scope",
+    "framework ops",
+    "xla ops",
+    "xla modules",
+    "source code",
+    "launch stats",
+    "async xla ops",
+    "host offload ops",
+    "command buffers",
+    "_counters_",
+))
+_DERIVED_LINE_SOURCE_SUFFIX = " - from "
+
+
+def is_gpu_derived_line(line_name: str) -> bool:
+  """Returns whether a GPU device line is a derived timeline line."""
+  base = line_name.split(_DERIVED_LINE_SOURCE_SUFFIX, 1)[0].strip().lower()
+  return base in _GPU_DERIVED_LINE_NAMES
+
 
 def classify_tpu_line(line_name: str) -> str:
   """Classifies a TPU device XLine by the granularity of events it carries.
@@ -550,6 +582,7 @@ def get_kernel_stats(
         continue
 
       is_tpu = "TPU" in plane.name.upper()
+      is_gpu = "GPU" in plane.name.upper()
 
       for line in plane.lines:
         line_name_upper = line.name.upper()
@@ -577,6 +610,10 @@ def get_kernel_stats(
             continue
         elif any(w in line_name_upper for w in _DEVICE_LINE_EXCLUDE):
           continue
+        elif is_gpu and is_gpu_derived_line(line.name):
+          # Derived lines repeat the stream events at op, module or step
+          # granularity, so their events are not kernels.
+          continue
 
         # Per (plane, line): an event is outermost unless an earlier event on
         # the same line still covers its start (e.g. a `%while` op covering the
@@ -588,16 +625,22 @@ def get_kernel_stats(
         ):
           start_ns = int(event.start_ns)
           end_ns = start_ns + int(event.duration_ns)
+          # Materialize the stats once: they are scanned several times below.
+          event_stats = tuple(event.stats)
+          if is_gpu and not dict(event_stats).get(_KERNEL_DETAILS_STAT):
+            # Memcpy and memset activity share streams with kernels but are
+            # not kernels. The kernel stats converter skips them too.
+            continue
           name_info = event.name
           tf_op_name = None
-          for stat_name, stat_val in event.stats:
+          for stat_name, stat_val in event_stats:
             if stat_name == "tf_op_name" and stat_val:
               tf_op_name = str(stat_val)
               break
           if tf_op_name:
             name_info = tf_op_name
           elif name_info.isdigit():
-            for stat_name, stat_val in event.stats:
+            for stat_name, stat_val in event_stats:
               if stat_val and stat_name in (
                   "msg",
                   "message",

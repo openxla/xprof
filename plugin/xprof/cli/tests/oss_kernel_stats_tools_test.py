@@ -6,6 +6,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -304,6 +305,45 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     )
     self.assertEqual(
         kernel_stats_tools.classify_tpu_line("XLA Modules"), "other"
+    )
+
+  def test_gpu_skips_derived_lines_and_events_without_kernel_details(self):
+    kernel_stats = [("kernel_details", "regs:32 grid:1,1,1 block:128,1,1")]
+    # (event name, start_ns, duration_ns, stats) per line, as a processed
+    # session has them: derived lines cover the stream events again.
+    events_by_line = {
+        "Stream #13(Compute,MemcpyD2H,Memset)": [
+            ("gemm_kernel", 0, 100_000, kernel_stats),
+            ("MemcpyD2H", 200_000, 300_000, [("memcpy_details", "size:8")]),
+            ("Memset", 600_000, 10_000, [("Memset_details", "size:8")]),
+        ],
+        "XLA Ops": [("dot.1", 0, 900_000, [])],
+        "Steps - from #13": [("0", 0, 900_000, [])],
+        "Framework Name Scope": [("jit(f)", 0, 900_000, [])],
+        "Launch Stats": [("gemm_kernel", 0, 900_000, kernel_stats)],
+    }
+    lines = []
+    for line_name, events in events_by_line.items():
+      line_events = [
+          types.SimpleNamespace(
+              name=name, start_ns=start_ns, duration_ns=duration_ns, stats=stats
+          )
+          for name, start_ns, duration_ns, stats in events
+      ]
+      lines.append(types.SimpleNamespace(name=line_name, events=line_events))
+    plane = types.SimpleNamespace(name="/device:GPU:0", lines=lines)
+
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=[plane]):
+      records = json.loads(
+          kernel_stats_tools.get_kernel_stats(b"gpu-serialized-xspace")
+      )
+
+    self.assertEqual([r["kernel_name"] for r in records], ["gemm_kernel"])
+    self.assertEqual(records[0]["execution_count"], 1)
+    self.assertEqual(records[0]["total_duration_us"], 100.0)
+    self.assertTrue(kernel_stats_tools.is_gpu_derived_line("Source code"))
+    self.assertFalse(
+        kernel_stats_tools.is_gpu_derived_line("Stream #13(Compute)")
     )
 
   def _bare_plane(self, name):

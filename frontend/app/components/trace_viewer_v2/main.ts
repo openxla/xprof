@@ -1797,9 +1797,12 @@ async function yieldToEventLoop(): Promise<void> {
 /**
  * Fetches and processes trace data (either .pb or .json) from the given URL.
  * Handles status dispatches, yielding to event loop, and latency measurement.
- * Returns `false` when the load is aborted or superseded (clearing
- * `currentDataUrl`), and `true` when it finishes or settles with an
- * invalid-data or non-abort error (preserving `currentDataUrl`).
+ * Invokes `onBeforeTerminalStatus` before dispatching a terminal `IDLE` or
+ * `ERROR` status, with `preserveDataUrl: false` on abort errors and
+ * `preserveDataUrl: true` on completion, invalid data, or non-abort errors.
+ * Skips `onBeforeTerminalStatus` and terminal status dispatches when
+ * `isAbortRequested()` becomes true, so callers must still clean up in
+ * `finally`.
  */
 async function fetchAndProcessTraceData({
   urlObj,
@@ -1829,7 +1832,7 @@ async function fetchAndProcessTraceData({
   onBeforeTerminalStatus?: (options: {
     readonly preserveDataUrl: boolean;
   }) => void;
-}): Promise<boolean> {
+}): Promise<void> {
   const dispatchTerminalStatus = (
     status: TraceViewerV2LoadingStatus.IDLE | TraceViewerV2LoadingStatus.ERROR,
     {
@@ -1850,7 +1853,7 @@ async function fetchAndProcessTraceData({
       isAbortRequested,
     )
   ) {
-    return false;
+    return;
   }
 
   if (isRefetch || !urlObj.searchParams.has(TRACE_VIEW_OPTION.RESOLUTION)) {
@@ -1892,7 +1895,7 @@ async function fetchAndProcessTraceData({
           fetchData,
           createStreamWorker,
         });
-        if (isAbortRequested()) return false;
+        if (isAbortRequested()) return;
         if (fullLoaded) {
           onFullTraceLoaded?.();
         }
@@ -1904,14 +1907,14 @@ async function fetchAndProcessTraceData({
             isAbortRequested,
           )
         ) {
-          return false;
+          return;
         }
         const buffer = await loadCompressedTraceDataInternal(
           urlObj.toString(),
           fetchData,
           abortSignal,
         );
-        if (isAbortRequested()) return false;
+        if (isAbortRequested()) return;
 
         if (!isRefetch) {
           dispatchLoadingStatus(TraceViewerV2LoadingStatus.PROCESSING_DATA);
@@ -1922,7 +1925,7 @@ async function fetchAndProcessTraceData({
         // parsing runs.
         await yieldToEventLoop();
 
-        if (isAbortRequested()) return false;
+        if (isAbortRequested()) return;
 
         performance.mark('traceProcessStart');
 
@@ -1952,27 +1955,27 @@ async function fetchAndProcessTraceData({
           isAbortRequested,
         )
       ) {
-        return false;
+        return;
       }
       const jsonData = await loadJsonDataInternal(
         urlObj.toString(),
         fetchData,
         abortSignal,
       );
-      if (isAbortRequested()) return false;
+      if (isAbortRequested()) return;
 
       if (!isTraceData(jsonData)) {
         console.error('File does not contain valid trace events.');
         dispatchTerminalStatus(TraceViewerV2LoadingStatus.IDLE, {
           preserveDataUrl: true,
         });
-        return true;
+        return;
       }
 
       maybeDispatchDetailsReceivedEvent(jsonData);
       // Synchronous `detailsreceived` listeners may cancel or reset this load
       // before `PROCESSING_DATA` is dispatched.
-      if (isAbortRequested()) return false;
+      if (isAbortRequested()) return;
 
       if (!isRefetch) {
         dispatchLoadingStatus(TraceViewerV2LoadingStatus.PROCESSING_DATA);
@@ -1983,14 +1986,14 @@ async function fetchAndProcessTraceData({
       // parsing runs.
       await yieldToEventLoop();
 
-      if (isAbortRequested()) return false;
+      if (isAbortRequested()) return;
 
       performance.mark('traceProcessStart');
 
       traceviewerModule.processTraceEvents(jsonData, timeRange);
     }
 
-    if (isAbortRequested()) return false;
+    if (isAbortRequested()) return;
 
     performance.mark('traceProcessEnd');
     performance.measure(
@@ -2011,16 +2014,15 @@ async function fetchAndProcessTraceData({
     dispatchTerminalStatus(TraceViewerV2LoadingStatus.IDLE, {
       preserveDataUrl: true,
     });
-    return true;
   } catch (e) {
     if (isAbortRequested()) {
-      return false;
+      return;
     }
     if (isAbortError(e)) {
       dispatchTerminalStatus(TraceViewerV2LoadingStatus.IDLE, {
         preserveDataUrl: false,
       });
-      return false;
+      return;
     }
     console.error(`Error ${errorContext}:`, e);
     const errorMessage = e instanceof Error ? e.message : String(e);
@@ -2028,7 +2030,6 @@ async function fetchAndProcessTraceData({
       preserveDataUrl: true,
       statusOptions: {message: errorMessage},
     });
-    return true;
   }
 }
 
@@ -2147,7 +2148,10 @@ export async function traceViewerV2Main(
 
   let traceviewerModule: TraceViewerV2Module | null = null;
   let currentDataUrl: string | null = null;
-  let currentLoadingPromise: Promise<void> | null = null;
+  let currentLoadingRequest: {
+    readonly url: string;
+    readonly promise: Promise<void>;
+  } | null = null;
   let currentStreamWorkerFactory: TraceStreamWorkerFactory | undefined =
     options?.createStreamWorker;
   let fullTraceLoaded = false;
@@ -2195,7 +2199,7 @@ export async function traceViewerV2Main(
     const clearLoadId = ++activeLoadId;
     ++activeWasmIncrementalSessionId;
     currentDataUrl = null;
-    currentLoadingPromise = null;
+    currentLoadingRequest = null;
     currentStreamWorkerFactory = options?.createStreamWorker;
     fullTraceLoaded = false;
     clearCachedFullTrace();
@@ -2263,8 +2267,8 @@ export async function traceViewerV2Main(
     if (traceviewerModule !== activeWasmModule) {
       return;
     }
-    if (url === currentDataUrl && currentLoadingPromise) {
-      return currentLoadingPromise;
+    if (currentLoadingRequest?.url === url) {
+      return currentLoadingRequest.promise;
     }
     if (!cancelAndClearLoaderState().isActive) {
       return;
@@ -2282,7 +2286,6 @@ export async function traceViewerV2Main(
     hasLoadedDataset = true;
 
     let settled = false;
-    let completed = false;
     const settleActiveLoad = ({
       preserveDataUrl,
     }: {
@@ -2296,7 +2299,7 @@ export async function traceViewerV2Main(
         activeLoadAbortController = null;
       }
       if (loadId === activeLoadId) {
-        currentLoadingPromise = null;
+        currentLoadingRequest = null;
         if (!preserveDataUrl) {
           currentDataUrl = null;
         }
@@ -2308,7 +2311,7 @@ export async function traceViewerV2Main(
       resolveLoading = resolve;
       rejectLoading = reject;
     });
-    currentLoadingPromise = loadingPromise;
+    currentLoadingRequest = {url, promise: loadingPromise};
 
     void (async () => {
       try {
@@ -2358,7 +2361,7 @@ export async function traceViewerV2Main(
 
         traceviewerModule.application.instance().restoreSavedTrackOrder?.();
 
-        completed = await fetchAndProcessTraceData({
+        await fetchAndProcessTraceData({
           urlObj,
           traceviewerModule,
           isAbortRequested: () =>
@@ -2377,7 +2380,10 @@ export async function traceViewerV2Main(
           onBeforeTerminalStatus: settleActiveLoad,
         });
       } finally {
-        settleActiveLoad({preserveDataUrl: completed});
+        // `settleActiveLoad` is one-shot: this fallback only runs on early
+        // abort exits or throws before `onBeforeTerminalStatus`, and is a
+        // no-op once a terminal status has already settled the load.
+        settleActiveLoad({preserveDataUrl: false});
       }
     })().then(resolveLoading, rejectLoading);
 

@@ -4,6 +4,11 @@ import {
   TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {
+  HLO_MODULE,
+  HLO_MODULE_ID,
+  PROGRAM_ID,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
+import {
   ENABLE_FAST_MODE_KEY,
   FILTER_OPERATORS,
   USE_TRACE_VIEWER_V2_KEY,
@@ -475,4 +480,75 @@ export function resolveUseTraceViewerV2(
   } catch {
     return defaultWhenUnset;
   }
+}
+
+// Matches a trailing compilation program ID suffix, e.g.
+// "(8623923867354161468)" in "jit_generate(8623923867354161468)".
+const PROGRAM_ID_SUFFIX_REGEX = /\(\d+\)$/;
+
+/**
+ * Returns true if an HLO module name is absent or a placeholder ('default' or
+ * 'NO_MODULE').
+ */
+export function isInvalidHloModule(hloModule?: string | null): boolean {
+  return !hloModule || hloModule === 'default' || hloModule === 'NO_MODULE';
+}
+
+/** Strips a trailing `(<program_id>)` suffix from an HLO module name. */
+export function stripProgramIdSuffix(hloModule: string): string {
+  return hloModule.replace(PROGRAM_ID_SUFFIX_REGEX, '').trim();
+}
+
+function normalizeModuleId(rawId: unknown): string {
+  if (typeof rawId === 'string') {
+    return rawId.trim();
+  }
+  if (typeof rawId === 'number' && Number.isFinite(rawId)) {
+    return String(rawId);
+  }
+  return '';
+}
+
+/**
+ * Resolves the HLO module name from WASM metadata and backend event args in
+ * priority order (ignoring absent, `'default'`, and `'NO_MODULE'` values):
+ * 1. `args['hlo_module']` qualified with `(<id>)` (either already suffixed or
+ *    combined with `args['hlo_module_id']` || `args['program_id']`).
+ * 2. `wasmModule` with a `(<program_id>)` suffix when `args['hlo_module']` is
+ *    absent/invalid or matches `stripProgramIdSuffix(wasmModule)`.
+ * 3. Bare `args['hlo_module']`.
+ * 4. Bare `wasmModule`.
+ * 5. `'default'`.
+ */
+export function resolveHloModule(
+  wasmModule?: string,
+  args?: Readonly<Record<string, unknown>>,
+): string {
+  const validWasm = isInvalidHloModule(wasmModule) ? undefined : wasmModule;
+  const rawArgsModule = args?.[HLO_MODULE];
+  const validArgsModule =
+    typeof rawArgsModule === 'string' && !isInvalidHloModule(rawArgsModule)
+      ? rawArgsModule
+      : undefined;
+  const moduleId =
+    normalizeModuleId(args?.[HLO_MODULE_ID]) ||
+    normalizeModuleId(args?.[PROGRAM_ID]);
+  const argsModule =
+    validArgsModule !== undefined &&
+    moduleId &&
+    !PROGRAM_ID_SUFFIX_REGEX.test(validArgsModule) &&
+    !validArgsModule.endsWith(`(${moduleId})`)
+      ? `${validArgsModule}(${moduleId})`
+      : validArgsModule;
+  if (argsModule !== undefined && PROGRAM_ID_SUFFIX_REGEX.test(argsModule)) {
+    return argsModule;
+  }
+  if (
+    validWasm !== undefined &&
+    PROGRAM_ID_SUFFIX_REGEX.test(validWasm) &&
+    (argsModule === undefined || stripProgramIdSuffix(validWasm) === argsModule)
+  ) {
+    return validWasm;
+  }
+  return argsModule ?? validWasm ?? 'default';
 }

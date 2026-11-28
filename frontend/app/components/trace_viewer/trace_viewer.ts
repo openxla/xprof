@@ -69,7 +69,9 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {
   HLO_MODULE,
+  HLO_MODULE_ID,
   HLO_OP,
+  PROGRAM_ID,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
@@ -125,9 +127,11 @@ import {
   getEventDetailsCacheKey,
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
+  isInvalidHloModule,
   parseEventDetails,
   parseEventsSelectedData,
   RawTraceEvent,
+  resolveHloModule,
   resolveUseTraceViewerV2,
   sanitizeUid,
 } from './utils';
@@ -171,6 +175,7 @@ function isAdjacentNodesResponse(data: unknown): data is AdjacentNodesResponse {
     Array.isArray(dict['consumer_names'])
   );
 }
+
 /** The name of the event triggered when a trace event is selected. */
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
@@ -1097,6 +1102,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       trackName,
       inboundFlows: event.inboundFlows,
       outboundFlows: event.outboundFlows,
+      hloModule: hloModuleName,
+      hloOpName,
     };
 
     const properties: SelectedEventProperty[] = [];
@@ -1323,15 +1330,26 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private addArgsToSelectedEvent(args: Record<string, string>): void {
     const event = this.selectedEvent;
     if (!event) return;
-    const properties = [...this.selectedEventProperties];
+    const prevHlo = getHloNameAndModule(this.selectedEventProperties);
+    let properties = [...this.selectedEventProperties];
     for (const key of Object.keys(args)) {
       properties.push({property: key, value: args[key]});
+    }
+    const nextHlo = getHloNameAndModule(properties);
+    if (prevHlo.name !== nextHlo.name || prevHlo.module !== nextHlo.module) {
+      properties = properties.filter(
+        (prop) => prop.property !== 'Operands' && prop.property !== 'Consumers',
+      );
     }
     this.selectedEventProperties = properties;
     // Expose the resolved args on the event and reassign it so Trace Viewer
     // v2 can render them as an auto-traversed JSON tree (see
     // TraceViewerContainer.buildSelectedEventJson).
     event.args = Object.assign({}, event.args, args);
+    const resolvedModule = resolveHloModule(event.hloModule, event.args);
+    if (!isInvalidHloModule(resolvedModule)) {
+      event.hloModule = resolvedModule;
+    }
     this.createCrossToolLinks();
     this.selectedEvent = Object.assign({}, event);
     this.createCrossToolLinks();
@@ -1402,12 +1420,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
-    let hloModule =
-      args[HLO_MODULE] ?? this.selectedEvent?.hloModule ?? 'default';
-    const hloModuleId = args['hlo_module_id'] ?? args['program_id'];
-    if (hloModule !== 'default' && hloModuleId) {
-      hloModule = `${hloModule}(${hloModuleId})`;
-    }
+    const hloModule = resolveHloModule(this.selectedEvent.hloModule, args);
     const hloOp =
       args[HLO_OP] || (this.isSourceCodeTrack() ? '' : this.selectedEvent.name);
     const opCategory = args['hlo_category'];
@@ -1470,15 +1483,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!hloOp) {
       return;
     }
-    const hloModule =
-      this.selectedEvent.hloModule || args[HLO_MODULE] || 'default';
+    const hloModule = resolveHloModule(this.selectedEvent.hloModule, args);
     // Only generate link if hlo_op argument is present or hloModule is not
-    // default.
-    if (!args[HLO_OP] && hloModule === 'default') {
+    // default or NO_MODULE.
+    if (!args[HLO_OP] && isInvalidHloModule(hloModule)) {
       return;
     }
     const graphViewParams: {[key: string]: string} = {'node_name': hloOp};
-    if (hloModule !== 'default') {
+    if (!isInvalidHloModule(hloModule)) {
       graphViewParams['module_name'] = hloModule;
     }
     const graphViewText = `See HLO graph for ${hloOp} @ ${hloModule}`;
@@ -1568,7 +1580,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const {name, module} = getHloNameAndModule(this.selectedEventProperties);
-    if (!name || !module || module === 'default' || module === 'NO_MODULE') {
+    if (!name || isInvalidHloModule(module)) {
       return;
     }
 
@@ -2229,20 +2241,26 @@ function getHloNameAndModule(properties: SelectedEventProperty[]): {
   module: string;
 } {
   let name = '';
-  let module = '';
+  let wasmModule: string | undefined;
+  const propArgs: Record<string, unknown> = {};
   for (const prop of properties) {
-    if (prop.property === 'HLO Op' && prop.value) {
-      name = prop.value.toString();
-    } else if (!name && prop.property === 'Name' && prop.value) {
-      name = prop.value.toString();
-    }
-    if (prop.property === 'HLO Module' && prop.value) {
-      module = prop.value.toString();
-    } else if (!module && prop.property === 'hlo_module' && prop.value) {
-      module = prop.value.toString();
+    if (prop.value == null || prop.value === '') continue;
+    const val = prop.value.toString();
+    if (prop.property === HLO_OP || prop.property === 'HLO Op') {
+      name = val;
+    } else if (!name && prop.property === 'Name') {
+      name = val;
+    } else if (prop.property === 'HLO Module') {
+      wasmModule = val;
+    } else if (
+      prop.property === HLO_MODULE ||
+      prop.property === HLO_MODULE_ID ||
+      prop.property === PROGRAM_ID
+    ) {
+      propArgs[prop.property] = val;
     }
   }
-  return {name, module};
+  return {name, module: resolveHloModule(wasmModule, propArgs)};
 }
 
 /**

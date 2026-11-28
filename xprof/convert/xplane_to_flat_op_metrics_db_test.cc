@@ -656,6 +656,81 @@ TEST_F(XPlaneToFlatOpMetricsDbTest, GpuEquivalenceTest) {
   EXPECT_EQ(legacy_db.total_time_ps(), new_db.total_time_ps());
 }
 
+TEST_F(XPlaneToFlatOpMetricsDbTest,
+       SparseCoreParallelTecLinesAndTraceMeIgnored) {
+  XLineBuilder module_line = plane_builder_->GetOrCreateLine(/*line_id=*/65);
+  XLineBuilder scs_line = plane_builder_->GetOrCreateLine(/*line_id=*/66);
+  XLineBuilder tec0_line = plane_builder_->GetOrCreateLine(/*line_id=*/67);
+  XLineBuilder tec1_line = plane_builder_->GetOrCreateLine(/*line_id=*/68);
+  XLineBuilder traceme_line = plane_builder_->GetOrCreateLine(/*line_id=*/69);
+  module_line.SetName(tsl::profiler::kSparseCoreModuleLineName);
+  scs_line.SetName(tsl::profiler::kSparseCoreOpLineName);
+  tec0_line.SetName("TEC 0");
+  tec1_line.SetName("TEC 1");
+  traceme_line.SetName("TEC TraceMe 0");
+
+  XEventMetadata* mod_meta = plane_builder_->GetOrCreateEventMetadata("Main");
+  XEventBuilder module_event = module_line.AddEvent(*mod_meta);
+  module_event.SetTimestampNs(0);
+  module_event.SetDurationNs(100);
+  module_event.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kOffloadCoreId)),
+                            0);
+  module_event.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kTcOffloadStartId)),
+                            123);
+
+  auto add_op = [&](XLineBuilder& line, absl::string_view name,
+                    int64_t start_ns, int64_t dur_ns, int64_t symbol_id) {
+    XEventMetadata* meta = plane_builder_->GetOrCreateEventMetadata(name);
+    tsl::profiler::XStatsBuilder<XEventMetadata> meta_stats(
+        meta, plane_builder_.get());
+    meta_stats.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kProgramId)),
+                            int64_t{1});
+    meta_stats.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kSymbolId)),
+                            symbol_id);
+    meta_stats.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kHloCategory)),
+                            "SparseCoreOp");
+    XEventBuilder ev = line.AddEvent(*meta);
+    ev.SetTimestampNs(start_ns);
+    ev.SetDurationNs(dur_ns);
+  };
+
+  add_op(scs_line, "ScsOp", /*start_ns=*/0, /*dur_ns=*/100, /*symbol_id=*/2);
+  add_op(tec0_line, "Tec0Op", /*start_ns=*/10, /*dur_ns=*/80, /*symbol_id=*/3);
+  add_op(tec1_line, "Tec1Op", /*start_ns=*/5, /*dur_ns=*/90, /*symbol_id=*/4);
+
+  XEventMetadata* traceme_meta =
+      plane_builder_->GetOrCreateEventMetadata("UserTraceMe");
+  XEventBuilder traceme_event = traceme_line.AddEvent(*traceme_meta);
+  traceme_event.SetTimestampNs(0);
+  traceme_event.SetDurationNs(100);
+
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, FlatOpMetricsDb>
+      sparse_core_metrics_map;
+  ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(*xplane_,
+                                                      sparse_core_metrics_map);
+  ASSERT_EQ(sparse_core_metrics_map.size(), 1);
+  const FlatOpMetricsDb& db = sparse_core_metrics_map.begin()->second;
+  EXPECT_EQ(db.total_time_ps(), 300000);
+  EXPECT_EQ(db.total_op_time_ps(), 270000);
+
+  absl::flat_hash_map<std::string, const FlatOpMetrics*> by_name;
+  for (const auto& op : db.op_instances()) {
+    by_name[op.hlo_name()] = &op;
+  }
+  ASSERT_TRUE(by_name.contains("ScsOp"));
+  ASSERT_TRUE(by_name.contains("Tec0Op"));
+  ASSERT_TRUE(by_name.contains("Tec1Op"));
+  EXPECT_FALSE(by_name.contains("UserTraceMe"));
+  EXPECT_EQ(by_name["ScsOp"]->self_time_ps(), 100000);
+  EXPECT_EQ(by_name["Tec0Op"]->self_time_ps(), 80000);
+  EXPECT_EQ(by_name["Tec1Op"]->self_time_ps(), 90000);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

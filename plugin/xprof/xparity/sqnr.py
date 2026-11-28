@@ -761,7 +761,8 @@ def precision_from_dtypes(
     - accumulator_dtype and reduction_length: as given.
   A candidate or accumulator dtype that is not a float, complex, integer or
   bool dtype (for example object, str, structured or subarray) gives None. It
-  adds no rounding source, and the audit fails such a leaf on its dtype.
+  adds no rounding source, and the audit fails such a leaf on its dtype. An
+  input dtype of that kind is left out of operand_dtypes for the same reason.
 
   Args:
     reference_dtype: Dtype of the reference output. It is not a rounding source
@@ -782,8 +783,8 @@ def precision_from_dtypes(
   _dtype_name(reference_dtype)
   operands = tuple(
       name
-      for name in (_dtype_name(d) for d in input_dtypes)
-      if _narrower_than_float32(name)
+      for name in (_numeric_format_name(d) for d in input_dtypes)
+      if name is not None and _narrower_than_float32(name)
   )
   return PrecisionSpec(
       operand_dtypes=operands,

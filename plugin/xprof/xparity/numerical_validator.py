@@ -1244,7 +1244,7 @@ def _sqnr_ulp_view(
     out_cand: np.ndarray,
     ref_dtype_name: str,
 ) -> tuple[str, bool] | None:
-  """Returns how to measure the diagnostics of a CONTRACT_SQNR float output.
+  """Returns how to measure the diagnostics of a float or complex output.
 
   The run dtype names the inputs. Under CONTRACT_SQNR, an integer or boolean
   run can return float outputs, and any run can return complex outputs. The
@@ -1256,9 +1256,11 @@ def _sqnr_ulp_view(
   figures are in float32 units, which hold every such value exactly. The NaN
   and Inf scan still reads the output values. A float run whose dtype
   `compute_ulp_distance` does not support (for example float8_e8m0fnu) also
-  uses the output dtype and the same float32 rule. Other contracts, and the
-  real float outputs of a run whose float dtype has ULP support, keep the run
-  dtype.
+  uses the output dtype and the same float32 rule. Under the other contracts,
+  a complex output is also read as (real, imag) pairs, with the same dtype
+  rule, so that the ULP gates compare both parts. The real float outputs of a
+  run whose float dtype has ULP support keep the run dtype, and so do all real
+  outputs under the other contracts.
 
   Args:
     contract: The comparison contract of the output.
@@ -1273,11 +1275,11 @@ def _sqnr_ulp_view(
     in whose units the ULP figures are measured, and True if complex values
     are split into (real, imag) pairs.
   """
-  if contract != CONTRACT_SQNR:
+  split = np.iscomplexobj(out_ref) or np.iscomplexobj(out_cand)
+  if contract != CONTRACT_SQNR and not split:
     return None
   if not (_has_float_values(out_ref) and _has_float_values(out_cand)):
     return None
-  split = np.iscomplexobj(out_ref) or np.iscomplexobj(out_cand)
   # True for every run dtype outside _ULP_FLOAT_DTYPES: integer, bool, complex,
   # and float formats that compute_ulp_distance does not support.
   unsupported_run = canonical_dtype not in _ULP_FLOAT_DTYPES
@@ -1293,6 +1295,128 @@ def _sqnr_ulp_view(
   if resolve_canonical_dtype(ulp_dtype) not in _ULP_FLOAT_DTYPES:
     ulp_dtype = "float32"
   return ulp_dtype, split
+
+
+def _byte_float_steps(
+    actual: np.ndarray, expected: np.ndarray, dtype: np.dtype
+) -> np.ndarray:
+  """Counts the representable steps between two arrays in a one-byte float.
+
+  `compute_ulp_distance` has no bit layout for float8_e4m3fnuz,
+  float8_e8m0fnu, float6_e2m3fn and the other one-byte ml_dtypes floats. A
+  one-byte format has at most 256 codes, so this ranks each value among the
+  sorted finite values of the format instead. Both arrays are first rounded to
+  `dtype`.
+
+  As in `compute_ulp_distance`, an element whose two values are both below
+  `ulp.NEAR_ZERO_FRACTION` of the largest finite magnitude in `expected` is
+  measured in units of eps at that magnitude, at least 1 and never more than
+  its step count. An element that is non-finite on one side only, or that
+  becomes non-finite when rounded to `dtype`, counts as the number of finite
+  values in the format. Two non-finite values with the same sign, or both NaN
+  before rounding, count as 0 steps. Formats with one NaN and no infinity
+  (fnuz) round overflow of both signs to that NaN, so the sign check uses the
+  values before rounding. float8_e8m0fnu has no zero and no negative values,
+  so they round to NaN. Two such values with the same sign count as 0 steps.
+
+  Args:
+    actual: The first array.
+    expected: The second array.
+    dtype: A one-byte float dtype.
+
+  Returns:
+    An int64 array of step counts, shaped like the inputs.
+  """
+  codes = np.arange(256, dtype=np.uint8).view(dtype).astype(np.float64)
+  grid = np.unique(codes[np.isfinite(codes)])
+  act_wide = np.asarray(actual).astype(np.float64)
+  exp_wide = np.asarray(expected).astype(np.float64)
+  act = act_wide.astype(dtype).astype(np.float64)
+  exp = exp_wide.astype(dtype).astype(np.float64)
+  # A NaN can round to a finite value (float6 and float4 give -0.0), and a
+  # finite value can round to NaN (fnuz overflow), so check both forms.
+  act_finite = np.isfinite(act_wide) & np.isfinite(act)
+  exp_finite = np.isfinite(exp_wide) & np.isfinite(exp)
+  finite = act_finite & exp_finite
+  steps = np.abs(
+      np.searchsorted(grid, np.where(finite, act, 0.0))
+      - np.searchsorted(grid, np.where(finite, exp, 0.0))
+  )
+  scale = ulp.reference_scale(np.where(exp_finite, exp, 0.0))
+  # Round the floor to `dtype`, as `compute_ulp_distance` compares indices.
+  floor = float(
+      np.asarray(ulp.NEAR_ZERO_FRACTION * scale)
+      .astype(dtype)
+      .astype(np.float64)
+  )
+  near_zero = finite & (np.abs(act) < floor) & (np.abs(exp) < floor)
+  if scale > 0.0 and near_zero.any():
+    eps = float(ml_dtypes.finfo(dtype).eps)
+    scaled = np.maximum(np.ceil(np.abs(act - exp) / (eps * scale)), 1.0)
+    steps = np.where(near_zero, np.minimum(steps, scaled), steps)
+  both_non_finite = ~act_finite & ~exp_finite
+  same_non_finite = both_non_finite & (
+      (np.isnan(act_wide) & np.isnan(exp_wide))
+      | (
+          ~np.isnan(act_wide)
+          & ~np.isnan(exp_wide)
+          & (np.signbit(act_wide) == np.signbit(exp_wide))
+      )
+  )
+  return np.where(
+      finite, steps, np.where(same_non_finite, 0, grid.size)
+  ).astype(np.int64)
+
+
+def _one_byte_float_dtype(dtype_str: str) -> np.dtype | None:
+  """Returns the dtype of a one-byte float format name, or None."""
+  name = resolve_canonical_dtype(dtype_str)
+  try:
+    dtype = np.dtype(getattr(ml_dtypes, name, None) or name)
+  except TypeError:
+    return None
+  if dtype.itemsize != 1 or not _is_float_array(np.empty(0, dtype)):
+    return None
+  return dtype
+
+
+def _baseline_probe_ulp(
+    reference: np.ndarray, oracle: np.ndarray, dtype_str: str
+) -> tuple[int, str]:
+  """Returns the worst ULP distance of the reference from a float64 oracle.
+
+  The zero-ULP baseline probe measures in units of the run dtype. A one-byte
+  float run dtype that `compute_ulp_distance` does not support (for example
+  float8_e4m3fnuz) is measured in its own steps by `_byte_float_steps`. For any
+  other unsupported run dtype, the probe uses the dtype of the reference output
+  in the same way.
+
+  Args:
+    reference: The output of the reference on the run-dtype inputs.
+    oracle: The float64 output of the reference on float64 inputs.
+    dtype_str: The run dtype name.
+
+  Returns:
+    (max_ulp, unit_dtype): the worst ULP distance, and the dtype in whose
+    units it is measured.
+
+  Raises:
+    ValueError: If no supported unit exists for the run dtype or the reference
+      dtype.
+  """
+  ref_dtype = str(reference.dtype)
+  for unit_dtype in (dtype_str, ref_dtype):
+    if resolve_canonical_dtype(unit_dtype) in _ULP_FLOAT_DTYPES:
+      distance = compute_ulp_distance(reference, oracle, dtype_str=unit_dtype)
+      return int(np.max(distance, initial=0)), unit_dtype
+    byte_dtype = _one_byte_float_dtype(unit_dtype)
+    if byte_dtype is not None:
+      steps = _byte_float_steps(reference, oracle, byte_dtype)
+      return int(np.max(steps, initial=0)), str(byte_dtype)
+  raise ValueError(
+      f"No ULP unit for run dtype '{dtype_str}' with reference output"
+      f" dtype '{ref_dtype}'."
+  )
 
 
 def _effective_sqnr_config(
@@ -1770,8 +1894,8 @@ def _execute_single_batch(
   )
   # The NaN and Inf counts and the ULP figures read `diag_ref` and
   # `diag_cand` in units of `ulp_dtype`. These are the outputs and the run
-  # dtype, except for the CONTRACT_SQNR outputs that `_sqnr_ulp_view`
-  # describes. The oracle statistics still follow the run-level
+  # dtype, except for complex outputs and the CONTRACT_SQNR outputs that
+  # `_sqnr_ulp_view` describes. The oracle statistics still follow the run-level
   # `is_discrete`.
   ulp_view = _sqnr_ulp_view(
       contract, canonical_dtype, is_discrete, out_ref, out_cand, ref_dtype_name
@@ -1782,7 +1906,9 @@ def _execute_single_batch(
   diag_discrete = is_discrete and ulp_view is None
 
   narrow_warning = None
-  if not is_discrete:
+  # Checks the output dtype, not the run dtype: an integer run can return
+  # narrow float outputs too.
+  if _is_float_array(out_ref):
     try:
       ref_finfo = _get_finfo(out_ref.dtype)
       f32_eps = float(np.finfo(np.float32).eps)
@@ -2100,7 +2226,7 @@ def _execute_single_batch(
       max_ulp = 0
       p99_9 = 0.0
       mean_ulp = 0.0
-      hist = {"<=1_ulp": out_cand.size, "<=2_ulp": out_cand.size, ">2_ulp": 0}
+      hist = {"<=1_ulp": diag_cand.size, "<=2_ulp": diag_cand.size, ">2_ulp": 0}
 
   batch_res = BatchValidationResult(
       batch_name=batch["name"],
@@ -2646,8 +2772,9 @@ def validate_kernels(
       as a noise ratio in dB. Under CONTRACT_SQNR, the NaN and Inf counts and
       the ULP figures of a float output of an integer or boolean run use the
       output dtype. If the ULP code does not support that dtype (for example
-      float8_e8m0fnu), the ULP figures are in float32 units. Complex outputs are
-      read as (real, imag) pairs along a new trailing axis of size 2, so their
+      float8_e8m0fnu), the ULP figures are in float32 units. Under every
+      contract, complex outputs are read as (real, imag) pairs along a new
+      trailing axis of size 2, so the ULP gates compare both parts and the
       diagnostic indexes have one more axis. The NaN and Inf counts of a complex
       output count each part, so complex(nan, nan) counts as 2.
     contract_by_leaf: For kernels that return a pytree, overrides `contract` for
@@ -2949,6 +3076,7 @@ def validate_kernels(
   is_equivalent = acc.failed_batches == 0
   zero_ulp_banner = None
   probed_baseline_oracle_ulp = None
+  zero_ulp_probe_skip_reason = None
   if (
       kernel_oracle is None
       and is_equivalent
@@ -2963,23 +3091,34 @@ def validate_kernels(
       p_args, p_kwargs = _promote_args_to_dtype(b0_args, b0_kwargs, np.float64)
       probe_out = probe_ref(*p_args, **p_kwargs)
       probe_arr = np.asarray(probe_out)
-      if probe_arr.dtype == np.float64:
+      if probe_arr.dtype != np.float64:
+        zero_ulp_probe_skip_reason = (
+            "kernel_ref returned dtype"
+            f" '{probe_arr.dtype}' on float64 inputs, not float64."
+        )
+      else:
         ref_b0 = np.asarray(probe_ref(*b0_args, **b0_kwargs))
-        probe_ulp = int(
-            np.max(compute_ulp_distance(ref_b0, probe_arr, dtype_str=dtype_str))
+        probe_ulp, unit_dtype = _baseline_probe_ulp(
+            ref_b0, probe_arr, dtype_str
         )
         if probe_ulp > recommended_ulp:
           probed_baseline_oracle_ulp = probe_ulp
+          units = (
+              ""
+              if resolve_canonical_dtype(unit_dtype) == canonical_dtype
+              else f" ({unit_dtype} units)"
+          )
           zero_ulp_banner = (
               "⚠️ 0-ULP AGREEMENT WITH LOSSY BASELINE: Both kernels agree"
-              f" bit-for-bit (0 ULP), but kernel_ref sits {probe_ulp} ULP from"
-              f" the Float64 Oracle (above the {recommended_ulp} ULP contract"
-              f" for '{canonical_dtype}'). Pairwise 0 ULP is a false green."
-              " Run with kernel_oracle='auto' or an explicit oracle to audit"
-              " correctness."
+              f" bit-for-bit (0 ULP), but kernel_ref sits {probe_ulp} ULP"
+              f"{units} from the Float64 Oracle (above the {recommended_ulp}"
+              f" ULP contract for '{canonical_dtype}'). Pairwise 0 ULP is a"
+              " false green. Run with kernel_oracle='auto' or an explicit"
+              " oracle to audit correctness."
           )
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.debug("Zero-ULP lossy baseline probe failed: %s", e)
+      zero_ulp_probe_skip_reason = f"{type(e).__name__}: {e}"
+      logging.info("Zero-ULP lossy baseline probe skipped: %s", e)
 
   rel_l2_summary = (
       _summarize_row_rel_l2(batch_results, row_l2_gate)
@@ -3176,12 +3315,21 @@ def validate_kernels(
   )
 
   if ref_is_unpinned and correctness_basis == "AGREEMENT_ONLY":
+    # The literal state: with kernel_oracle passed, no output was graded
+    # against the oracle (for example every output was integer or
+    # non-finite).
+    if kernel_oracle is None:
+      oracle_note = "no oracle was supplied to check it"
+      remedy = ", or supply kernel_oracle"
+    else:
+      oracle_note = "no output was graded against kernel_oracle"
+      remedy = ""
     ref_unpinned_banner = (
         "⚠️ REFERENCE PRECISION UNVERIFIED: kernel_ref responds to matmul"
-        " precision settings and no oracle was supplied to check it. On TPU"
+        f" precision settings and {oracle_note}. On TPU"
         " an unpinned reference runs at bfloat16 MXU precision — measured"
-        " 15,335x from exact in production code. Pass precision='highest',"
-        " or supply kernel_oracle."
+        " 15,335x from exact in production code. Pass precision='highest'"
+        f"{remedy}."
     )
     summary = f"{ref_unpinned_banner}\n{summary}"
 
@@ -3252,6 +3400,8 @@ def validate_kernels(
     run_config["reference_is_unpinned"] = True
   if probed_baseline_oracle_ulp is not None:
     run_config["probed_baseline_oracle_ulp"] = probed_baseline_oracle_ulp
+  if zero_ulp_probe_skip_reason is not None:
+    run_config["zero_ulp_probe_skip_reason"] = zero_ulp_probe_skip_reason
 
   return KernelValidationReport(
       is_numerically_equivalent=is_equivalent,
@@ -3303,10 +3453,11 @@ def validate_arrays(
       CONTRACT_SQNR, the NaN and Inf counts and the ULP figures of float arrays
       with an integer or boolean `dtype_str` use the array dtype. If the ULP
       code does not support that dtype (for example float8_e8m0fnu), the ULP
-      figures are in float32 units. Complex arrays are read as (real, imag)
-      pairs along a new trailing axis of size 2, so their diagnostic indexes
-      have one more axis. The NaN and Inf counts of a complex array count each
-      part, so complex(nan, nan) counts as 2.
+      figures are in float32 units. Under every contract, complex arrays are
+      read as (real, imag) pairs along a new trailing axis of size 2, so the ULP
+      gates compare both parts and the diagnostic indexes have one more axis.
+      The NaN and Inf counts of a complex array count each part, so complex(nan,
+      nan) counts as 2.
     rel_l2_tol: Whole-output relative L2 tolerance; required by
       CONTRACT_ROW_REL_L2.
     row_factor: Per-row bound as a multiple of `rel_l2_tol`.
@@ -3357,7 +3508,8 @@ def validate_arrays(
 
   is_discrete = _is_discrete_dtype(canonical)
   # As in `_execute_single_batch`: `_sqnr_ulp_view` gives the dtype and the
-  # arrays of the diagnostics for some CONTRACT_SQNR outputs.
+  # arrays of the diagnostics for complex outputs and some CONTRACT_SQNR
+  # outputs.
   ulp_view = _sqnr_ulp_view(
       contract, canonical, is_discrete, exp_np, act_np, exp_dtype_name
   )

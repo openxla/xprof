@@ -7,22 +7,28 @@
     </div>
   </div>
   <div class="block-content">
-    <div *ngFor="let info of deviceInfoArray" style="font-size:16px">
-      <div *ngIf="info.display"><b>{{info.label}}:</b> <span> {{deviceInfoText(info)}}</span></div>
-    </div>
-    <!--tslint:disable-next-line:need higher angular version to deprecate ngIf-->
-    <div class="control" *ngIf="hasValidTimeScaleMultiplier()">
-      <div class="control-title">
-        Apply Dvfs Scaling Factor
-        <mat-icon
-          class="tooltip-icon"
-          matTooltip="Show flops utilization scaled with the evaluated device capability (due to pstate changes)."
-          matTooltipPosition="above">
-          info
-        </mat-icon>
+    @for (info of deviceInfoArray; track info) {
+      <div style="font-size:16px">
+        @if (info.display) {
+          <div><b>{{info.label}}:</b> <span> {{deviceInfoText(info)}}</span></div>
+        }
       </div>
-      <mat-slide-toggle [checked]="applyScalingFactor" (toggleChange)="toggleScalingFactor()"></mat-slide-toggle>
-    </div>
+    }
+    <!--tslint:disable-next-line:need higher angular version to deprecate ngIf-->
+    @if (hasValidTimeScaleMultiplier()) {
+      <div class="control">
+        <div class="control-title">
+          Apply Dvfs Scaling Factor
+          <mat-icon
+            class="tooltip-icon"
+            matTooltip="Show flops utilization scaled with the evaluated device capability (due to pstate changes)."
+            matTooltipPosition="above">
+            info
+          </mat-icon>
+        </div>
+        <mat-slide-toggle [checked]="applyScalingFactor" (toggleChange)="toggleScalingFactor()"></mat-slide-toggle>
+      </div>
+    }
   </div>
 </div>
 

@@ -21,10 +21,13 @@ _VERDICT_SQNR_KEYS = {
     "oracle_sqnr_db",
     "threshold_db",
     "threshold_source",
+    "thresholds",
+    "worst_sqnr_leaf",
     "gate_math",
     "failed_reports",
     "warnings",
     "failed_reasons",
+    "regimes_run",
 }
 
 
@@ -99,8 +102,14 @@ class SqnrToolTest(parameterized.TestCase):
     self.assertTrue(verdict["is_numerically_equivalent"], verdict)
     self.assertEqual(set(verdict["sqnr"]), _VERDICT_SQNR_KEYS)
     self.assertEqual(
-        (verdict["sqnr"]["passed"], verdict["sqnr"]["threshold_db"]),
-        (True, threshold_db),
+        (
+            verdict["sqnr"]["passed"],
+            verdict["sqnr"]["threshold_db"],
+            verdict["sqnr"]["worst_sqnr_leaf"],
+            [t["threshold_db"] for t in verdict["sqnr"]["thresholds"]],
+            verdict["sqnr"]["regimes_run"],
+        ),
+        (True, threshold_db, None, [threshold_db], ["normal"]),
     )
 
   def test_compact_verdict_names_the_failure(self):

@@ -58,9 +58,29 @@ case). Other names raise `ValueError`. This includes short forms such as
     batch with seed 7. The global SQNR passes in all of these cases. A
     per-row floor on the spike bound removes the spike-check failures but
     not the block-check failures, and it passes spikes on small outputs of
-    element-wise casts, so the checks do not use one. With `strict=False`,
-    only the global (or oracle) SQNR rule and the leaf rules run: these
-    cases pass, and so do most local errors.
+    element-wise casts, so the checks do not use one. A row statistic of the
+    error alone cannot tell matmul rows, whose noise follows the operand
+    norms, from cast rows, whose noise follows |y|. A real fix needs operand
+    norm data, for example per-row operand norms passed to `audit_leaf`.
+    With `strict=False`, only the global (or oracle) SQNR rule and the leaf
+    rules run: these cases pass, and so do most local errors.
+*   A bfloat16 kernel with a 40 dB floor fails the 5-regime fallback suite
+    on outputs with more than 65536 columns and on one-row outputs, for
+    example shapes [(8, 128), (128, 70000)] and [(1, 1024), (1024, 512)].
+    The boundary probes and `max_error_ulp` fail. A float8 kernel with a
+    22 dB floor passes the same fallback.
+*   A shard far below the largest shard of a leaf is graded against a B
+    fitted at the scale of the large shard. 32x noise on a float32 shard
+    next to a shard near 1e38 passes on 4 of 40 seeds (8 of 40 with an
+    exact solver). Honest leaves pass on 40 of 40 seeds.
+*   The face selection of `_dc_bounded_lsq3` depends on scale. outer(s, s)
+    rounds in subnormal precision when sqrt(g00 * g22) < 2**-1022. Only a
+    bfloat16 leaf that spans about 250 binades reached this. The unscaled
+    objective also ties when the coordinate energies differ by more than
+    about 1e16. A fix needs a scale-independent compare and an exact-solver
+    regression set.
+*   No test runs the checks on the output of a real TPU kernel yet. All
+    tests run on CPU.
 *   The correlation checks do not test AC below 16 eps^2 of the energy of
     the reference values in a window (about 4 eps standard deviation). A
     row-bias-only error at that level passes them: 130 dB or more in

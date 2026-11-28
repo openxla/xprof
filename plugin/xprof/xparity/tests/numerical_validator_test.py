@@ -1075,6 +1075,145 @@ class NumericalValidatorTest(parameterized.TestCase):
     )
     self.assertIsNone(report.narrow_output_dtype_warning)
 
+  @parameterized.parameters(
+      numerical_validator.CONTRACT_ULP, numerical_validator.CONTRACT_SQNR
+  )
+  def test_narrow_output_dtype_warning_for_integer_run(self, contract: str):
+    codes = np.random.default_rng(0).integers(-8, 8, size=(16, 16))
+
+    def dequant(q: np.ndarray) -> np.ndarray:
+      return np.asarray(q).astype(ml_dtypes.bfloat16)
+
+    report = numerical_validator.validate_kernels(
+        dequant,
+        dequant,
+        shapes=(16, 16),
+        dtype_str="int8",
+        test_suite=[{
+            "name": "codes",
+            "args": (codes.astype(np.int8),),
+            "kwargs": {},
+            "regime": "normal",
+        }],
+        contract=contract,
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertIn(
+        "Output dtype bfloat16 is narrower than float32",
+        report.narrow_output_dtype_warning or "",
+    )
+
+  @parameterized.parameters(
+      numerical_validator.CONTRACT_ULP,
+      numerical_validator.CONTRACT_BITWISE,
+      numerical_validator.CONTRACT_SQNR,
+  )
+  def test_complex_outputs_compare_both_parts(self, contract: str):
+    rng = np.random.default_rng(0)
+    x = rng.standard_normal((16, 16)) + 1j * rng.standard_normal((16, 16))
+    x = x.astype(np.complex64)
+    suite = [{"name": "normal", "args": (x,), "kwargs": {}, "regime": "normal"}]
+
+    def imag_doubled(inputs: np.ndarray) -> np.ndarray:
+      return (inputs.real + 2j * inputs.imag).astype(np.complex64)
+
+    with warnings.catch_warnings():
+      warnings.simplefilter("error", np.exceptions.ComplexWarning)
+      same = numerical_validator.validate_kernels(
+          _identity_fn,
+          _identity_fn,
+          shapes=(16, 16),
+          dtype_str="float32",
+          test_suite=suite,
+          contract=contract,
+      )
+      wrong = numerical_validator.validate_kernels(
+          _identity_fn,
+          imag_doubled,
+          shapes=(16, 16),
+          dtype_str="float32",
+          test_suite=suite,
+          contract=contract,
+      )
+      wrong_arrays = numerical_validator.validate_arrays(
+          imag_doubled(x), x, dtype_str="float32", contract=contract
+      )
+    self.assertEqual(
+        (same.is_numerically_equivalent, same.overall_max_ulp), (True, 0)
+    )
+    # Only the imaginary parts differ, so the ULP gates must see them.
+    self.assertFalse(wrong.is_numerically_equivalent)
+    self.assertGreater(wrong.overall_max_ulp, 0)
+    worst = wrong.batch_results[0].worst_offender
+    assert worst is not None
+    self.assertEqual(worst.max_ulp_index[-1], 1)
+    self.assertFalse(wrong_arrays.passed)
+
+  @parameterized.parameters(
+      numerical_validator.CONTRACT_ULP, numerical_validator.CONTRACT_BITWISE
+  )
+  def test_complex128_nan_only_in_imaginary_part_fails(self, contract: str):
+    rng = np.random.default_rng(0)
+    expected = rng.standard_normal((8, 8)) + 1j * rng.standard_normal((8, 8))
+    actual = expected.copy()
+    actual[3, 4] = complex(actual[3, 4].real, np.nan)
+
+    def nan_in_imag(inputs: np.ndarray) -> np.ndarray:
+      out = np.array(inputs, dtype=np.complex128)
+      out[3, 4] = complex(out[3, 4].real, np.nan)
+      return out
+
+    # No ComplexWarning filter here: the verdict alone must catch the NaN.
+    kernels = numerical_validator.validate_kernels(
+        _identity_fn,
+        nan_in_imag,
+        shapes=(8, 8),
+        dtype_str="float64",
+        test_suite=[{
+            "name": "normal",
+            "args": (expected,),
+            "kwargs": {},
+            "regime": "normal",
+        }],
+        contract=contract,
+    )
+    self.assertFalse(kernels.is_numerically_equivalent)
+    arrays = numerical_validator.validate_arrays(
+        actual, expected, dtype_str="float64", contract=contract
+    )
+    self.assertFalse(arrays.passed)
+
+  def test_unpinned_reference_banner_names_an_oracle_that_checked_nothing(
+      self,
+  ):
+    def unpinned_ref(x: np.ndarray, precision: str = "default") -> np.ndarray:
+      out = np.asarray(x, dtype=np.float32) * 2.0
+      if precision != "highest":
+        out = out + 1e-3
+      # A NaN output gets no ULP oracle statistics.
+      out[0, 0] = np.nan
+      return out
+
+    x = np.random.default_rng(0).standard_normal((8, 8)).astype(np.float32)
+    report = numerical_validator.validate_kernels(
+        unpinned_ref,
+        unpinned_ref,
+        shapes=(8, 8),
+        dtype_str="float32",
+        test_suite=[
+            {"name": "normal", "args": (x,), "kwargs": {}, "regime": "normal"}
+        ],
+        kernel_oracle=numerical_validator.ORACLE_AUTO,
+    )
+    self.assertEqual(report.correctness_basis, "AGREEMENT_ONLY")
+    self.assertTrue(report.run_config.get("reference_is_unpinned"))
+    self.assertStartsWith(
+        report.summary_message,
+        "⚠️ REFERENCE PRECISION UNVERIFIED: kernel_ref responds to matmul"
+        " precision settings and no output was graded against kernel_oracle.",
+    )
+    self.assertNotIn("no oracle was supplied", report.summary_message)
+
   def test_discrete_int_no_runtime_warning(self):
     """Verifies integer ULP distance produces zero RuntimeWarnings on negatives."""
     a = np.array([-10, -5, 0, 5, 10], dtype=np.int32)

@@ -1267,6 +1267,14 @@ class CheatTest(parameterized.TestCase):
         )
         self.assertNotEmpty(fits)
         np.testing.assert_allclose(padded_fits, fits, rtol=1e-9)
+        # The zero blocks add no noise, so the worst block ratio stays the
+        # same. Only the block threshold moves.
+        block_db = report.max_block_noise_ratio_db
+        padded_block_db = padded.max_block_noise_ratio_db
+        assert block_db is not None and padded_block_db is not None
+        self.assertAlmostEqual(
+            padded_block_db, block_db, places=9, msg=(seed, kernel, cheat)
+        )
         self.assertFalse(report.passed, (seed, kernel, cheat))
         self.assertLessEqual(
             _checks(padded), _checks(report), (seed, kernel, cheat)

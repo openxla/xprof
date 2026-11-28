@@ -484,6 +484,7 @@ def _compact_verdict(payload: _Mapping[str, Any]) -> dict[str, Any]:
     verdict["sqnr"]["failed_reasons"] = (
         sqnr_summary.get("failed_reasons") or []
     )[:_VERDICT_MAX_FAILURES]
+    verdict["sqnr"]["regimes_run"] = coverage.get("regimes_run", [])
   return verdict
 
 
@@ -495,6 +496,8 @@ _VERDICT_SQNR_KEYS = (
     "oracle_sqnr_db",
     "threshold_db",
     "threshold_source",
+    "thresholds",
+    "worst_sqnr_leaf",
     "gate_math",
     "failed_reports",
     "warnings",

@@ -233,3 +233,17 @@ export const OPEN_KERNEL_VIEWER_LABEL = 'Open Kernel Viewer';
 
 /** Button label for opening Kernel Viewer from Op Details. */
 export const KERNEL_VIEWER_BUTTON_LABEL = '> Kernel Viewer';
+
+/** URL query parameters targeting a kernel or zoom window in Kernel Viewer. */
+export const KERNEL_VIEWER_QUERY_PARAMS = [
+  'kernel_name',
+  'kernel',
+  'hlo_module',
+  'bundle_start',
+  'bundle_end',
+  'view_start',
+  'view_end',
+] as const;
+
+/** SessionStorage key storing serialized URL query parameters. */
+export const SESSION_STORAGE_SEARCH_PARAMS_KEY = 'searchParams';

@@ -6,12 +6,22 @@ import {
   OnInit,
 } from '@angular/core';
 import {MatCheckboxChange} from '@angular/material/checkbox';
-import {ActivatedRouteSnapshot, NavigationEnd, Params, Router} from '@angular/router';
+import {
+  ActivatedRouteSnapshot,
+  NavigationEnd,
+  Params,
+  Router,
+} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
   DEFAULT_HOST,
   filterUiTools,
   HLO_TOOLS,
+  KERNEL_VIEWER_QUERY_PARAMS,
+  KERNEL_VIEWER_TOOL_NAME,
+  LLO_DEBUG_TAG,
+  SESSION_STORAGE_SEARCH_PARAMS_KEY,
+  stripToolSuffix,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
@@ -26,6 +36,7 @@ import {
   setErrorMessageStateAction,
   setHostsStateAction,
   setProfilerConfigAction,
+  setTagsStateAction,
   updateRunToolsMapAction,
 } from 'org_xprof/frontend/app/store/actions';
 import {
@@ -165,6 +176,56 @@ const SIDENAV_TOOL_ROUTES = new Set([
   'hlo_op_stats',
   'roofline_model',
 ]);
+
+const KERNEL_IDENTITY_QUERY_PARAMS: ReadonlySet<string> = new Set([
+  'kernel_name',
+  'kernel',
+  'hlo_module',
+]);
+
+const KERNEL_ZOOM_QUERY_PARAMS: ReadonlySet<string> = new Set([
+  'bundle_start',
+  'bundle_end',
+  'view_start',
+  'view_end',
+]);
+
+/**
+ * Resolves Kernel Viewer query parameters from Angular route parameters
+ * (`routeParams`, updated by in-app SPA navigations) and outer host-window URL
+ * parameters (`parentParams` from `window.parent.location.search`, used when
+ * XProf is embedded in an iframe).
+ *
+ * Because in-app route transitions do not rewrite `window.parent.location`,
+ * `parentParams` can retain parameters from an earlier deep link: route-level
+ * kernel identity (`kernel_name`, `kernel`, `hlo_module`) suppresses stale
+ * parent identity and zoom parameters, and route-level zoom parameters
+ * suppress stale parent zoom parameters.
+ */
+export function resolveKernelViewerParams(
+  routeParams: ReadonlyMap<string, string>,
+  parentParams: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const resolved = new Map<string, string>();
+  const hasRouteKernelOrModule = Array.from(KERNEL_IDENTITY_QUERY_PARAMS).some(
+    (key) => routeParams.has(key),
+  );
+  const hasRouteZoom = Array.from(KERNEL_ZOOM_QUERY_PARAMS).some((key) =>
+    routeParams.has(key),
+  );
+  for (const key of KERNEL_VIEWER_QUERY_PARAMS) {
+    const suppressParent =
+      (KERNEL_IDENTITY_QUERY_PARAMS.has(key) && hasRouteKernelOrModule) ||
+      (KERNEL_ZOOM_QUERY_PARAMS.has(key) &&
+        (hasRouteZoom || hasRouteKernelOrModule));
+    const fromParent = suppressParent ? '' : parentParams.get(key) || '';
+    const value = routeParams.get(key) || fromParent;
+    if (value) {
+      resolved.set(key, value);
+    }
+  }
+  return resolved;
+}
 
 /** A side navigation component. */
 @Component({
@@ -358,6 +419,7 @@ export class SideNav implements OnInit, OnDestroy {
   navigateWithUrl(url?: string) {
     const standaloneRoute = this.getStandaloneNonSidenavRoute(url);
     if (standaloneRoute) {
+      this.clearKernelViewerNavigationParams();
       const rawUrl =
         url ??
         (this.router.url || this.router.routerState?.snapshot?.url || '');
@@ -435,10 +497,14 @@ export class SideNav implements OnInit, OnDestroy {
       parentParams.get('memorySpace') ??
       parentParams.get('memorySpaceColor') ??
       '';
+    const isKernelViewerTarget =
+      stripToolSuffix(tag) === KERNEL_VIEWER_TOOL_NAME;
+    const kernelViewerParams = isKernelViewerTarget
+      ? resolveKernelViewerParams(routeParams, parentParams)
+      : new Map<string, string>();
     const newNav =
       routeParams.get('new_nav') || parentParams.get('new_nav') || '';
-    const normalizedNewNav =
-      newNav === 'true' || newNav === '1' ? 'true' : '';
+    const normalizedNewNav = newNav === 'true' || newNav === '1' ? 'true' : '';
 
     const isHostsEqual = this.isMultiHostsEnabled
       ? this.selectedHostsInternal.join(',') === hostsParam
@@ -468,6 +534,11 @@ export class SideNav implements OnInit, OnDestroy {
       (this.navigationParams['opName'] || '') === opName &&
       (this.navigationParams['program_id'] || '') === programId &&
       (this.navigationParams['memory_space'] || '') === memorySpace &&
+      KERNEL_VIEWER_QUERY_PARAMS.every(
+        (key) =>
+          (this.navigationParams[key] || '') ===
+          (kernelViewerParams.get(key) || ''),
+      ) &&
       (this.navigationParams['new_nav'] || '') === normalizedNewNav &&
       (this.dataService.getBaseSessionId() ?? '') === baseSessionId &&
       isHostsEqual
@@ -491,6 +562,19 @@ export class SideNav implements OnInit, OnDestroy {
       this.navigationParams['memory_space'] = memorySpace;
     } else {
       delete this.navigationParams['memory_space'];
+    }
+    if (isKernelViewerTarget) {
+      const preservedKeys = new Set<string>();
+      for (const key of KERNEL_VIEWER_QUERY_PARAMS) {
+        const value = kernelViewerParams.get(key);
+        if (value) {
+          this.navigationParams[key] = value;
+          preservedKeys.add(key);
+        }
+      }
+      this.clearKernelViewerNavigationParams(preservedKeys);
+    } else {
+      this.clearKernelViewerNavigationParams();
     }
     if (normalizedNewNav) {
       this.navigationParams['new_nav'] = normalizedNewNav;
@@ -604,6 +688,7 @@ export class SideNav implements OnInit, OnDestroy {
       ['op_profile', 'HLO Op Profile'],
       ['memory_viewer', 'Memory Viewer'],
       ['graph_viewer', 'Graph Viewer'],
+      ['kernel_viewer', 'Kernel Viewer'],
       ['hlo_stats', 'HLO Op Stats'],
       ['inference_profile', 'Inference Profile'],
       ['roofline_model', 'Roofline Model'],
@@ -656,9 +741,7 @@ export class SideNav implements OnInit, OnDestroy {
     if (cachedTools) {
       this.tags = cachedTools;
       if (Object.prototype.hasOwnProperty.call(this.runToolsMap, run)) {
-        this.store.dispatch(
-          updateRunToolsMapAction({run, tools: cachedTools}),
-        );
+        this.store.dispatch(updateRunToolsMapAction({run, tools: cachedTools}));
       }
       return;
     }
@@ -763,6 +846,7 @@ export class SideNav implements OnInit, OnDestroy {
     if (this.selectedRunInternal !== run) {
       delete this.navigationParams['memory_space'];
     }
+    this.clearKernelViewerNavigationParams();
     this.selectedRunInternal = run;
     this.afterUpdateRun();
   }
@@ -781,6 +865,15 @@ export class SideNav implements OnInit, OnDestroy {
     if (!this.tags.length) {
       this.tags = ((await this.getToolsForSelectedRun()) || []) as string[];
     }
+    // A profile offers the Kernel Viewer only if it has kernel schedules, which
+    // the cross-tool links to the Kernel Viewer check through this tag.
+    this.store.dispatch(
+      setTagsStateAction({
+        tagsState: this.tags.includes(KERNEL_VIEWER_TOOL_NAME)
+          ? [LLO_DEBUG_TAG]
+          : [],
+      }),
+    );
     if (
       this.selectedTagInternal &&
       this.tags.length > 0 &&
@@ -795,6 +888,11 @@ export class SideNav implements OnInit, OnDestroy {
       delete this.navigationParams['program_id'];
       delete this.navigationParams['moduleName'];
       delete this.navigationParams['memory_space'];
+      if (
+        stripToolSuffix(this.selectedTagInternal) !== KERNEL_VIEWER_TOOL_NAME
+      ) {
+        this.clearKernelViewerNavigationParams();
+      }
     }
     this.afterUpdateTag();
   }
@@ -815,6 +913,7 @@ export class SideNav implements OnInit, OnDestroy {
       delete this.navigationParams['program_id'];
       delete this.navigationParams['moduleName'];
       delete this.navigationParams['memory_space'];
+      this.clearKernelViewerNavigationParams();
     }
 
     this.selectedHostsInternal = [];
@@ -837,6 +936,83 @@ export class SideNav implements OnInit, OnDestroy {
 
   afterUpdateTag() {
     this.updateHosts();
+  }
+
+  private clearKernelViewerNavigationParams(
+    preserveKeys: ReadonlySet<string> = new Set(),
+  ): void {
+    for (const key of KERNEL_VIEWER_QUERY_PARAMS) {
+      if (!preserveKeys.has(key)) {
+        delete this.navigationParams[key];
+      }
+    }
+    this.clearKernelViewerSearchParams(preserveKeys);
+  }
+
+  private clearKernelViewerSearchParams(
+    preserveKeys: ReadonlySet<string> = new Set(),
+  ): void {
+    try {
+      const stored = window.sessionStorage?.getItem(
+        SESSION_STORAGE_SEARCH_PARAMS_KEY,
+      );
+      if (!stored) {
+        return;
+      }
+      const searchParams = new URLSearchParams(stored);
+      let changed = false;
+      for (const key of KERNEL_VIEWER_QUERY_PARAMS) {
+        if (!preserveKeys.has(key) && searchParams.has(key)) {
+          searchParams.delete(key);
+          changed = true;
+        }
+      }
+      if (!changed) {
+        return;
+      }
+      const serialized = searchParams.toString();
+      if (serialized) {
+        window.sessionStorage.setItem(
+          SESSION_STORAGE_SEARCH_PARAMS_KEY,
+          serialized,
+        );
+      } else {
+        window.sessionStorage.removeItem(SESSION_STORAGE_SEARCH_PARAMS_KEY);
+      }
+    } catch {
+      // Ignore storage access errors in restricted iframe environments.
+    }
+  }
+
+  private syncKernelViewerNavigationParamsFromSearchParams(): void {
+    try {
+      const stored = window.sessionStorage?.getItem(
+        SESSION_STORAGE_SEARCH_PARAMS_KEY,
+      );
+      if (!stored) {
+        return;
+      }
+      const searchParams = new URLSearchParams(stored);
+      const storedTag =
+        searchParams.get('tag') ?? searchParams.get('tool') ?? '';
+      if (stripToolSuffix(storedTag) !== KERNEL_VIEWER_TOOL_NAME) {
+        return;
+      }
+      const storedRun = searchParams.get('run');
+      if (storedRun && this.selectedRun && storedRun !== this.selectedRun) {
+        return;
+      }
+      for (const key of KERNEL_VIEWER_QUERY_PARAMS) {
+        const value = searchParams.get(key);
+        if (value) {
+          this.navigationParams[key] = value;
+        } else {
+          delete this.navigationParams[key];
+        }
+      }
+    } catch {
+      // Ignore storage access errors when sessionStorage is unavailable.
+    }
   }
 
   /**
@@ -988,6 +1164,12 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   navigateTools() {
+    if (
+      this.navigationParams['firstLoad'] !== true &&
+      stripToolSuffix(this.selectedTag) === KERNEL_VIEWER_TOOL_NAME
+    ) {
+      this.syncKernelViewerNavigationParamsFromSearchParams();
+    }
     const navigationEvent = this.getNavigationEvent();
     this.communicationService.onNavigateReady(navigationEvent);
 

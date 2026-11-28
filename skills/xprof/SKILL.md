@@ -108,9 +108,11 @@ A run directory may contain one `.xplane.pb` per host or per rank (JAX
 multi-host, vLLM/Ray ranks, Pathways client and workers).
 
 -   A **file** analyzes that host/rank only.
--   A **run directory** combines every trace in it. `get_kernel_stats` and
-    `aggregate_xplane_events` sum counts and durations;
-    `list_xplane_events` mixes rows from every host/rank; other
+-   A **run directory** combines every trace in it. `aggregate_xplane_events`
+    sums counts and durations. `get_kernel_stats` reads one device on the
+    first host by default, and reads every host only with
+    `--device_to_use=all`. `list_xplane_events` mixes rows from every
+    host/rank; other
     XProf tools show the all-hosts view, where times and counts are totals
     across hosts, not per-host values. HLO text tools (`get_hlo_text`,
     `get_hlo_module_content`, `get_hlo_neighborhood`) are not combined.
@@ -292,17 +294,28 @@ Pallas or Mosaic):
         interval union), `truncated`, `total_records`, `top_level_records`
         (count of kernel records excluding intra-kernel regions),
         `returned_records`, and `total_duration_us_all_records` (sum of
-        outermost kernel event durations across device planes before `--limit`,
-        excluding nested ops inside control-flow kernels such as `%while` and
-        excluding intra-kernel regions, which scales with chip count on
-        multi-chip traces; `null` for pre-computed record inputs that lack event
-        timestamps); without it, a truncated JSON list prints one
-        `xprof-note: truncated: ...` line to stderr and markdown output ends
-        with a "Showing N of M kernels" line. Pass `--include_summary=True` and
-        read `total_device_duration_us` for wall-clock device time or
-        `total_duration_us_all_records` for the sum of outermost kernel
-        durations across device planes. Never sum the returned rows to get a
-        total.
+        outermost kernel event durations across the selected device planes
+        before `--limit`, excluding nested ops inside control-flow kernels such
+        as `%while` and excluding intra-kernel regions; `null` for pre-computed
+        record inputs that lack event timestamps); without it, a truncated JSON
+        list prints one `xprof-note: truncated: ...` line to stderr and
+        markdown output ends with a "Showing N of M kernels" line. Pass
+        `--include_summary=True` and read `total_device_duration_us` for
+        wall-clock device time or `total_duration_us_all_records` for the sum
+        of outermost kernel durations. Never sum the returned rows to get a
+        total. By default only one device on the first host is aggregated:
+        the first TPU chip, or the first GPU on GPU profiles
+        (`/device:GPU:0`); the summary reports it in `device`,
+        `device_planes`, `host` and `num_hosts`, and a stderr note says which
+        device and host were picked when there are several. Pass
+        `--device_to_use=GPU:3` (or `TPU:1`) for another device,
+        `--host=<name>` for another host, or `--device_to_use=all` to sum
+        the kernel rows over every device on every host. The summed fields
+        then scale with the device count, but `total_device_duration_us`
+        does not. An unknown device fails and lists the available ones.
+        For GPU launch fields (registers, shared memory, grid/block,
+        occupancy), excluded memcpy/memset time and their caveats, read
+        [GPU kernel stats](references/gpu_kernel_stats.md).
     *   **Trace Validation**: Test LLO presence by calling `get_llo_analysis`
         and reading `success`, not by inspecting trace line names. A trace
         without LLO data returns `"reason": "LLO_DATA_ABSENT"`; take the
@@ -337,6 +350,9 @@ Pallas or Mosaic):
     Fetch hardware unit utilization (`get_kernel_utilization` /
     `compute_utilization`) and raw kernel execution latencies
     (`get_kernel_stats`).
+-   **[GPU Kernel Stats](references/gpu_kernel_stats.md)**: Read
+    `get_kernel_stats` on GPU profiles: device selection, launch fields,
+    occupancy and TensorCore caveats.
 -   **[Get KPI Metrics](references/get_kpi_metrics.md)**: Fetch consolidated KPI
     metrics (step time, duty cycle, MXU utilization, roofline) for a session.
 -   **[Get Roofline Model](references/get_roofline_model.md)**: Identify

@@ -100,7 +100,13 @@ SpecialArguments ConvertXStatsToTraceEventArguments(
     TraceEventArguments* raw_args) {
   TraceEventArgumentsBuilder args(raw_args);
   SpecialArguments special_args;
-  auto for_each_stat = [&special_args, &args](const XStatVisitor& stat) {
+  bool has_hlo_module = false;
+  std::optional<XStatVisitor> program_id_stat;
+  auto for_each_stat = [&special_args, &args, &has_hlo_module,
+                        &program_id_stat](const XStatVisitor& stat) {
+    if (stat.Type() == StatType::kProgramId) {
+      program_id_stat = stat;
+    }
     if (tsl::profiler::IsInternalStat(stat.Type())) return;
     switch (stat.ValueCase()) {
       case XStat::kInt64Value:
@@ -119,6 +125,8 @@ SpecialArguments ConvertXStatsToTraceEventArguments(
         auto stat_value = stat.StrOrRefValue();
         if (stat.Type() == StatType::kStepName) {
           special_args.step_name = stat_value;
+        } else if (stat.Type() == StatType::kHloModule && !stat_value.empty()) {
+          has_hlo_module = true;
         }
         args.Append(stat.Name(), stat_value);
         break;
@@ -132,6 +140,24 @@ SpecialArguments ConvertXStatsToTraceEventArguments(
   // Ensure the metadata stats appear before the per-occurrence stats.
   event.Metadata().ForEachStat(for_each_stat);
   event.ForEachStat(for_each_stat);
+  if (has_hlo_module && program_id_stat.has_value()) {
+    absl::string_view key = tsl::profiler::GetStatTypeStr(StatType::kProgramId);
+    switch (program_id_stat->ValueCase()) {
+      case XStat::kInt64Value:
+      case XStat::kUint64Value:
+        args.Append(key, absl::StrCat(program_id_stat->IntOrUintValue()));
+        break;
+      case XStat::kStrValue:
+      case XStat::kRefValue:
+        if (absl::string_view value = program_id_stat->StrOrRefValue();
+            !value.empty()) {
+          args.Append(key, value);
+        }
+        break;
+      default:
+        break;
+    }
+  }
   return special_args;
 }
 

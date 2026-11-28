@@ -632,6 +632,171 @@ TEST(XPlaneToTraceContainerTest,
   EXPECT_EQ(num_lite_hbm_events, 1);
 }
 
+TEST(XPlaneToTraceContainerTest,
+     EmitsUnsignedProgramIdStringOnlyWhenHloModuleIsPresent) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(
+      R"pb(
+        planes {
+          name: "/device:GPU:0"
+          lines {
+            id: 50
+            name: "Stream #50(Compute)"
+            events {
+              metadata_id: 1
+              offset_ps: 1000
+              duration_ps: 100
+              stats { metadata_id: 10 str_value: "fusion.1" }
+              stats {
+                metadata_id: 11
+                str_value: "p0_layer_60_64.local_recovery_prefill"
+              }
+              # static_cast<int64_t>(17991872812008296838ULL) ==
+              # -454871261701254778
+              stats { metadata_id: 12 int64_value: -454871261701254778 }
+            }
+            events {
+              metadata_id: 2
+              offset_ps: 2000
+              duration_ps: 100
+              stats { metadata_id: 10 str_value: "mpmd_map.3272" }
+              stats { metadata_id: 11 str_value: "jit_generate" }
+              stats { metadata_id: 12 uint64_value: 8623923867354161468 }
+            }
+            events {
+              metadata_id: 3
+              offset_ps: 3000
+              duration_ps: 100
+              stats { metadata_id: 10 str_value: "fusion.1" }
+              stats { metadata_id: 12 uint64_value: 42 }
+            }
+            events {
+              metadata_id: 4
+              offset_ps: 4000
+              duration_ps: 100
+              stats { metadata_id: 11 str_value: "jit_prefill" }
+              stats { metadata_id: 12 str_value: "9876543210" }
+            }
+            events {
+              metadata_id: 5
+              offset_ps: 5000
+              duration_ps: 100
+              stats { metadata_id: 11 str_value: "" }
+              stats { metadata_id: 12 uint64_value: 99 }
+            }
+            events {
+              metadata_id: 6
+              offset_ps: 6000
+              duration_ps: 100
+              stats { metadata_id: 11 str_value: "standalone_module" }
+            }
+            events {
+              metadata_id: 7
+              offset_ps: 7000
+              duration_ps: 100
+              stats { metadata_id: 11 str_value: "jit_empty_pid" }
+              stats { metadata_id: 12 str_value: "" }
+            }
+          }
+          event_metadata {
+            key: 1
+            value: { id: 1 name: "gpu_kernel_msb" }
+          }
+          event_metadata {
+            key: 2
+            value: { id: 2 name: "gpu_kernel_uint" }
+          }
+          event_metadata {
+            key: 3
+            value: { id: 3 name: "tpu_xla_op" }
+          }
+          event_metadata {
+            key: 4
+            value: { id: 4 name: "gpu_kernel_str" }
+          }
+          event_metadata {
+            key: 5
+            value: { id: 5 name: "empty_hlo_module" }
+          }
+          event_metadata {
+            key: 6
+            value: { id: 6 name: "module_without_program_id" }
+          }
+          event_metadata {
+            key: 7
+            value: { id: 7 name: "empty_program_id" }
+          }
+          stat_metadata {
+            key: 10
+            value: { id: 10 name: "hlo_op" }
+          }
+          stat_metadata {
+            key: 11
+            value: { id: 11 name: "hlo_module" }
+          }
+          stat_metadata {
+            key: 12
+            value: { id: 12 name: "program_id" }
+          }
+        }
+      )pb",
+      &xspace));
+
+  TraceEventsContainer container;
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
+
+  const auto& name_table = container.trace().name_table();
+  absl::flat_hash_map<std::string,
+                      absl::flat_hash_map<std::string, std::string>>
+      args_by_event;
+  container.ForAllEvents([&args_by_event,
+                          &name_table](const TraceEvent& event) {
+    auto& event_args = args_by_event[event.name()];
+    if (!event.has_raw_data()) return;
+    RawData raw_data;
+    CHECK(raw_data.ParseFromString(event.raw_data()));
+    for (const auto& arg : raw_data.args().arg()) {
+      event_args[arg.name()] = arg.has_ref_value()
+                                   ? name_table.at(arg.ref_value())
+                                   : arg.str_value();
+    }
+  });
+
+  ASSERT_TRUE(args_by_event.contains("gpu_kernel_msb"));
+  EXPECT_EQ(args_by_event["gpu_kernel_msb"]["hlo_module"],
+            "p0_layer_60_64.local_recovery_prefill");
+  EXPECT_EQ(args_by_event["gpu_kernel_msb"]["program_id"],
+            "17991872812008296838");
+
+  ASSERT_TRUE(args_by_event.contains("gpu_kernel_uint"));
+  EXPECT_EQ(args_by_event["gpu_kernel_uint"]["hlo_module"], "jit_generate");
+  EXPECT_EQ(args_by_event["gpu_kernel_uint"]["program_id"],
+            "8623923867354161468");
+
+  ASSERT_TRUE(args_by_event.contains("tpu_xla_op"));
+  EXPECT_EQ(args_by_event["tpu_xla_op"]["hlo_op"], "fusion.1");
+  EXPECT_FALSE(args_by_event["tpu_xla_op"].contains("hlo_module"));
+  EXPECT_FALSE(args_by_event["tpu_xla_op"].contains("program_id"));
+
+  ASSERT_TRUE(args_by_event.contains("gpu_kernel_str"));
+  EXPECT_EQ(args_by_event["gpu_kernel_str"]["hlo_module"], "jit_prefill");
+  EXPECT_EQ(args_by_event["gpu_kernel_str"]["program_id"], "9876543210");
+
+  ASSERT_TRUE(args_by_event.contains("empty_hlo_module"));
+  EXPECT_EQ(args_by_event["empty_hlo_module"]["hlo_module"], "");
+  EXPECT_FALSE(args_by_event["empty_hlo_module"].contains("program_id"));
+
+  ASSERT_TRUE(args_by_event.contains("module_without_program_id"));
+  EXPECT_EQ(args_by_event["module_without_program_id"]["hlo_module"],
+            "standalone_module");
+  EXPECT_FALSE(
+      args_by_event["module_without_program_id"].contains("program_id"));
+
+  ASSERT_TRUE(args_by_event.contains("empty_program_id"));
+  EXPECT_EQ(args_by_event["empty_program_id"]["hlo_module"], "jit_empty_pid");
+  EXPECT_FALSE(args_by_event["empty_program_id"].contains("program_id"));
+}
+
 }  // namespace
 
 }  // namespace profiler
